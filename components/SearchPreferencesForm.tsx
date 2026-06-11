@@ -18,7 +18,7 @@ import {
   MultiChoice,
   TagInput,
   CvDropzone,
-  LetterSampleInput,
+  LetterSampleOptional,
 } from "@/components/ProfilePreferencesFields";
 import { extractLetterText } from "@/lib/extract-letter";
 
@@ -256,14 +256,12 @@ export default function SearchPreferencesForm() {
           <PrefField label="Ton">
             <LetterTonePicker value={form.letter_tone} onChange={(v) => set({ letter_tone: v })} />
           </PrefField>
-          <PrefField label="Votre lettre type (optionnel)">
-            <LetterSampleInput
-              value={form.letter_sample}
-              onChange={(v) => set({ letter_sample: v })}
-              uploading={letterUploading}
-              onUpload={handleLetterFile}
-            />
-          </PrefField>
+          <LetterSampleOptional
+            value={form.letter_sample}
+            onChange={(v) => set({ letter_sample: v })}
+            uploading={letterUploading}
+            onUpload={handleLetterFile}
+          />
         </div>
       </section>
 

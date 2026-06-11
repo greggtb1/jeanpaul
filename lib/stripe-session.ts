@@ -14,10 +14,25 @@ export type CheckoutSessionInfo = {
   userId: string | null;
 };
 
+export function sessionBelongsToUser(
+  info: CheckoutSessionInfo,
+  user: { id: string; email?: string | null }
+): boolean {
+  if (info.userId && info.userId !== user.id && !info.pending) {
+    return false;
+  }
+  if (info.email && user.email && !info.pending) {
+    if (info.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function getCheckoutSessionInfo(sessionId: string): Promise<CheckoutSessionInfo> {
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.retrieve(sessionId, {
-    expand: ["customer"],
+    expand: ["customer", "subscription"],
   });
 
   const customer =
@@ -53,7 +68,10 @@ export async function getCheckoutSessionInfo(sessionId: string): Promise<Checkou
         : customer && !("deleted" in customer)
           ? customer.id
           : null,
-    subscriptionId: null,
+    subscriptionId:
+      typeof session.subscription === "string"
+        ? session.subscription
+        : session.subscription?.id ?? null,
     pending,
     userId,
   };
@@ -90,14 +108,23 @@ export async function attachCheckoutToUser(
     draft_id: info.draftId ?? "",
   };
 
-  await Promise.all([
-    info.customerId
-      ? stripe.customers.update(info.customerId, { metadata })
-      : Promise.resolve(),
+  const tasks: Promise<unknown>[] = [
     stripe.checkout.sessions.update(sessionId, {
       metadata: { ...metadata, pending: "false" },
     }),
-  ]);
+  ];
+
+  if (info.customerId) {
+    tasks.push(stripe.customers.update(info.customerId, { metadata }));
+  }
+
+  if (info.subscriptionId) {
+    tasks.push(
+      stripe.subscriptions.update(info.subscriptionId, { metadata })
+    );
+  }
+
+  await Promise.all(tasks);
 
   return info;
 }

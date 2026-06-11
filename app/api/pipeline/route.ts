@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { buildEngineSpawnEnv, getEngineServiceKey } from "@/lib/engine-env";
 import { stopPipelineRun } from "@/lib/pipeline-stop";
 import { reconcileStalePipelineRun, trimPipelineLog } from "@/lib/pipeline-reconcile";
+import { assertPipelineQuota } from "@/lib/plan-quota";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("subscription_status")
+      .select("subscription_status, plan_id, first_search_done, bonus_credits")
       .eq("id", userId)
       .maybeSingle();
 
@@ -101,6 +102,19 @@ export async function POST(req: NextRequest) {
 
     if (!subscribed) {
       return NextResponse.json({ error: "Abonnement inactif" }, { status: 403 });
+    }
+
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Configuration serveur incomplète";
+      return NextResponse.json({ error: message }, { status: 503 });
+    }
+
+    const quota = await assertPipelineQuota(admin, userId, mode, profile ?? {});
+    if (!quota.ok) {
+      return NextResponse.json({ error: quota.error, quotaExceeded: true }, { status: 403 });
     }
 
     const { data: active } = await supabase
@@ -161,7 +175,7 @@ export async function POST(req: NextRequest) {
     const script = path.join(engineDir, "run_for_user.py");
 
     if (!existsSync(python) || !existsSync(script)) {
-      await supabase
+      await admin
         .from("pipeline_runs")
         .update({
           status: "failed",
@@ -177,7 +191,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!getEngineServiceKey()) {
-      await supabase
+      await admin
         .from("pipeline_runs")
         .update({
           status: "failed",
@@ -217,6 +231,16 @@ export async function POST(req: NextRequest) {
     }
 
     child.unref();
+
+    if (mode === "full") {
+      await admin
+        .from("profiles")
+        .update({
+          first_search_done: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+    }
 
     return NextResponse.json({ runId, started: true });
   } catch (e) {

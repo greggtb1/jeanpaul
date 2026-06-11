@@ -12,14 +12,11 @@ type ActivateOptions = {
   onStep?: (message: string) => void;
 };
 
-function buildDraftForActivate(
-  userEmail: string,
-  fullName?: string
-): OnboardingDraft {
+function buildDraftForActivate(userEmail: string): OnboardingDraft {
   const stored = loadDraft();
   return normalizeDraft(stored, {
-    email: userEmail,
-    full_name: fullName || stored?.full_name,
+    email: stored?.email || userEmail,
+    full_name: stored?.full_name || "",
     plan_id: parsePlanId(stored?.plan_id),
     draft_id: stored?.draft_id,
   });
@@ -58,10 +55,7 @@ export async function activateAccount(sessionId: string, options?: ActivateOptio
 
   onStep?.("Création de votre espace…");
 
-  const draft = buildDraftForActivate(
-    user.email,
-    (user.user_metadata?.full_name as string | undefined) || undefined
-  );
+    const draft = buildDraftForActivate(user.email);
 
   onStep?.("Connexion à votre abonnement…");
 

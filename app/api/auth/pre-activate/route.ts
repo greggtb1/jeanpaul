@@ -36,11 +36,7 @@ export async function POST(req: Request) {
     // Rattacher la session Stripe à l'utilisateur
     await attachCheckoutToUser(sessionId, userId, user.email, info);
 
-    const fullName =
-      clientDraft?.full_name ||
-      info.fullName ||
-      (user.user_metadata?.full_name as string | undefined) ||
-      "";
+    const fullName = clientDraft?.full_name || info.fullName || "";
 
     const draft = normalizeDraft(clientDraft, {
       email: user.email,

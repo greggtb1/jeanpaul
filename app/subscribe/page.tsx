@@ -3,40 +3,55 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import BrandName from "@/components/BrandName";
-import { getPlan, LAUNCH_PRICE_EUR, parsePlanId } from "@/lib/plans";
+import {
+  MONTHLY_DISCOUNT_PERCENT,
+  displayPrice,
+  parseBillingInterval,
+  parsePlanId,
+  PLANS_LIST,
+  type BillingInterval,
+  type PlanId,
+} from "@/lib/plans";
 import { getOrCreateDraftId, loadDraft, saveDraft } from "@/lib/onboarding-draft";
 import { parseApiJson } from "@/lib/parse-api-json";
 
 export default function SubscribePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [loading, setLoading] = useState(false);
+  const [loadingPlanId, setLoadingPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
   const cancelled = searchParams.get("cancelled") === "1";
-  const plan = getPlan(searchParams.get("plan"));
+
+  const initialPlanId = parsePlanId(searchParams.get("plan"));
+  const [billing, setBilling] = useState<BillingInterval>(
+    parseBillingInterval(searchParams.get("billing"))
+  );
 
   useEffect(() => {
     const current = loadDraft();
     if (!current?.email) {
-      router.replace(`/onboarding?plan=${plan.id}`);
+      router.replace(`/onboarding?plan=${initialPlanId}`);
       return;
     }
     setDraftEmail(current.email);
-  }, [router, plan.id]);
+  }, [router, initialPlanId]);
 
-  async function subscribe() {
-    setLoading(true);
+  async function subscribe(planId: PlanId) {
+    setLoadingPlanId(planId);
     setError("");
     try {
+      const plan = PLANS_LIST.find((p) => p.id === planId)!;
+      const isSubscription = plan.kind === "subscription";
+
       const current = saveDraft({
         ...(loadDraft() ?? {}),
-        plan_id: plan.id,
+        plan_id: planId,
         draft_id: getOrCreateDraftId(),
       });
 
       if (!current.email?.trim()) {
-        router.replace(`/onboarding?plan=${plan.id}`);
+        router.replace(`/onboarding?plan=${planId}`);
         return;
       }
 
@@ -44,7 +59,8 @@ export default function SubscribePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan: plan.id,
+          plan: planId,
+          billing: isSubscription ? billing : undefined,
           email: current.email,
           full_name: current.full_name,
           draft_id: current.draft_id,
@@ -56,57 +72,101 @@ export default function SubscribePage() {
       else throw new Error("URL de paiement manquante");
     } catch (e) {
       setError((e as Error).message);
-      setLoading(false);
+      setLoadingPlanId(null);
     }
   }
 
   return (
     <div className="paywall-page">
       <div className="bg-decor" aria-hidden="true" />
-      <div className="paywall-card">
+      <div className="paywall-card paywall-card--plans">
         <div className="paywall-card__brand">
           <img src="/logo.png" alt="" width={48} height={48} />
           <BrandName />
         </div>
         <span className="paywall-card__badge">Étape 2 sur 3</span>
-        <h1>Plan {plan.name}</h1>
-        <p className="paywall-card__lead">{plan.description}</p>
+        <h1>Choisissez votre formule</h1>
         {draftEmail && (
-          <p className="paywall-card__lead">
+          <p className="paywall-card__lead paywall-card__lead--email">
             Compte à créer après paiement : <strong>{draftEmail}</strong>
           </p>
         )}
-        <ul className="paywall-card__features">
-          {plan.features.map((f) => (
-            <li key={f}>{f}</li>
-          ))}
-        </ul>
-        <div className="paywall-card__price">
-          <span className="paywall-card__price-old">{plan.listPrice} €</span>
-          <strong>{LAUNCH_PRICE_EUR} €</strong>
-          <span> une fois</span>
+
+        <div className="paywall-card__billing" role="group" aria-label="Facturation">
+          <button
+            type="button"
+            className={billing === "weekly" ? "is-active" : ""}
+            onClick={() => setBilling("weekly")}
+          >
+            Hebdomadaire
+          </button>
+          <button
+            type="button"
+            className={billing === "monthly" ? "is-active" : ""}
+            onClick={() => setBilling("monthly")}
+          >
+            Mensuel <span className="pricing__discount">−{MONTHLY_DISCOUNT_PERCENT} %</span>
+          </button>
         </div>
-        <p className="paywall-card__launch-note">
-          Offre lancement : paiement unique (pas d&apos;abonnement pour l&apos;instant).
-        </p>
+
+        <div className="pricing__grid paywall-card__plans">
+          {PLANS_LIST.map((plan) => {
+            const price = displayPrice(
+              plan,
+              plan.kind === "one_time" ? "weekly" : billing
+            );
+            const loading = loadingPlanId === plan.id;
+            const busy = loadingPlanId !== null;
+
+            return (
+              <article
+                key={plan.id}
+                className={`pricing-card${plan.featured ? " pricing-card--featured" : ""}`}
+              >
+                {plan.featured && (
+                  <span className="pricing-card__badge">Le plus populaire</span>
+                )}
+
+                <div className="pricing-card__head">
+                  <h3>{plan.name}</h3>
+                  <p className="pricing-card__tagline">{plan.tagline}</p>
+                </div>
+
+                <div className="pricing-card__price">
+                  <strong>{price.amount} €</strong>
+                  <span>{price.suffix}</span>
+                </div>
+                {price.billingSavings && (
+                  <p className="pricing-card__savings">{price.billingSavings}</p>
+                )}
+
+                <p className="pricing-card__desc">{plan.description}</p>
+
+                <ul className="pricing-card__features">
+                  {plan.features.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+
+                <button
+                  type="button"
+                  className="btn btn--outline pricing-card__cta"
+                  disabled={busy}
+                  onClick={() => subscribe(plan.id)}
+                >
+                  {loading ? "Redirection…" : `Choisir ${plan.name}`}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+
         {cancelled && (
           <p className="paywall-card__warn">Paiement annulé. Vous pouvez réessayer quand vous voulez.</p>
         )}
         {error && <p className="paywall-card__error">{error}</p>}
-        <button
-          type="button"
-          className="btn btn--coral btn--full"
-          disabled={loading}
-          onClick={subscribe}
-        >
-          {loading ? "Redirection vers Stripe…" : `Payer ${LAUNCH_PRICE_EUR} €`}
-        </button>
         <p className="paywall-card__foot">
           Paiement sécurisé par Stripe · création de compte juste après
-          <br />
-          <span className="paywall-card__promo-hint">
-            Code promo <strong>greg</strong> = gratuit, sans carte bancaire
-          </span>
         </p>
       </div>
     </div>

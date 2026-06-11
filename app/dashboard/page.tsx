@@ -1,14 +1,28 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { type Profile, type Job } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
+import { getPlan } from "@/lib/plans";
+import {
+  buildUpgradeOffer,
+  buyCreditsPath,
+  countGeneratedJobs,
+  countWeeklyGeneratedJobs,
+  getQuotaUsage,
+  pipelineQuotaBlockReason,
+  upgradeSubscribePath,
+  type UpgradeOffer,
+} from "@/lib/plan-quota";
 import PipelineLog, { type PipelineRun } from "@/components/PipelineLog";
 import PipelineProgress from "@/components/PipelineProgress";
 import { parsePipelinePhase, isAutoapplyRun } from "@/lib/pipeline-phase";
 import LetterModal from "@/components/LetterModal";
 import AutoApplyTuto from "@/components/AutoApplyTuto";
+import FirstSearchDoneTuto, { hasSeenFirstSearchDoneTuto } from "@/components/FirstSearchDoneTuto";
 import DashboardOnboarding from "@/components/DashboardOnboarding";
 import DashboardGuide from "@/components/DashboardGuide";
 import { parseApiJson } from "@/lib/parse-api-json";
@@ -130,7 +144,23 @@ function isPriorityJob(job: Job): boolean {
 }
 
 function sortByScore(jobs: Job[]): Job[] {
-  return [...jobs].sort((a, b) => (getJobScore(b) ?? -1) - (getJobScore(a) ?? -1));
+  return [...jobs].sort((a, b) => {
+    const sa = getJobScore(a);
+    const sb = getJobScore(b);
+    if (sa == null && sb == null) return 0;
+    if (sa == null) return 1;
+    if (sb == null) return -1;
+    return sb - sa;
+  });
+}
+
+function getFitTier(score: number | null): "10" | "9" | "8" | null {
+  if (score == null) return null;
+  const s = Math.round(score);
+  if (s >= 10) return "10";
+  if (s >= 9) return "9";
+  if (s >= 8) return "8";
+  return null;
 }
 
 function splitJobs(jobs: Job[]) {
@@ -197,6 +227,7 @@ function isPoorFitHealth(health: FitHealth): boolean {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
   const { uid, loading: authLoading } = useAuth();
   const supabase = createClient();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -210,8 +241,10 @@ export default function Dashboard() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [showAutoTuto, setShowAutoTuto] = useState(false);
+  const [showFirstDoneTuto, setShowFirstDoneTuto] = useState(false);
   const [sideTab, setSideTab] = useState<"terminal" | "guide">("terminal");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevRunStatusRef = useRef<string | null>(null);
 
   const freshUrls = useMemo(() => {
     const urls = lastSearch?.result?.new_urls;
@@ -294,21 +327,24 @@ export default function Dashboard() {
           ...(urls?.length ? { urls } : {}),
         }),
       });
-      const data = await parseApiJson<{ error?: string; alreadyRunning?: boolean }>(res);
-      if (!res.ok || data.error) throw new Error(data.error || `Erreur ${res.status}`);
+      const data = await parseApiJson<{
+        error?: string;
+        alreadyRunning?: boolean;
+        quotaExceeded?: boolean;
+      }>(res);
+      if (!res.ok || data.error) {
+        if (data.quotaExceeded) {
+          router.push(upgradeSubscribePath());
+          return;
+        }
+        throw new Error(data.error || `Erreur ${res.status}`);
+      }
       if (mode === "autoapply") {
         setSelectMode(false);
         setSelectedUrls(new Set());
         setShowAutoTuto(false);
       }
-      if (mode === "full" && !data.alreadyRunning && uid) {
-        await supabase
-          .from("profiles")
-          .update({
-            first_search_done: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", uid);
+      if (mode === "full" && !data.alreadyRunning) {
         setProfile((p) => (p ? { ...p, first_search_done: true } : p));
       }
       await fetchRun();
@@ -317,7 +353,7 @@ export default function Dashboard() {
     } finally {
       setLaunching(false);
     }
-  }, [fetchRun, uid, supabase]);
+  }, [fetchRun, router, uid, supabase]);
 
   const stopPipeline = useCallback(async () => {
     if (!run?.id) return;
@@ -378,6 +414,19 @@ export default function Dashboard() {
     };
   }, [uid, run?.status, fetchRun, load]);
 
+  useEffect(() => {
+    if (!run?.status) return;
+    const prev = prevRunStatusRef.current;
+    const wasRunning = prev === "running" || prev === "pending";
+    const mode = run.result?.mode;
+    const isFirstSearchRun = mode !== "autoapply" && mode !== "analyze";
+
+    if (wasRunning && run.status === "done" && isFirstSearchRun && !hasSeenFirstSearchDoneTuto()) {
+      setShowFirstDoneTuto(true);
+    }
+    prevRunStatusRef.current = run.status;
+  }, [run?.status, run?.result?.mode]);
+
   const toggleApplied = useCallback(async (url: string) => {
     if (!uid) return;
     let nextApplied = false;
@@ -407,11 +456,14 @@ export default function Dashboard() {
     }
   }, [uid, supabase]);
 
-  const filtered = jobs.filter((j) => {
-    if (tab === "generated") return !!j.cv_url && !j.applied;
-    if (tab === "applied") return !!j.applied;
-    return true;
-  });
+  const filtered = useMemo(() => {
+    const list = jobs.filter((j) => {
+      if (tab === "generated") return !!j.cv_url && !j.applied;
+      if (tab === "applied") return !!j.applied;
+      return true;
+    });
+    return sortByScore(list);
+  }, [jobs, tab]);
 
   const autoApplyEligible = useMemo(() => jobs.filter(isAutoApplyEligible), [jobs]);
 
@@ -465,6 +517,38 @@ export default function Dashboard() {
 
   const fitHealth = useMemo(() => computeFitHealth(fitScopeJobs), [fitScopeJobs]);
   const showPoorFitAlert = !!fitHealth && isPoorFitHealth(fitHealth);
+
+  const plan = useMemo(() => getPlan(profile?.plan_id), [profile?.plan_id]);
+  const generatedCount = useMemo(() => countGeneratedJobs(jobs), [jobs]);
+  const weeklyGeneratedCount = useMemo(() => countWeeklyGeneratedJobs(jobs), [jobs]);
+  const quotaOpts = useMemo(
+    () => ({
+      generatedCount,
+      weeklyGeneratedCount,
+      firstSearchDone: !!profile?.first_search_done,
+      bonusCredits: profile?.bonus_credits ?? 0,
+    }),
+    [generatedCount, weeklyGeneratedCount, profile?.first_search_done, profile?.bonus_credits]
+  );
+  const quotaUsage = useMemo(() => getQuotaUsage(plan, quotaOpts), [plan, quotaOpts]);
+  const scanBlockReason = useMemo(
+    () => pipelineQuotaBlockReason(plan, "full", quotaOpts),
+    [plan, quotaOpts]
+  );
+  const scanUpgrade = useMemo(
+    () => buildUpgradeOffer(plan.id, scanBlockReason),
+    [plan.id, scanBlockReason]
+  );
+  const analyzeBlockReason = useMemo(
+    () => pipelineQuotaBlockReason(plan, "analyze", quotaOpts),
+    [plan, quotaOpts]
+  );
+  const analyzeUpgrade = useMemo(
+    () => buildUpgradeOffer(plan.id, analyzeBlockReason),
+    [plan.id, analyzeBlockReason]
+  );
+  const generationBlocked = !!scanBlockReason || !!analyzeBlockReason;
+
   const showFirstSearch =
     !loading &&
     !authLoading &&
@@ -487,6 +571,14 @@ export default function Dashboard() {
               {profile?.target_roles?.length
                 ? profile.target_roles.join(" · ")
                 : "Configurez votre recherche pour démarrer."}
+              {!loading && (
+                <span
+                  className={`db__quota-chip${quotaUsage.exhausted ? " db__quota-chip--full" : ""}`}
+                >
+                  {quotaUsage.used}/{quotaUsage.limit} {quotaUsage.label.toLowerCase()}
+                  {quotaUsage.bonusCredits > 0 && ` · +${quotaUsage.bonusCredits} bonus`}
+                </span>
+              )}
             </p>
           )}
         </div>
@@ -536,18 +628,35 @@ export default function Dashboard() {
           />
         ) : (
           <>
-            {pendingAnalysis > 0 && (
+            {pendingAnalysis > 0 && !analyzeBlockReason && (
               <AnalyzePendingCta
                 count={pendingAnalysis}
                 launching={launching}
                 onAnalyze={() => startPipeline("analyze")}
               />
             )}
+            {pendingAnalysis > 0 && analyzeBlockReason && (
+              <QuotaBlockedNotice
+                title={`${pendingAnalysis} offre${pendingAnalysis > 1 ? "s" : ""} en attente`}
+                reason={analyzeBlockReason}
+                upgrade={analyzeUpgrade}
+              />
+            )}
+            {generationBlocked && !scanBlockReason && analyzeBlockReason && !pendingAnalysis && (
+              <QuotaBlockedNotice
+                title="Quota candidatures atteint"
+                reason={analyzeBlockReason}
+                upgrade={analyzeUpgrade}
+              />
+            )}
             <DashboardActionsBar
               launching={launching}
               onSearch={() => startPipeline()}
-              showApply={autoApplyEligible.length > 0}
+              scanDisabled={!!scanBlockReason}
+              scanDisabledReason={scanBlockReason}
+              scanUpgrade={scanUpgrade}
               applyCount={autoApplyEligible.length}
+              totalJobs={jobs.length}
               selectMode={selectMode}
               selectedCount={selectedUrls.size}
               onStartApply={enterSelectMode}
@@ -646,6 +755,9 @@ export default function Dashboard() {
           onLaunch={launchAutoApply}
         />
       )}
+      {showFirstDoneTuto && (
+        <FirstSearchDoneTuto onClose={() => setShowFirstDoneTuto(false)} />
+      )}
       <DashboardOnboarding />
     </>
   );
@@ -663,8 +775,11 @@ function Stat({ value, label, accent }: { value: number | string; label: string;
 function DashboardActionsBar({
   launching,
   onSearch,
-  showApply,
+  scanDisabled,
+  scanDisabledReason,
+  scanUpgrade,
   applyCount,
+  totalJobs = 0,
   selectMode,
   selectedCount = 0,
   onStartApply,
@@ -675,8 +790,11 @@ function DashboardActionsBar({
 }: {
   launching: boolean;
   onSearch: () => void;
-  showApply?: boolean;
+  scanDisabled?: boolean;
+  scanDisabledReason?: string | null;
+  scanUpgrade?: UpgradeOffer | null;
   applyCount?: number;
+  totalJobs?: number;
   selectMode?: boolean;
   selectedCount?: number;
   onStartApply?: () => void;
@@ -687,42 +805,76 @@ function DashboardActionsBar({
 }) {
   const total = applyCount ?? 0;
   const allSelected = total > 0 && selectedCount === total;
+  const canApply = total > 0;
+
+  // Message expliquant pourquoi l'auto-apply n'est pas disponible
+  const applyBlockReason = !canApply
+    ? totalJobs === 0
+      ? "Lancez d'abord une recherche pour obtenir des offres."
+      : "Aucune offre avec CV + lettre générés (score ≥ 6). Lancez une recherche."
+    : null;
 
   return (
     <div className="db-acts-wrap">
       <div className="db-acts-btns">
-        <button
-          type="button"
-          className="db-big-btn"
-          disabled={launching || selectMode}
-          onClick={onSearch}
-        >
-          {launching ? "Lancement…" : "Scanner"}
-        </button>
-        {showApply && onStartApply && (
-          <div className={`db-big-btn-group${selectMode ? " db-big-btn-group--active" : ""}`}>
+        {scanDisabled && scanUpgrade && !scanUpgrade.isMaxPlan ? (
+          <Link
+            href={scanUpgrade.href}
+            className="db-big-btn db-big-btn--upgrade"
+            aria-label={`Obtenir plus de candidatures — passer au plan ${scanUpgrade.name}`}
+          >
+            Plus de candidatures
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="db-big-btn"
+            disabled={launching || selectMode || scanDisabled}
+            onClick={onSearch}
+            title={scanDisabledReason ?? undefined}
+          >
+            {launching ? "Lancement…" : "Scanner"}
+          </button>
+        )}
+
+        <div className={`db-big-btn-group${selectMode ? " db-big-btn-group--active" : ""}`}>
+          <button
+            type="button"
+            className="db-big-btn db-big-btn--apply"
+            disabled={selectMode || !canApply}
+            onClick={canApply ? onStartApply : undefined}
+            title={applyBlockReason ?? undefined}
+          >
+            Postuler
+            <span className="db-big-btn__beta">(beta)</span>
+            {canApply ? ` (${total})` : ""}
+          </button>
+          {selectMode && onCancelApply && (
             <button
               type="button"
-              className="db-big-btn db-big-btn--apply"
-              disabled={selectMode}
-              onClick={onStartApply}
+              className="db-big-btn-stop"
+              onClick={onCancelApply}
+              aria-label="Annuler la sélection"
+              title="Annuler"
             >
-              Postuler{applyCount ? ` (${applyCount})` : ""}
+              ×
             </button>
-            {selectMode && onCancelApply && (
-              <button
-                type="button"
-                className="db-big-btn-stop"
-                onClick={onCancelApply}
-                aria-label="Annuler la sélection"
-                title="Annuler"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {!canApply && applyBlockReason && !selectMode && (
+        <p className="db-acts-apply-hint">{applyBlockReason}</p>
+      )}
+
+      {scanDisabled && scanDisabledReason && (!scanUpgrade || scanUpgrade.isMaxPlan) && !selectMode && (
+        <p className="db-acts-apply-hint">
+          {scanDisabledReason}{" "}
+          <Link href={buyCreditsPath()} className="db-acts-upgrade-link">
+            Acheter des candidatures
+          </Link>
+        </p>
+      )}
 
       {selectMode && total > 0 && (
         <div className="db-acts-select" role="toolbar" aria-label="Sélection des offres">
@@ -795,6 +947,40 @@ function AnalyzePendingCta({
         >
           {launching ? "Lancement…" : "Analyser les offres"}
         </button>
+      </div>
+    </section>
+  );
+}
+
+function QuotaBlockedNotice({
+  title,
+  reason,
+  upgrade,
+}: {
+  title: string;
+  reason: string;
+  upgrade: UpgradeOffer | null;
+}) {
+  return (
+    <section className="db-quota-blocked" role="status">
+      <div className="db-quota-blocked__body">
+        <p className="db-quota-blocked__eyebrow">Quota atteint</p>
+        <h2 className="db-quota-blocked__title">{title}</h2>
+        <p className="db-quota-blocked__text">{reason}</p>
+      </div>
+      <div className="db-quota-blocked__actions">
+        {upgrade && !upgrade.isMaxPlan && (
+          <Link href={upgrade.href} className="btn btn--outline btn--sm db-quota-blocked__cta">
+            Passer à {upgrade.name}
+            {upgrade.priceHint ? ` · ${upgrade.priceHint}` : ""}
+          </Link>
+        )}
+        <Link href={buyCreditsPath()} className="db-quota-blocked__credits">
+          Acheter des candidatures
+        </Link>
+        {upgrade?.isMaxPlan && (
+          <p className="db-quota-blocked__wait">Quota renouvelé chaque semaine.</p>
+        )}
       </div>
     </section>
   );
@@ -885,6 +1071,7 @@ function JobList({
   onToggleSelect?: (url: string) => void;
 }) {
   const entering = useEnteringJobs(jobs);
+  const sorted = useMemo(() => sortByScore(jobs), [jobs]);
 
   const rowSelectProps = (j: Job) => ({
     selectMode,
@@ -896,7 +1083,7 @@ function JobList({
   if (pipelineActive) {
     return (
       <div className="db__list db__list--live">
-        {jobs.map((j, i) => (
+        {sorted.map((j, i) => (
           <JobRow
             key={j.url}
             job={j}
@@ -913,7 +1100,7 @@ function JobList({
     );
   }
 
-  const { priority, low } = splitJobs(jobs);
+  const { priority, low } = splitJobs(sorted);
 
   return (
     <>
@@ -1033,6 +1220,7 @@ function JobRow({
   const location = (d.location as string) || "";
   const url = (d.url as string) || job.url;
   const score = getJobScore(job);
+  const fitTier = getFitTier(score);
   const fitReasoning = getJobFitReasoning(job);
   const canExpandDetail = !!fitReasoning && !analyzing;
 
@@ -1065,6 +1253,7 @@ function JobRow({
         justSent ? "jr--just-sent" : "",
         selectMode && selectable ? "jr--selectable" : "",
         selectMode && selected ? "jr--selected" : "",
+        fitTier ? `jr--fit-${fitTier}` : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -1140,6 +1329,15 @@ function JobRow({
               {fresh && !compact && !job.applied && (
                 <span className="jr__pill jr__pill--new">new</span>
               )}
+              {fitTier === "10" && !analyzing && !compact && (
+                <span className="jr__pill jr__pill--fit-perfect">Match parfait</span>
+              )}
+              {fitTier === "9" && !analyzing && !compact && (
+                <span className="jr__pill jr__pill--fit-top">Top match</span>
+              )}
+              {fitTier === "8" && !analyzing && !compact && (
+                <span className="jr__pill jr__pill--fit-great">Excellent fit</span>
+              )}
               {analyzing && (
                 <span className="jr__pill jr__pill--analyzing">
                   <span className="jr__pill-dot" aria-hidden="true" />
@@ -1195,6 +1393,15 @@ function JobRow({
           {fresh && !compact && !job.applied && (
             <span className="jr__pill jr__pill--new">new</span>
           )}
+          {fitTier === "10" && !analyzing && !compact && (
+            <span className="jr__pill jr__pill--fit-perfect">Match parfait</span>
+          )}
+          {fitTier === "9" && !analyzing && !compact && (
+            <span className="jr__pill jr__pill--fit-top">Top match</span>
+          )}
+          {fitTier === "8" && !analyzing && !compact && (
+            <span className="jr__pill jr__pill--fit-great">Excellent fit</span>
+          )}
           {analyzing && (
             <span className="jr__pill jr__pill--analyzing">
               <span className="jr__pill-dot" aria-hidden="true" />
@@ -1211,9 +1418,20 @@ function JobRow({
       )}
       <div className="jr__actions" onClick={(e) => canExpandDetail && e.stopPropagation()}>
         {!compact && job.cv_url && (
-          <a className="jr__doc jr__doc--cv" href={job.cv_url} target="_blank" rel="noopener">
+          <button
+            type="button"
+            className="jr__doc jr__doc--cv"
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/storage/signed-url?url=${encodeURIComponent(job.cv_url!)}`);
+                const data = await res.json();
+                if (data.url) window.open(data.url, "_blank", "noopener");
+                else alert("Impossible d'ouvrir le CV. Relancez une recherche pour le régénérer.");
+              } catch { alert("Erreur réseau."); }
+            }}
+          >
             CV
-          </a>
+          </button>
         )}
         {!compact && job.letter_url && (
           <button

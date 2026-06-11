@@ -65,6 +65,54 @@ function AutoApplyValidateCallout({ count }: { count: number }) {
   );
 }
 
+const SCAN_PHASES = ["boot", "scrape_prepare", "scrape_query", "scrape_desc", "scrape_done"];
+const SCORE_PHASES = ["analyze", "hunt_fill"];
+const GEN_PHASES = ["generate", "sync", "done"];
+
+const STAGES = [
+  { id: "scan", label: "Scan" },
+  { id: "score", label: "Scoring" },
+  { id: "gen", label: "Génération" },
+] as const;
+
+function PipelineStages({ subPhase }: { subPhase: string }) {
+  const inScan = SCAN_PHASES.includes(subPhase);
+  const inScore = SCORE_PHASES.includes(subPhase);
+  const inGen = GEN_PHASES.includes(subPhase);
+  const isHuntFill = subPhase === "hunt_fill";
+
+  const states: Record<(typeof STAGES)[number]["id"], string> = {
+    scan: inScan ? "is-active" : "is-done",
+    score: inScore ? "is-active" : inGen ? "is-done" : "",
+    gen: inGen ? "is-active" : "",
+  };
+
+  const fillWidth = inGen ? "100%" : inScore ? "50%" : inScan ? "16%" : "0%";
+
+  return (
+    <div className="db-pipeline-steps" aria-hidden="true">
+      <div className="db-pipeline-steps__rail">
+        <span className="db-pipeline-steps__fill" style={{ width: fillWidth }} />
+      </div>
+      <ol className="db-pipeline-steps__list">
+        {STAGES.map((stage) => (
+          <li key={stage.id} className={`db-pipeline-steps__item ${states[stage.id]}`}>
+            <span className="db-pipeline-steps__dot" />
+            <span className="db-pipeline-steps__label">
+              {stage.label}
+              {stage.id === "score" && isHuntFill && (
+                <span className="db-pipeline-steps__loop" title="Scan complémentaire">
+                  ↻
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 export default function PipelineProgress({
   run,
   jobsFound = 0,
@@ -169,6 +217,10 @@ export default function PipelineProgress({
           </button>
         )}
       </div>
+
+      {!autoapply && !analyzeOnly && (
+        <PipelineStages subPhase={phase.subPhase} />
+      )}
 
       <div className="db-pipeline-live__bar" aria-hidden="true">
         <span style={{ width: `${phase.progress}%` }} />

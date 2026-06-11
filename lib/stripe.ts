@@ -17,11 +17,14 @@ export function isSubscriptionActive(status: string | null | undefined): boolean
   return !!status && ACTIVE_SUBSCRIPTION_STATUSES.has(status);
 }
 
-/** Checkout one-shot (mode payment) ou abo legacy. */
+/** Checkout one-shot (mode payment) ou abonnement (mode subscription). */
 export function isCheckoutSessionActive(session: {
+  mode?: string | null;
   payment_status?: string | null;
   status?: string | null;
 }): boolean {
   if (session.payment_status === "paid") return true;
+  if (session.payment_status === "no_payment_required") return true;
+  if (session.mode === "subscription" && session.status === "complete") return true;
   return session.status === "complete";
 }

@@ -213,6 +213,132 @@ def _empty_user_structured() -> Dict[str, Any]:
     }
 
 
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}")
+_PHONE_RE = re.compile(r"(?:\+33\s?[1-9]|0[1-9])(?:[\s.\-]?\d{2}){4}")
+_NAME_STOP_WORDS = {
+    "apply", "aiapply", "job", "jobs", "jobapply", "cv", "resume", "résumé", "curriculum",
+    "vitae", "profile", "profil", "contact", "candidat", "candidature", "linkedin",
+    "jean", "paul", "email", "mail", "phone", "tel", "mobile", "address", "adresse",
+    "experience", "expérience", "compétences", "competences", "skills", "summary",
+    "about", "portfolio", "www", "http", "https", "generated", "powered",
+}
+
+def _looks_like_name_line(line: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", (line or "").strip())
+    if len(cleaned) < 4 or len(cleaned) > 55:
+        return False
+    if _EMAIL_RE.search(cleaned) or _PHONE_RE.search(cleaned):
+        return False
+    if re.search(r"\d{2,}", cleaned):
+        return False
+    if re.match(r"^(cv|curriculum|vitae|profil|expérience|experience|compétence|contact)", cleaned, re.I):
+        return False
+    words = cleaned.split()
+    if len(words) < 2 or len(words) > 5:
+        return False
+    if not all(re.match(r"^[A-Za-zÀ-ÿ'’-]+$", w) for w in words):
+        return False
+    lower_words = [w.lower() for w in words]
+    if any(w in _NAME_STOP_WORDS for w in lower_words):
+        return False
+    if all(len(w) <= 4 for w in lower_words):
+        return False
+    return True
+
+
+def _collect_emails(text: str) -> list:
+    seen = set()
+    out = []
+    for m in _EMAIL_RE.finditer(text or ""):
+        em = m.group(0)
+        key = em.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(em)
+    return out
+
+
+def _email_matches_name(email: str, name: str) -> bool:
+    if not email or not name:
+        return False
+    local = re.sub(r"[._+\-]", " ", email.split("@", 1)[0].lower())
+    parts = [p.lower() for p in name.split() if len(p) >= 3 and p.lower() not in _NAME_STOP_WORDS]
+    if not parts:
+        return False
+    return any(part in local for part in parts)
+
+
+def _pick_email_for_name(emails: list, name: str) -> str:
+    if not emails or not name:
+        return ""
+    parts = [p.lower() for p in name.split() if len(p) >= 3 and p.lower() not in _NAME_STOP_WORDS]
+    if not parts:
+        return ""
+    best = ""
+    best_score = 0
+    for em in emails:
+        local = re.sub(r"[._+\-]", " ", em.split("@", 1)[0].lower())
+        score = sum(2 for part in parts if part in local)
+        if score > best_score:
+            best_score = score
+            best = em
+    return best if best_score > 0 else ""
+
+
+def _name_from_cv_filename(filename: str) -> str:
+    base = re.sub(r"\.pdf$", "", (filename or "").strip(), flags=re.I)
+    tokens = re.split(r"[_\-\s]+", base)
+    words = []
+    stop_job = {"cdi", "cdd", "stage", "alternance", "dev", "fullstack", "saas", "cv", "resume"}
+    for token in tokens:
+        if not token or not re.match(r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]*$", token):
+            break
+        if token.lower() in _NAME_STOP_WORDS or token.lower() in stop_job:
+            break
+        words.append(token[0].upper() + token[1:].lower())
+        if len(words) >= 4:
+            break
+    return " ".join(words) if len(words) >= 2 else ""
+
+
+def _parse_identity_from_cv_text(cv_text: str, filename: str = "") -> Dict[str, str]:
+    """Extrait nom / email / téléphone du CV uploadé."""
+    if not (cv_text or "").strip():
+        return {"name": "", "email": "", "phone": ""}
+
+    lines = [ln.strip() for ln in cv_text.split("\n") if ln.strip()]
+    joined = " ".join(lines)
+    emails = _collect_emails(joined)
+    phone_match = _PHONE_RE.search(joined)
+    phone = re.sub(r"\s+", " ", phone_match.group(0)).strip() if phone_match else ""
+
+    name = ""
+    for line in lines[:15]:
+        if _looks_like_name_line(line):
+            name = re.sub(r"\s+", " ", line.strip())
+            break
+
+    if not name and emails:
+        local = emails[0].split("@", 1)[0].lower()
+        for line in lines[:25]:
+            line_lower = line.lower()
+            if emails[0].lower() not in line_lower and local not in line_lower:
+                continue
+            candidate = _EMAIL_RE.sub(" ", line)
+            candidate = re.sub(r"[|·•,/;()\[\]{}<>@]", " ", candidate)
+            candidate = re.sub(r"\s+", " ", candidate).strip()
+            if _looks_like_name_line(candidate):
+                name = candidate
+                break
+
+    if not name and filename:
+        name = _name_from_cv_filename(filename)
+
+    email = _pick_email_for_name(emails, name)
+
+    return {"name": name, "email": email, "phone": phone}
+
+
 def load_user_profile(force: bool = False) -> Dict[str, Any]:
     """Retourne le profil actif (Supabase + CV uploadé) ou le profil par défaut CLI."""
     global _cache
@@ -233,37 +359,74 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
         p = {}
 
     if not p.get("full_name") and not p.get("cv_url"):
-        _cache = {**DEFAULT_PROFILE, "_source": "default", "_has_uploaded_cv": False}
+        # Utilisateur Supabase sans profil rempli : partir d'une base vide, jamais du profil de Greg.
+        _cache = {
+            **_empty_user_structured(),
+            "name": "",
+            "email": "",
+            "phone": "",
+            "_source": "user",
+            "_has_uploaded_cv": False,
+            "_uid": uid,
+            # Identité du compte : filet de sécurité pour l'autofill (jamais pour les CV générés)
+            "_account_email": (p.get("email") or "").strip(),
+            "_account_name": (p.get("full_name") or "").strip(),
+            "_account_phone": (p.get("phone") or "").strip(),
+        }
         return _cache
 
     cv_url = (p.get("cv_url") or "").strip()
+    cv_filename = (p.get("cv_filename") or "").strip()
     cv_text = _extract_pdf_text(cv_url) if cv_url else ""
-    name = (p.get("full_name") or "Candidat").strip()
+    cv_identity = (
+        _parse_identity_from_cv_text(cv_text, cv_filename) if cv_text.strip() else {}
+    )
+
+    has_upload = bool(cv_text.strip())
+    name = (p.get("full_name") or cv_identity.get("name") or "").strip()
+    cv_email = (cv_identity.get("email") or "").strip()
+    profile_email = (p.get("email") or "").strip()
+    if has_upload:
+        email = cv_email
+        if not email and profile_email and _email_matches_name(profile_email, name):
+            email = profile_email
+    else:
+        email = profile_email
+    phone = (p.get("phone") or cv_identity.get("phone") or "").strip()
+
     roles = p.get("target_roles") or []
     tone = p.get("letter_tone") or "pro"
     letter_sample = (p.get("letter_sample") or "").strip()
     locs = p.get("target_locations") or []
     location = p.get("location") or (locs[0] if isinstance(locs, list) and locs else "Paris")
 
-    has_upload = bool(cv_text.strip())
-    base = _empty_user_structured() if has_upload else {**DEFAULT_PROFILE}
+    # Toujours partir d'une base vide pour un utilisateur Supabase :
+    # le profil de Greg (DEFAULT_PROFILE) ne doit jamais contaminer un autre user.
+    base = _empty_user_structured()
 
     _cache = {
         **base,
         "name": name,
-        "email": p.get("email") or base.get("email", ""),
-        "phone": p.get("phone") or base.get("phone", ""),
+        "email": email,
+        "phone": phone,
         "location": location,
-        "tagline": (p.get("summary") or "").strip() or base.get("tagline", ""),
+        "tagline": (p.get("summary") or "").strip(),
         "cv_text": cv_text,
         "cv_url": cv_url,
         "target_roles": roles,
+        "contract_type": p.get("contract_type"),
+        "remote_pref": p.get("remote_pref"),
         "salary_min": p.get("salary_min"),
         "letter_tone": tone,
         "letter_sample": letter_sample,
         "tone_hint": tone_hint_for(tone, "fr"),
         "_source": "user",
         "_has_uploaded_cv": has_upload,
+        "_uid": uid,
+        # Identité du compte : filet de sécurité pour l'autofill (jamais pour les CV générés)
+        "_account_email": profile_email,
+        "_account_name": (p.get("full_name") or "").strip(),
+        "_account_phone": (p.get("phone") or "").strip(),
     }
     return _cache
 
@@ -271,7 +434,7 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
 def cv_filename_for(company: str) -> str:
     """Nom de fichier PDF CV adapté au candidat connecté."""
     p = load_user_profile()
-    safe_name = re.sub(r"[^\w\-]", "_", (p.get("name") or "Candidat").replace(" ", "_"))[:40]
+    safe_name = re.sub(r"[^\w\-]", "_", (p.get("name") or "Profil").replace(" ", "_"))[:40]
     safe_co = re.sub(r"[^\w\-]", "_", (company or "Offre").replace(" ", "_"))[:40]
     return f"{safe_co}_CV_{safe_name}.pdf"
 
@@ -294,12 +457,29 @@ def candidate_block_for_letter(profile: Dict[str, Any]) -> str:
         lines.append("\n--- CV SOURCE (uploadé par le candidat) ---")
         lines.append(cv[:8000])
     elif profile.get("_source") == "default":
-        lines.append("\n--- PROFIL STRUCTURÉ ---")
+        lines.append("\n--- PROFIL STRUCTURÉ (CLI) ---")
         import json
         lines.append(json.dumps(
             {k: v for k, v in profile.items() if k in ("experience", "skills", "education", "tagline")},
             ensure_ascii=False, indent=2,
         )[:6000])
+    else:
+        # Utilisateur Supabase sans CV uploadé : donner un maximum de contexte
+        # depuis son profil d'onboarding pour que Claude ne devine pas.
+        notes = []
+        if profile.get("tagline"):
+            notes.append(f"Résumé : {profile['tagline']}")
+        contract = profile.get("contract_type")
+        if contract:
+            notes.append(f"Contrat recherché : {', '.join(contract) if isinstance(contract, list) else contract}")
+        remote = profile.get("remote_pref")
+        if remote:
+            notes.append(f"Préférence télétravail : {', '.join(remote) if isinstance(remote, list) else remote}")
+        if notes:
+            lines.append("\n--- INFORMATIONS PROFIL (pas de CV uploadé) ---")
+            lines.extend(notes)
+        else:
+            lines.append("\n(Aucun CV uploadé — se baser uniquement sur les postes visés et la localisation)")
     return "\n".join(lines)
 
 

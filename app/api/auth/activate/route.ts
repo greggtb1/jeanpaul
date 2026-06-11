@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { attachCheckoutToUser, getCheckoutSessionInfo } from "@/lib/stripe-session";
 import {
   draftToProfilePayload,
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
       full_name:
         clientDraft?.full_name ||
         stripeInfo.fullName ||
-        (user.user_metadata?.full_name as string | undefined),
+        "",
       plan_id: stripeInfo.planId,
       draft_id: stripeInfo.draftId ?? undefined,
     });
@@ -49,7 +50,8 @@ export async function POST(req: Request) {
 
     const info = await attachCheckoutToUser(sessionId, user.id, user.email, stripeInfo);
 
-    const { error } = await supabase.from("profiles").upsert({
+    const admin = createAdminClient();
+    const { error } = await admin.from("profiles").upsert({
       ...draftToProfilePayload(draft, user.id),
       subscription_status: info.status ?? (info.active ? "active" : "none"),
       stripe_customer_id: info.customerId,

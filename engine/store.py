@@ -375,7 +375,8 @@ def upload_app_documents(user_id: str, output_dir: Path) -> int:
                         "upsert": "true",
                     },
                 )
-                upd[field] = storage.get_public_url(path)
+                signed = storage.create_signed_url(path, 60 * 60 * 24 * 365)
+                upd[field] = signed.get("signedURL") or signed.get("signedUrl") or storage.get_public_url(path)
             except Exception:
                 continue
 

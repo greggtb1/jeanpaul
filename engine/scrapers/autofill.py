@@ -140,8 +140,25 @@ def _parse_phone(raw: str) -> Dict[str, str]:
     }
 
 
+def _name_from_email_local(email: str) -> str:
+    """Déduit 'Prenom Nom' depuis la partie locale d'un email (ex: adele.lambert@...)."""
+    local = (email or "").split("@", 1)[0]
+    if not local:
+        return ""
+    words = [w for w in re.split(r"[._\-+]+", local) if w and w.isalpha() and len(w) >= 2]
+    if not words or len(words) > 4:
+        return ""
+    return " ".join(w[0].upper() + w[1:].lower() for w in words[:3])
+
+
 def sync_candidate_from_profile() -> None:
-    """Charge email/tél/nom depuis le profil Supabase (JA_USER_ID) dans CANDIDATE."""
+    """Charge email/tél/nom depuis le profil Supabase (JA_USER_ID) dans CANDIDATE.
+
+    Chaîne de fallbacks pour ne JAMAIS partir avec une identité vide :
+      email : identité CV → email du compte
+      nom   : profil/CV  → nom du compte → déduit de l'email
+      tél   : profil/CV  → téléphone du compte
+    """
     try:
         from user_profile import load_user_profile
 
@@ -149,9 +166,18 @@ def sync_candidate_from_profile() -> None:
         if prof.get("_source") != "user":
             return
 
-        name = (prof.get("name") or "Candidat").strip()
-        parts = name.split(" ", 1)
-        phone_bits = _parse_phone(prof.get("phone") or "")
+        account_email = (prof.get("_account_email") or "").strip()
+        account_name = (prof.get("_account_name") or "").strip()
+        account_phone = (prof.get("_account_phone") or "").strip()
+
+        email = (prof.get("email") or "").strip() or account_email
+        name = (prof.get("name") or "").strip() or account_name or _name_from_email_local(email)
+        phone_raw = (prof.get("phone") or "").strip() or account_phone
+
+        if not name:
+            console.print("  [yellow]Nom candidat manquant — renseignez-le dans Mon compte.[/yellow]")
+        parts = name.split(" ", 1) if name else ["", ""]
+        phone_bits = _parse_phone(phone_raw)
 
         locs = prof.get("target_locations") or []
         city_from_profile = str(locs[0]).strip() if isinstance(locs, list) and locs else ""
@@ -162,7 +188,7 @@ def sync_candidate_from_profile() -> None:
             "first_name": parts[0],
             "last_name": parts[1] if len(parts) > 1 else "",
             "full_name": name,
-            "email": (prof.get("email") or "").strip(),
+            "email": email,
             "location": location,
             **phone_bits,
         }
@@ -238,7 +264,7 @@ def _linkedin_city_typeahead_query() -> Tuple[str, List[str]]:
     loc = (CANDIDATE.get("location") or "").strip()
     raw = city or loc.split(",")[0].split("(")[0].strip()
     if not raw:
-        return "", []
+        raw = "Paris"
     hints = [raw]
     if loc and loc.split(",")[0].strip() not in hints:
         hints.append(loc.split(",")[0].strip())
@@ -376,10 +402,99 @@ def _find_radio_key(group: List[dict], answer: str) -> Optional[str]:
     return None
 
 
+# Correspondance label/name/id → valeur CANDIDATE (sans Claude)
+_IDENTITY_FIELD_RULES: List[Tuple[str, List[str]]] = [
+    ("first_name", [
+        r"first\s*name", r"pr[eé]nom", r"given\s*name", r"\bfname\b", r"vorname",
+    ]),
+    ("last_name", [
+        r"last\s*name", r"nom\s*de\s*famille", r"^nom$", r"\bnom\b(?!.*complet)",
+        r"surname", r"family\s*name", r"\blname\b", r"nachname",
+    ]),
+    ("full_name", [r"full\s*name", r"nom\s*complet", r"your\s*name", r"^name$"]),
+    ("email", [r"e-?mail", r"courriel", r"adresse\s*mail"]),
+    ("phone", [r"phone", r"t[eé]l[eé]phone", r"\bmobile\b", r"\btel\b", r"cell"]),
+    ("linkedin", [r"linkedin"]),
+    ("website", [r"website", r"portfolio", r"personal\s*site", r"\bsite\b", r"github"]),
+    ("city", [r"^city$", r"^ville$", r"localit", r"^town$"]),
+    ("location", [r"^location$", r"^lieu$", r"where.*live", r"city.*state"]),
+    ("address", [r"^address$", r"^adresse$", r"street"]),
+    ("postcode", [r"post\s*code", r"zip\s*code", r"code\s*postal"]),
+    ("country", [r"^country$", r"^pays$"]),
+]
+
+
+def _candidate_value_for_field(field: dict) -> Optional[str]:
+    """Mappe un champ formulaire à une valeur CANDIDATE via label/name/id."""
+    label = (field.get("label") or "").strip()
+    ph = (field.get("placeholder") or "").strip()
+    name = (field.get("name") or "").strip()
+    fid = (field.get("id") or "").strip()
+    ftype = (field.get("type") or "").lower()
+    tag = (field.get("tag") or "").lower()
+    blob = f"{label} {ph} {name} {fid}".lower()
+    blob = re.sub(r"\*+$", "", blob).strip()
+
+    if ftype == "file" or tag == "input" and ftype == "file":
+        if any(k in blob for k in ("resume", "curriculum", " cv", "cv ", "upload", "document")):
+            return "__CV_FILE__"
+    if tag == "textarea" and any(k in blob for k in (
+        "cover letter", "lettre", "motivation", "message", "why", "pourquoi",
+    )):
+        return "__COVER_LETTER__"
+
+    # Heuristiques sur name/id (Ashby: _systemfield_email, etc.)
+    id_blob = f"{name} {fid}".lower()
+    if "email" in id_blob:
+        v = (CANDIDATE.get("email") or "").strip()
+        return v or None
+    if any(k in id_blob for k in ("firstname", "first_name", "first-name", "fname")):
+        v = (CANDIDATE.get("first_name") or "").strip()
+        return v or None
+    if any(k in id_blob for k in ("lastname", "last_name", "last-name", "lname", "surname")):
+        v = (CANDIDATE.get("last_name") or "").strip()
+        return v or None
+    if "phone" in id_blob or "tel" in id_blob or "mobile" in id_blob:
+        v = (CANDIDATE.get("phone") or "").strip()
+        return v or None
+    if "linkedin" in id_blob:
+        v = (CANDIDATE.get("linkedin") or "").strip()
+        return v or None
+
+    for cand_key, patterns in _IDENTITY_FIELD_RULES:
+        for pat in patterns:
+            if re.search(pat, blob, re.I):
+                val = (CANDIDATE.get(cand_key) or "").strip()
+                if val:
+                    return val
+                if cand_key == "full_name":
+                    fn = (CANDIDATE.get("first_name") or "").strip()
+                    ln = (CANDIDATE.get("last_name") or "").strip()
+                    if fn and ln:
+                        return f"{fn} {ln}"
+                    return fn or ln or None
+                if cand_key in ("city", "location"):
+                    city = (CANDIDATE.get("city") or CANDIDATE.get("location") or "Paris").strip()
+                    return city.split(",")[0].split("(")[0].strip() or None
+                if cand_key == "country":
+                    return (CANDIDATE.get("country") or "France").strip()
+                break
+    return None
+
+
 def _apply_profile_rules(fields: List[dict]) -> Dict[str, str]:
-    """Réponses déterministes (langues, oui/non, diplômes) avant Claude."""
+    """Réponses déterministes (identité, langues, oui/non, diplômes) avant Claude."""
     mapping: Dict[str, str] = {}
     radio_by_name: Dict[str, List[dict]] = {}
+
+    # 1. Identité (prénom, email, tel…) — ne dépend pas de Claude
+    for f in fields:
+        key = _field_key(f)
+        if not key or key in mapping:
+            continue
+        val = _candidate_value_for_field(f)
+        if val:
+            mapping[key] = val
 
     for f in fields:
         key = _field_key(f)
@@ -1182,6 +1297,23 @@ JS_EXTRACT_FIELDS = """
                 const cls = (p.className || '').toString();
                 if (cls.includes('application') || cls.includes('form-body') ||
                     p.tagName === 'FORM') break;
+            }
+        }
+        // Ashby / ATS modernes : label dans le conteneur de champ
+        {
+            let p = el.closest(
+                '[class*="fieldEntry"], [class*="field-entry"], [class*="FieldEntry"], ' +
+                '[class*="ashby"], [data-testid*="field"]'
+            ) || el.parentElement;
+            for (let i = 0; i < 6 && p; i++, p = p.parentElement) {
+                const lbl = p.querySelector(
+                    'label, [class*="label" i]:not(input):not(textarea):not(select), ' +
+                    '[class*="Label"]:not(input):not(textarea):not(select)'
+                );
+                if (lbl && !lbl.contains(el)) {
+                    const t = (lbl.innerText || '').replace(/\\*+$/, '').trim();
+                    if (t && t.length >= 2 && t.length < 200) return t;
+                }
             }
         }
         return el.placeholder || '';
@@ -2006,6 +2138,30 @@ class AutoFiller:
 
         return best_scope, best_fields, best_frame, best_count
 
+    def _ensure_ashby_application_tab(self, page) -> bool:
+        """Ashby (Alan, etc.) : l'onglet Application doit être actif pour voir les champs."""
+        for tab_sel in (
+            "[role='tab']:has-text('Application')",
+            "[role='tab']:has-text('Apply')",
+            "a:has-text('Application')",
+            "button:has-text('Application')",
+            "[data-testid*='application' i]",
+        ):
+            try:
+                tab = page.locator(tab_sel).first
+                if tab.count() == 0 or not tab.is_visible(timeout=400):
+                    continue
+                selected = (tab.get_attribute("aria-selected") or "").lower() == "true"
+                if selected:
+                    return False
+                tab.click(timeout=2000)
+                time.sleep(0.7)
+                console.print("  [dim]→ Ashby : onglet Application activé[/dim]")
+                return True
+            except Exception:
+                continue
+        return False
+
     def _ensure_application_form_ready(self, page, ats: str, max_rounds: int = 4):
         """
         Prépare la page formulaire : cookies, popups, clic Apply si nécessaire.
@@ -2547,6 +2703,59 @@ class AutoFiller:
         if not query:
             return False
         filled = False
+
+        # Select natif (certaines étapes LinkedIn utilisent <select> pour la ville)
+        city_targets = [
+            (CANDIDATE.get("city") or "").strip(),
+            (CANDIDATE.get("location") or "").split(",")[0].split("(")[0].strip(),
+            "Paris",
+            "France",
+        ]
+        city_targets = [t for t in city_targets if t]
+        for sel in (
+            "select[id*='city' i]",
+            "select[name*='city' i]",
+            "select[aria-label*='city' i]",
+            "select[aria-label*='ville' i]",
+            "select[id*='location' i]",
+            "select[name*='location' i]",
+        ):
+            try:
+                loc = scope.locator(sel).first
+                if loc.count() == 0 or not loc.is_visible(timeout=400):
+                    continue
+                try:
+                    cur = loc.input_value(timeout=400)
+                except Exception:
+                    cur = ""
+                if cur and cur.lower() not in ("", "select", "choose", "sélectionnez"):
+                    continue
+                opts_raw = loc.evaluate(
+                    """el => Array.from(el.options).map(o => ({v: o.value, t: (o.text||'').trim()}))"""
+                ) or []
+                picked = _match_select_option_text(opts_raw, city_targets)
+                if picked:
+                    loc.select_option(label=picked, timeout=2000)
+                else:
+                    for pick in city_targets:
+                        try:
+                            loc.select_option(label=pick, timeout=1500)
+                            picked = pick
+                            break
+                        except Exception:
+                            try:
+                                loc.select_option(value=pick, timeout=1500)
+                                picked = pick
+                                break
+                            except Exception:
+                                continue
+                if picked:
+                    loc.evaluate(JS_DISPATCH_REACT_EVENTS)
+                    console.print(f"  [dim]  ✓ LinkedIn ville (select) → {picked[:55]}[/dim]")
+                    filled = True
+            except Exception:
+                continue
+
         selectors = (
             "input[aria-label*='ville' i]",
             "input[aria-label*='city' i]",
@@ -2589,6 +2798,45 @@ class AutoFiller:
             except Exception:
                 continue
         return filled
+
+    def _linkedin_has_blocking_empty_fields(self, scope) -> bool:
+        """True si email/tél/ville visibles sont encore vides (ne pas cliquer Suivant)."""
+        try:
+            for sel in (
+                "input[type='email']",
+                "input[id*='email' i]",
+                "input[name*='email' i]",
+            ):
+                loc = scope.locator(sel).first
+                if loc.count() and loc.is_visible(timeout=300):
+                    if not (loc.input_value(timeout=400) or "").strip():
+                        return True
+                    break
+            for sel in (
+                "input[aria-label*='ville' i]",
+                "input[aria-label*='city' i]",
+                "input[placeholder*='ville' i]",
+                "input[placeholder*='city' i]",
+                "input[id*='city' i]",
+                "select[id*='city' i]",
+                "select[name*='city' i]",
+            ):
+                loc = scope.locator(sel).first
+                if loc.count() and loc.is_visible(timeout=300):
+                    tag = loc.evaluate("el => el.tagName.toLowerCase()")
+                    if tag == "select":
+                        cur = loc.evaluate(
+                            "el => el.selectedIndex >= 0 ? (el.options[el.selectedIndex].text || '') : ''"
+                        ) or ""
+                    else:
+                        cur = (loc.input_value(timeout=400) or "").strip()
+                    if not cur or cur.lower() in (
+                        "select", "choose", "sélectionnez", "type here...", "type here",
+                    ):
+                        return True
+        except Exception:
+            pass
+        return False
 
     def _linkedin_dialog_step_text(self, scope) -> str:
         try:
@@ -2856,11 +3104,17 @@ class AutoFiller:
             self._fill_linkedin_city_fields(scope, page)
             # Ferme explicitement tout dropdown restant avant de cliquer Suivant
             self._close_typeahead_dropdown(page)
-            if not self._is_on_submit_page(scope) and self._click_next_button(scope, page=page):
+            if (
+                not self._is_on_submit_page(scope)
+                and not self._linkedin_has_blocking_empty_fields(scope)
+                and self._click_next_button(scope, page=page)
+            ):
                 console.print("  [dim]→ LinkedIn contact → Suivant[/dim]")
                 self._wait_settled(page, 1500, fast=True)
                 progressed = True
                 scope, _ = self._get_form_scope(page)
+            elif self._linkedin_has_blocking_empty_fields(scope):
+                console.print("  [yellow]→ LinkedIn : contact/ville incomplet — pas de Suivant[/yellow]")
 
         if self._is_on_submit_page(scope) or self._is_on_submit_page(page):
             return progressed
@@ -2868,11 +3122,17 @@ class AutoFiller:
         if self._fill_linkedin_city_fields(scope, page):
             progressed = True
             time.sleep(0.25)
-            if not self._is_on_submit_page(scope) and self._click_next_button(scope, page=page):
+            if (
+                not self._is_on_submit_page(scope)
+                and not self._linkedin_has_blocking_empty_fields(scope)
+                and self._click_next_button(scope, page=page)
+            ):
                 console.print("  [dim]→ LinkedIn ville → Suivant[/dim]")
                 self._wait_settled(page, 1500, fast=True)
                 progressed = True
                 scope, _ = self._get_form_scope(page)
+            elif self._linkedin_has_blocking_empty_fields(scope):
+                console.print("  [yellow]→ LinkedIn : ville requise — pas de Suivant[/yellow]")
 
         if self._is_on_submit_page(scope) or self._is_on_submit_page(page):
             return progressed
@@ -3812,7 +4072,12 @@ Return ONLY one of: FILL_NEEDED, CLICK_NEXT, STOP, UNKNOWN — nothing else."""
         if not fields_summary:
             return {}
 
-        candidate_payload = dict(CANDIDATE)
+        # Ne pas envoyer de valeurs vides à Claude : elles polluent le mapping
+        # (il croit que le profil est vide et skippe des champs remplissables).
+        candidate_payload = {
+            k: v for k, v in CANDIDATE.items()
+            if v not in ("", None, [])
+        }
         if candidate_payload.get("cv_summary"):
             candidate_payload["experience_notes"] = candidate_payload.pop("cv_summary")
 
@@ -3939,7 +4204,7 @@ Example output:
         return None, None
 
     def _fill_field(self, scope, page, field: dict, value: str,
-                    cv_path=None, letter_text: str = "") -> bool:
+                    cv_path=None, letter_text: str = "", force_sequential: bool = False) -> bool:
         """Remplit un champ en gérant React events, file inputs cachés, textareas longs."""
         ftag  = field.get("tag", "input")
         ftype = field.get("type", "text")
@@ -4217,7 +4482,7 @@ Example output:
                 console.print(f"  [yellow]  ⚠ richtext {key} : {str(e)[:60]}[/yellow]")
                 return False
 
-        # ── Input / Textarea — retry 3 stratégies ───────────────────────────
+        # ── Input / Textarea — retry plusieurs stratégies ───────────────────
         try:
             try:
                 if loc.is_hidden(timeout=400):
@@ -4231,8 +4496,35 @@ Example output:
 
             filled = False
             last_err = ""
+            is_ashby = "ashbyhq.com" in (page.url or "")
+            prefer_sequential = force_sequential or is_ashby
 
-            # Stratégie 1 : fill() standard (la plus rapide)
+            def _verify_filled(target_loc) -> bool:
+                try:
+                    cur = (target_loc.input_value(timeout=500) or "").strip()
+                    return bool(cur) and cur == str(value).strip()[: len(cur)]
+                except Exception:
+                    return False
+
+            # Stratégie Ashby / retry : frappe caractère par caractère (React)
+            if prefer_sequential and not filled:
+                try:
+                    loc.click(timeout=1500)
+                    time.sleep(0.1)
+                    try:
+                        loc.fill("", timeout=600)
+                    except Exception:
+                        page.keyboard.press("Control+a")
+                        page.keyboard.press("Delete")
+                    loc.press_sequentially(str(value)[:300], delay=18)
+                    loc.evaluate(JS_DISPATCH_REACT_EVENTS)
+                    filled = _verify_filled(loc) or bool(str(value).strip())
+                    if filled:
+                        console.print("  [dim]  (Ashby/React : press_sequentially)[/dim]")
+                except Exception as e:
+                    last_err = str(e)[:80]
+
+            # Stratégie 1 : fill() standard
             if not filled:
                 try:
                     loc.click(timeout=1500)
@@ -4242,11 +4534,13 @@ Example output:
                         page.keyboard.type(value, delay=1)
                     else:
                         loc.fill(value, timeout=2500)
+                    if is_ashby and not _verify_filled(loc):
+                        raise RuntimeError("fill() sans effet React")
                     filled = True
                 except Exception as e:
                     last_err = str(e)[:80]
 
-            # Stratégie 2 : press_sequentially (React / Vue qui ignorent fill)
+            # Stratégie 2 : press_sequentially
             if not filled:
                 try:
                     loc.click(timeout=1500)
@@ -4254,18 +4548,15 @@ Example output:
                     try:
                         loc.fill("", timeout=600)
                     except Exception:
-                        try:
-                            page.keyboard.press("Control+a")
-                            page.keyboard.press("Delete")
-                        except Exception:
-                            pass
-                    loc.press_sequentially(value[:300], delay=12)
+                        page.keyboard.press("Control+a")
+                        page.keyboard.press("Delete")
+                    loc.press_sequentially(str(value)[:300], delay=12)
                     filled = True
                     console.print(f"  [dim]  (stratégie 2 : press_sequentially)[/dim]")
                 except Exception as e:
                     last_err = str(e)[:80]
 
-            # Stratégie 3 : JS direct (contourne les intercepteurs d'événements)
+            # Stratégie 3 : JS direct
             if not filled:
                 try:
                     loc.evaluate(f"""el => {{
@@ -4283,18 +4574,35 @@ Example output:
                 except Exception as e:
                     last_err = str(e)[:80]
 
+            # Stratégie 4 : get_by_label (Ashby, labels visibles)
+            if not filled:
+                label_clean = re.sub(r"\*+$", "", (field.get("label") or "")).strip()
+                if label_clean:
+                    try:
+                        lbl_loc = scope.get_by_label(
+                            re.compile(re.escape(label_clean[:60]), re.I)
+                        ).first
+                        if lbl_loc.count() and lbl_loc.is_visible(timeout=600):
+                            lbl_loc.click(timeout=1500)
+                            lbl_loc.fill(str(value)[:300], timeout=2500)
+                            lbl_loc.evaluate(JS_DISPATCH_REACT_EVENTS)
+                            filled = True
+                            loc = lbl_loc
+                            console.print(f"  [dim]  (stratégie 4 : get_by_label « {label_clean[:30]} »)[/dim]")
+                    except Exception as e:
+                        last_err = str(e)[:80]
+
             if not filled:
                 console.print(f"  [yellow]  ⚠ fill {key} : toutes les stratégies ont échoué — {last_err}[/yellow]")
                 return False
 
-            # Dispatch events React/Vue/Angular
             try:
                 loc.evaluate(JS_DISPATCH_REACT_EVENTS)
             except Exception:
                 pass
             time.sleep(0.1)
 
-            short = value[:45].replace("\n", " ")
+            short = str(value)[:45].replace("\n", " ")
             console.print(f"  [dim]  ✓ {key} = {short}[/dim]")
             return True
         except Exception as e:
@@ -4471,6 +4779,11 @@ Example output:
                     self._scroll_and_wait_form(page, max_wait_ms=scroll_ms)
 
                 console.print(f"  [dim]Scope : {scope_label}[/dim]")
+
+                if ats == "ashby":
+                    if self._ensure_ashby_application_tab(page):
+                        scope, scope_label = self._get_form_scope(page)
+                        self._scroll_and_wait_form(page, max_wait_ms=3500)
 
                 if ats == "linkedin" and scope_label == "dialog":
                     self._linkedin_easy_apply_progress(page, cv_path)
@@ -4728,6 +5041,28 @@ Example output:
                         failed_this_page.append(field_key)
                         continue
 
+                # 2e passe : champs identité ratés (Ashby React, labels sans id)
+                if failed_this_page:
+                    retry_keys = [k for k in failed_this_page if k in mapping]
+                    for field_key in retry_keys:
+                        fi = fields_by_key.get(field_key)
+                        if not fi:
+                            continue
+                        val = mapping.get(field_key)
+                        if not val:
+                            continue
+                        try:
+                            if self._fill_field(
+                                fill_scope, page, fi, val,
+                                cv_path=cv_path, letter_text=letter_text,
+                                force_sequential=True,
+                            ):
+                                filled_this_page.append(field_key)
+                                failed_this_page.remove(field_key)
+                                time.sleep(0.15)
+                        except Exception:
+                            pass
+
                 # Fallback CV : si un CV est dispo et qu'aucun file input n'a été
                 # rempli via le mapping, on upload sur le premier input[type=file]
                 # accepting pdf (utile pour Bolt et autres pages avec file input
@@ -4786,15 +5121,31 @@ Example output:
                             self._linkedin_upload_generated_cv(scope_li, page, Path(cv_path))
                     self._dismiss_linkedin_save_draft_dialog(page)
                     time.sleep(0.2)
-                if self._click_review_button(scope) or self._click_review_button(page):
-                    console.print("  [dim]→ Vérifier cliqué[/dim]")
-                    self._wait_settled(page, 1500, fast=(ats == "linkedin"))
-                    self._dismiss_cookies(page)
-                    advanced = True
-                elif self._click_next_button(scope, page=page) or self._click_next_button(page, page=page):
-                    console.print("  [dim]→ Suivant cliqué[/dim]")
-                    self._dismiss_cookies(page)
-                    advanced = True
+
+                can_advance = True
+                if ats == "linkedin":
+                    scope_li, _ = self._get_form_scope(page)
+                    if self._linkedin_has_blocking_empty_fields(scope_li):
+                        can_advance = False
+                        console.print(
+                            "  [yellow]→ LinkedIn : champs requis vides — pas de Suivant[/yellow]"
+                        )
+                elif len(usable) >= 1 and len(filled_this_page) == 0 and len(mapping) >= 1:
+                    can_advance = False
+                    console.print(
+                        f"  [yellow]→ {len(usable)} champ(s) détecté(s), 0 rempli — pas de Suivant[/yellow]"
+                    )
+
+                if can_advance:
+                    if self._click_review_button(scope) or self._click_review_button(page):
+                        console.print("  [dim]→ Vérifier cliqué[/dim]")
+                        self._wait_settled(page, 1500, fast=(ats == "linkedin"))
+                        self._dismiss_cookies(page)
+                        advanced = True
+                    elif self._click_next_button(scope, page=page) or self._click_next_button(page, page=page):
+                        console.print("  [dim]→ Suivant cliqué[/dim]")
+                        self._dismiss_cookies(page)
+                        advanced = True
 
                 if not advanced:
                     # Fallback vision IA : peut-être un bouton non standard

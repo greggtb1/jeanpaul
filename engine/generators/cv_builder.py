@@ -200,8 +200,8 @@ def make_styles():
             textColor=DARK, spaceAfter=0, leading=12),
 
         "candidature_banner": ParagraphStyle("candidature_banner",
-            fontName="Helvetica-Bold", fontSize=11,
-            textColor=DARK, spaceAfter=2, leading=14),
+            fontName="Helvetica", fontSize=8,
+            textColor=LIGHT, spaceAfter=0, leading=11),
     }
 
 
@@ -211,7 +211,7 @@ def clean_text(text: str) -> str:
 
 
 # ── Prompt d'adaptation ───────────────────────────────────────────────────────
-ADAPT_CV_PROMPT = """Tu es un expert en recrutement. Adapte le CV de Gregoire pour maximiser sa pertinence pour cette offre.
+ADAPT_CV_PROMPT = """Tu es un expert en recrutement. Adapte le CV du candidat pour maximiser sa pertinence pour cette offre.
 
 PROFIL :
 {profile_json}
@@ -227,18 +227,17 @@ Culture : {company_culture}
 STRICT RULES:
 - {no_dash_rule}
 - Short, active sentences with numbers when possible
-- Do NOT invent experiences or skills that Gregoire does not have
+- Do NOT invent experiences or skills that are not in the profile
+- Use ONLY the companies listed in the profile's experience section
 - ALL output must be in {output_lang}
 
 Retourne un JSON :
 {{
   "tagline": "Tagline adapté au poste, 1 à 2 phrases max, sans tiret",
   "top_skills": ["3 à 5 compétences clés pour ce poste"],
-  "top_tools": ["TOUS les outils dev du profil, triés par pertinence pour ce poste — NE PAS inclure les outils automation/IA qui ont leur propre section distincte dans le CV"],
+  "top_tools": ["outils dev du profil triés par pertinence — NE PAS inclure les outils automation/IA"],
   "experience_highlights": [
-    {{"company": "Gare ta Bécane", "bullets": ["2-3 adapted bullets, no dashes"]}},
-    {{"company": "Thrift Map", "bullets": ["1-2 relevant bullets, no dashes"]}},
-    {{"company": "Freelance", "bullets": ["1-2 relevant bullets, no dashes"]}}
+    {{"company": "<nom exact d'une entreprise du profil>", "bullets": ["2-3 bullets adaptés, sans tiret"]}}
   ],
   "custom_note": "Optional note below tagline, empty if not needed"
 }}
@@ -247,7 +246,7 @@ Return ONLY the JSON. All text values must be in {output_lang}."""
 
 
 # ── Prompt CV PME/ETI — en français, framing management pas tech ──────────────
-ADAPT_CV_PROMPT_PME = """Tu es un expert en recrutement RH pour les PME et ETI françaises. Adapte le CV de Grégoire pour maximiser sa pertinence pour ce poste de management/opérations.
+ADAPT_CV_PROMPT_PME = """Tu es un expert en recrutement RH pour les PME et ETI françaises. Adapte le CV du candidat pour maximiser sa pertinence pour ce poste de management/opérations.
 
 PROFIL :
 {profile_json}
@@ -263,7 +262,8 @@ Culture : {company_culture}
 RÈGLES STRICTES :
 - {no_dash_rule}
 - Phrases courtes et actives, avec des chiffres concrets quand c'est possible
-- NE PAS inventer d'expériences ou compétences que Grégoire n'a pas
+- NE PAS inventer d'expériences ou compétences absentes du profil
+- Utiliser UNIQUEMENT les entreprises listées dans l'expérience du profil
 - Tout le texte de sortie DOIT être en {output_lang}
 - Framer le profil comme un profil de direction/management opérationnel, PAS comme un profil tech ou startup
 - Mettre en avant : pilotage P&L, gestion partenaires/équipes, structuration de processus, organisation, résultats business
@@ -275,9 +275,7 @@ Retourne un JSON :
   "top_skills": ["3 à 5 compétences clés pour ce poste, orientées management/ops"],
   "top_tools": ["Outils pertinents pour ce poste — mettre en avant Excel/ERP/outils métier si mentionnés, garder les outils dev uniquement si vraiment pertinents"],
   "experience_highlights": [
-    {{"company": "Gare ta Bécane", "bullets": ["2-3 bullets adaptés, sans tiret, framing ops/management : pilotage, réseau partenaires, P&L, organisation"]}},
-    {{"company": "Thrift Map", "bullets": ["1-2 bullets pertinents, sans tiret"]}},
-    {{"company": "Freelance", "bullets": ["1-2 bullets pertinents, sans tiret, focus résultats business pour les PME clientes"]}}
+    {{"company": "<nom exact d'une entreprise du profil>", "bullets": ["2-3 bullets adaptés, sans tiret"]}}
   ],
   "custom_note": "Note optionnelle sous l'accroche, vide si inutile"
 }}
@@ -407,9 +405,12 @@ class CVBuilder:
                 no_dash_rule=NO_DASH_RULE if lang_code == "fr" else NO_DASH_RULE_EN,
             )
         else:
+            _PROFILE_JSON_EXCLUDE = {
+                "motivation_hook", "cv_text", "cv_url", "_source", "_has_uploaded_cv",
+                "tone_hint", "letter_tone", "letter_sample", "salary_min",
+            }
             profile_json = json.dumps(
-                {k: v for k, v in self.profile.items()
-                 if k not in ("motivation_hook", "cv_text", "cv_url", "_source", "tone_hint", "letter_tone", "letter_sample", "target_roles", "salary_min")},
+                {k: v for k, v in self.profile.items() if k not in _PROFILE_JSON_EXCLUDE},
                 ensure_ascii=False, indent=2,
             )
             base_prompt = ADAPT_CV_PROMPT_PME if self.pme_mode else ADAPT_CV_PROMPT
@@ -480,10 +481,11 @@ class CVBuilder:
                 "languages": "",
                 "custom_note": "",
             }
+        is_user = p.get("_source") == "user"
         return {
-            "tagline": p.get("tagline", PROFILE["tagline"]),
-            "top_skills": p.get("skills", PROFILE["skills"]),
-            "top_tools": p.get("tools", PROFILE["tools"]).get("dev", []),
+            "tagline": p.get("tagline") or ("" if is_user else PROFILE["tagline"]),
+            "top_skills": p.get("skills") or ([] if is_user else PROFILE["skills"]),
+            "top_tools": (p.get("tools") or {}).get("dev") or ([] if is_user else PROFILE["tools"]["dev"]),
             "experience_highlights": [],
             "experiences": [],
             "custom_note": "",
@@ -534,31 +536,18 @@ class CVBuilder:
                 b_clean = clean_text(b)
                 story.append(Paragraph(b_clean, S["bullet"]))
 
-        # ── Bandeau offre (langue de l'annonce) ───────────────────────────────
+        # ── Référence offre (discret, en tête) ────────────────────────────────
         if company or job_title:
-            if lang == "en":
-                banner_line = f"Application for <b>{job_title or '–'}</b> at <b>{company or '–'}</b>"
-            else:
-                banner_line = f"Candidature : <b>{job_title or '–'}</b> · <b>{company or '–'}</b>"
+            parts = [p for p in (job_title, company) if p]
+            banner_line = " · ".join(parts) if parts else ""
 
-            banner = Table(
-                [[Paragraph(banner_line, S["candidature_banner"])]],
-                colWidths=["100%"],
-                hAlign="LEFT",
-            )
-            banner.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), ACCENT_PALE),
-                ("BOX", (0, 0), (-1, -1), 1, ACCENT),
-                ("TOPPADDING", (0, 0), (-1, -1), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-            ]))
-            story.append(banner)
-            story.append(Spacer(1, 14))
+            if banner_line:
+                story.append(Paragraph(banner_line, S["candidature_banner"]))
+                story.append(Spacer(1, 8))
 
         p = self.profile
-        story.append(Paragraph(p.get("name", PROFILE["name"]), S["name"]))
+        is_user = p.get("_source") == "user"
+        story.append(Paragraph(p.get("name") or ("" if is_user else PROFILE["name"]), S["name"]))
 
         website = p.get("website", "")
         if website:
@@ -567,7 +556,7 @@ class CVBuilder:
         tagline = clean_text(
             adaptation.get(
                 "tagline",
-                p.get("tagline") or ("" if self._uses_uploaded_cv() else PROFILE["tagline"]),
+                p.get("tagline") or ("" if (is_user or self._uses_uploaded_cv()) else PROFILE["tagline"]),
             )
         )
         story.append(Paragraph(tagline, S["tagline"]))
@@ -603,7 +592,8 @@ class CVBuilder:
                 )
                 exp_added = True
         elif not from_upload:
-            for exp in p.get("experience", PROFILE["experience"]):
+            default_exps = [] if is_user else PROFILE["experience"]
+            for exp in p.get("experience") or default_exps:
                 company = exp["company"]
                 adapted = highlights.get(company, highlights.get(exp["title"], []))
                 bullets = [clean_text(b) for b in (adapted if adapted else exp["bullets"])]
@@ -619,8 +609,8 @@ class CVBuilder:
         if not exp_added:
             exp_added = self._append_cv_text_fallback(story, S, L["experience"])
 
-        if not exp_added and not from_upload:
-            for exp in p.get("experience", PROFILE["experience"]):
+        if not exp_added and not from_upload and not is_user:
+            for exp in p.get("experience") or PROFILE["experience"]:
                 add_exp(
                     title=exp["title"],
                     company=exp["company"],
@@ -640,7 +630,8 @@ class CVBuilder:
                     bullets=[edu.get("detail", "")] if edu.get("detail") else [],
                 )
         elif not from_upload:
-            edu = p.get("education", PROFILE["education"])
+            default_edu = {} if is_user else PROFILE["education"]
+            edu = p.get("education") or default_edu
             if isinstance(edu, dict) and edu.get("degree"):
                 add_exp(
                     title=edu["degree"],
@@ -650,11 +641,13 @@ class CVBuilder:
                 )
 
         section_title(L["skills_tools"])
-        top_skills = adaptation.get("top_skills") or ([] if from_upload else p.get("skills", PROFILE["skills"]))
+        default_skills = [] if is_user else PROFILE["skills"]
+        default_tools = {} if is_user else PROFILE["tools"]
+        top_skills = adaptation.get("top_skills") or ([] if from_upload else (p.get("skills") or default_skills))
         top_tools = adaptation.get("top_tools") or (
-            [] if from_upload else p.get("tools", PROFILE["tools"]).get("dev", [])
+            [] if from_upload else (p.get("tools") or default_tools).get("dev", [])
         )
-        auto_tools = [] if from_upload else p.get("tools", PROFILE["tools"]).get("automation", [])
+        auto_tools = [] if from_upload else (p.get("tools") or default_tools).get("automation", [])
 
         for label, items in [
             (L["skills"], top_skills),
@@ -667,7 +660,8 @@ class CVBuilder:
         section_title(L["languages"])
         langs = adaptation.get("languages")
         if not langs and not from_upload:
-            langs = "   ·   ".join(f"{l} ({v})" for l, v in p.get("languages", PROFILE["languages"]).items())
+            default_langs = {} if is_user else PROFILE["languages"]
+            langs = "   ·   ".join(f"{l} ({v})" for l, v in (p.get("languages") or default_langs).items())
         if langs:
             story.append(Paragraph(langs, S["lang"]))
 

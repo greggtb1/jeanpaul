@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/useAuth";
 import BrandName from "@/components/BrandName";
 
 const NAV = [
-  { href: "/dashboard", label: "Offres", mobileLabel: "Offres", exact: true },
+  { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", exact: true },
   { href: "/dashboard/compte", label: "Mon compte", mobileLabel: "Compte" },
   { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture" },
   { href: "/dashboard/preferences", label: "Critères de recherche", mobileLabel: "Critères" },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
+import { grantCreditsForSession, isCreditsSession } from "@/lib/stripe-credits";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,15 @@ export async function POST(req: NextRequest) {
       const userId = session.client_reference_id || session.metadata?.supabase_user_id;
       if (!userId || session.metadata?.pending === "true") break;
 
+      if (isCreditsSession(session)) {
+        try {
+          await grantCreditsForSession(admin, session);
+        } catch (e) {
+          console.error("[stripe/webhook] credits", e);
+        }
+        break;
+      }
+
       const updates: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
         onboarding_done: true,
@@ -67,6 +77,19 @@ export async function POST(req: NextRequest) {
         updates.stripe_subscription_id = session.subscription;
         const sub = await stripe.subscriptions.retrieve(session.subscription);
         updates.subscription_status = sub.status;
+
+        const previousSubId = session.metadata?.previous_subscription_id?.trim();
+        if (
+          session.metadata?.checkout_intent === "upgrade" &&
+          previousSubId &&
+          previousSubId !== session.subscription
+        ) {
+          try {
+            await stripe.subscriptions.cancel(previousSubId);
+          } catch {
+            /* ancien abo déjà résilié ou introuvable */
+          }
+        }
       }
 
       await admin.from("profiles").update(updates).eq("id", userId);

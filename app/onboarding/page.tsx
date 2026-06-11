@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
@@ -11,7 +11,8 @@ import {
   type OnboardingDraft,
 } from "@/lib/onboarding-draft";
 import { extractCvProfile } from "@/lib/extract-cv";
-import { resolveFullName } from "@/lib/parse-cv-profile";
+import { identityFromCvExtraction } from "@/lib/parse-cv-profile";
+import { getPendingCv } from "@/lib/onboarding-cv";
 import {
   ROLE_GROUPS,
   LOCATION_SUGGESTIONS,
@@ -22,6 +23,7 @@ import {
 import {
   PrefField as Field,
   LetterTonePicker,
+  LetterSampleOptional,
   MultiChoice,
   TagInput,
   CvDropzone,
@@ -67,14 +69,15 @@ export default function Onboarding() {
   const [parsingCv, setParsingCv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [alreadyPaid, setAlreadyPaid] = useState(false);
+  const parsedCvKey = useRef("");
   useEffect(() => {
     const draft = loadDraft();
     if (draft) {
       setForm((f) => ({
         ...f,
-        full_name: draft.full_name ?? "",
-        email: draft.email ?? "",
-        phone: draft.phone ?? "",
+        full_name: "",
+        email: "",
+        phone: "",
         location: draft.location ?? "",
         target_roles: draft.target_roles ?? [],
         target_locations: draft.target_locations ?? [],
@@ -105,10 +108,6 @@ export default function Onboarding() {
         setAlreadyPaid(paid);
         setForm((f) => ({
           ...f,
-          full_name: data.full_name ?? user?.user_metadata?.full_name ?? f.full_name,
-          email: data.email ?? user?.email ?? f.email,
-          phone: data.phone ?? f.phone,
-          location: data.location ?? f.location,
           target_roles: data.target_roles ?? f.target_roles,
           target_locations: data.target_locations ?? f.target_locations,
           contract_type: asStringArray(data.contract_type).length
@@ -124,12 +123,60 @@ export default function Onboarding() {
           letter_sample: data.letter_sample ?? f.letter_sample,
         }));
       });
-  }, [uid, user, supabase]);
+  }, [uid, supabase]);
+
+  async function applyCvIdentityFromFile(file: File) {
+    const profile = await extractCvProfile(file);
+    const identity = identityFromCvExtraction(profile, file.name);
+    parsedCvKey.current = `${file.name}|local`;
+    setForm((f) => ({
+      ...f,
+      ...identity,
+      cv_url: "local",
+      cv_filename: file.name,
+      cv_path: "",
+    }));
+  }
+
+  useEffect(() => {
+    if (step !== 4 || !form.cv_filename) return;
+    const key = `${form.cv_filename}|${form.cv_url || "local"}`;
+    if (parsedCvKey.current === key) return;
+
+    let cancelled = false;
+    (async () => {
+      setParsingCv(true);
+      try {
+        let file: File | null = await getPendingCv();
+        if (!file && form.cv_url && form.cv_url !== "local") {
+          const res = await fetch(form.cv_url);
+          if (!res.ok) return;
+          const blob = await res.blob();
+          file = new File([blob], form.cv_filename, { type: "application/pdf" });
+        }
+        if (!file || cancelled) return;
+        const profile = await extractCvProfile(file);
+        if (cancelled) return;
+        parsedCvKey.current = key;
+        const identity = identityFromCvExtraction(profile, file.name);
+        setForm((f) => ({ ...f, ...identity }));
+      } catch {
+        /* extraction optionnelle */
+      } finally {
+        if (!cancelled) setParsingCv(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, form.cv_filename, form.cv_url]);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
   const canNext = useMemo(() => {
     if (step === 2) return form.target_roles.length > 0;
+    if (step === 4) return !!form.full_name.trim() && !!form.email.trim();
     return true;
   }, [step, form]);
 
@@ -147,25 +194,22 @@ export default function Onboarding() {
       set({ cv_url: "local", cv_filename: file.name, cv_path: "" });
 
       try {
-        const profile = await extractCvProfile(file);
-        const hasData = !!(profile.full_name || profile.email || profile.phone || profile.location);
-        if (hasData) {
-          setForm((f) => {
-            const email = profile.email || f.email;
-            return {
-              ...f,
-              full_name: resolveFullName(profile.full_name, email),
-              email,
-              phone: profile.phone || f.phone,
-              location: profile.location || f.location,
-              cv_url: "local",
-              cv_filename: file.name,
-              cv_path: "",
-            };
-          });
-        }
+        await applyCvIdentityFromFile(file);
       } catch {
         /* extraction optionnelle */
+        parsedCvKey.current = `${file.name}|local`;
+        setForm((f) => ({
+          ...f,
+          full_name: identityFromCvExtraction(
+            { full_name: "", email: "", phone: "", location: "" },
+            file.name
+          ).full_name,
+          email: "",
+          phone: "",
+          cv_url: "local",
+          cv_filename: file.name,
+          cv_path: "",
+        }));
       }
     } catch (e) {
       alert("Enregistrement échoué : " + (e as Error).message);
@@ -178,29 +222,34 @@ export default function Onboarding() {
   async function finish() {
     setSaving(true);
     try {
-      const email = form.email || user?.email || "";
-      const fullName =
-        form.full_name ||
-        (user?.user_metadata?.full_name as string | undefined) ||
-        "";
+      const email = form.email.trim();
+      const fullName = form.full_name.trim();
+      if (!fullName || !email) {
+        alert("Merci de renseigner votre nom et votre email.");
+        setSaving(false);
+        return;
+      }
 
       if (alreadyPaid && uid) {
-        // Utilisateur déjà abonné : sauvegarder directement en base et aller au dashboard
-        await supabase.from("profiles").update({
-          full_name: fullName || undefined,
-          email: email || undefined,
-          phone: form.phone || undefined,
-          location: form.location || undefined,
-          target_roles: form.target_roles.length ? form.target_roles : undefined,
-          target_locations: form.target_locations.length ? form.target_locations : undefined,
-          contract_type: form.contract_type.length ? form.contract_type : undefined,
-          remote_pref: form.remote_pref.length ? form.remote_pref : undefined,
-          salary_min: form.salary_min ? Number(form.salary_min) : undefined,
-          letter_tone: form.letter_tone || undefined,
-          letter_sample: form.letter_sample || undefined,
-          onboarding_done: true,
-          updated_at: new Date().toISOString(),
-        }).eq("id", uid);
+        const res = await fetch("/api/onboarding/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            full_name: fullName || undefined,
+            email: email || undefined,
+            phone: form.phone || undefined,
+            location: form.location || undefined,
+            target_roles: form.target_roles,
+            target_locations: form.target_locations,
+            contract_type: form.contract_type,
+            remote_pref: form.remote_pref,
+            salary_min: form.salary_min ? Number(form.salary_min) : undefined,
+            letter_tone: form.letter_tone || undefined,
+            letter_sample: form.letter_sample || undefined,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Sauvegarde échouée");
         router.push("/dashboard");
         return;
       }
@@ -320,7 +369,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre CV"
               title="Déposez votre CV"
-              subtitle="PDF uniquement. JEAN PAUL en extrait vos coordonnées pour la suite."
+              subtitle="PDF uniquement. On pré-remplit ce qu'on trouve — complétez le reste vous-même."
             >
               <CvDropzone
                 cvUrl={form.cv_url}
@@ -328,10 +377,48 @@ export default function Onboarding() {
                 uploading={uploading || parsingCv}
                 onFile={handleFile}
               />
+              <Field label="Nom complet">
+                <input
+                  className="ob__input"
+                  type="text"
+                  placeholder="Prénom Nom"
+                  value={form.full_name}
+                  onChange={(e) => set({ full_name: e.target.value })}
+                  required
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  className="ob__input"
+                  type="email"
+                  placeholder="vous@exemple.com"
+                  value={form.email}
+                  onChange={(e) => set({ email: e.target.value })}
+                  required
+                />
+              </Field>
+              <Field label="Téléphone">
+                <input
+                  className="ob__input"
+                  type="tel"
+                  placeholder="06 12 34 56 78"
+                  value={form.phone}
+                  onChange={(e) => set({ phone: e.target.value })}
+                />
+              </Field>
+              <Field label="Ville">
+                <input
+                  className="ob__input"
+                  type="text"
+                  placeholder="Paris"
+                  value={form.location}
+                  onChange={(e) => set({ location: e.target.value })}
+                />
+              </Field>
               <p className="ob__hint">
                 {parsingCv
                   ? "Analyse du CV en cours…"
-                  : "Optionnel pour l'instant, mais recommandé pour personnaliser vos candidatures."}
+                  : "Le CV est optionnel, mais nom et email sont requis pour postuler."}
               </p>
             </Section>
           )}
@@ -339,8 +426,8 @@ export default function Onboarding() {
           {step === 5 && (
             <Section
               kicker="Vos lettres"
-              title="Ton de vos lettres de motivation"
-              subtitle="JEAN PAUL adapte le style à chaque offre. Vous gardez le contrôle."
+              title="Quel ton pour vos lettres ?"
+              subtitle="Choisissez un style, c'est tout ce qu'il faut pour commencer. JEAN PAUL l'adapte à chaque offre."
             >
               <Field label="Ton">
                 <LetterTonePicker
@@ -348,39 +435,39 @@ export default function Onboarding() {
                   onChange={(v) => set({ letter_tone: v })}
                 />
               </Field>
-              <Field label="Lettre type (optionnel)">
-                <textarea
-                  className="ob__textarea"
-                  rows={6}
-                  placeholder="Collez une lettre déjà écrite. JEAN PAUL s'en inspire pour le style."
-                  value={form.letter_sample}
-                  onChange={(e) => set({ letter_sample: e.target.value })}
-                />
-              </Field>
+              <LetterSampleOptional
+                value={form.letter_sample}
+                onChange={(v) => set({ letter_sample: v })}
+              />
             </Section>
           )}
 
           <div className="ob__actions">
-            {step > 0 ? (
-              <button className="btn btn--outline" onClick={back} disabled={busy}>
-                Retour
-              </button>
-            ) : (
-              <span />
-            )}
-            <button className="btn btn--coral" onClick={next} disabled={!canNext || busy}>
-              {saving
-                ? "Redirection…"
-                : step === STEPS.length - 1
-                  ? alreadyPaid
-                    ? "Accéder au dashboard"
-                    : "Aller au paiement"
-                  : step === 3 && !form.salary_min
-                    ? "Passer"
-                    : step === 4 && !form.cv_filename
+            <div className="ob__actions-row">
+              {step > 0 ? (
+                <button className="btn btn--outline" onClick={back} disabled={busy}>
+                  Retour
+                </button>
+              ) : (
+                <span />
+              )}
+              <button className="btn btn--coral" onClick={next} disabled={!canNext || busy}>
+                {saving
+                  ? "Un instant…"
+                  : step === STEPS.length - 1
+                    ? alreadyPaid
+                      ? "Accéder au dashboard"
+                      : "Continuer"
+                    : step === 3 && !form.salary_min
                       ? "Passer"
+                      : step === 4 && !form.cv_filename
+                      ? "Continuer sans CV"
                       : "Continuer"}
-            </button>
+              </button>
+            </div>
+            {step === STEPS.length - 1 && !alreadyPaid && !busy && (
+              <p className="ob__actions-hint">Paiement sécurisé à l&apos;étape suivante.</p>
+            )}
           </div>
         </div>
       </div>

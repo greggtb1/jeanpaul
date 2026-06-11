@@ -166,22 +166,6 @@ function isPlausibleName(name: string, email?: string): boolean {
   return true;
 }
 
-function scoreNameAgainstEmail(name: string, email: string): number {
-  const fromEmail = nameFromEmail(email);
-  if (!fromEmail) return 0;
-
-  const nameWords = name.toLowerCase().split(/\s+/);
-  const emailParts = fromEmail.toLowerCase().split(/\s+/);
-  let score = 0;
-
-  for (const ep of emailParts) {
-    for (const nw of nameWords) {
-      if (nw === ep) score += 4;
-      else if (nw.startsWith(ep) || ep.startsWith(nw)) score += 2;
-    }
-  }
-  return score;
-}
 
 function extractNameNearEmail(lines: string[], email: string): string {
   const emailLower = email.toLowerCase();
@@ -205,42 +189,103 @@ function extractNameNearEmail(lines: string[], email: string): string {
   return "";
 }
 
-/** Nom fiable : CV d'abord, sinon dérivé de l'email si le CV est douteux. */
-export function resolveFullName(fullName: string, email: string): string {
-  const cleaned = normalizeName(fullName);
-  if (cleaned && isPlausibleName(cleaned, email)) return cleaned;
-  if (email) {
-    const fromEmail = nameFromEmail(email);
-    if (fromEmail) return fromEmail;
+/** Prénom + nom depuis le nom de fichier (Thomas_Petit_….pdf → Thomas Petit). */
+export function nameFromCvFilename(filename: string): string {
+  const base = filename.replace(/\.pdf$/i, "").trim();
+  const tokens = base.split(/[_\-\s]+/).filter(Boolean);
+  const words: string[] = [];
+
+  for (const token of tokens) {
+    if (!/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]*$/.test(token)) break;
+    if (NAME_STOP_WORDS.has(token.toLowerCase())) break;
+    if (/^(cdi|cdd|stage|alternance|dev|fullstack|saas|cv|resume)$/i.test(token)) break;
+    words.push(titleCaseWord(token));
+    if (words.length >= 4) break;
   }
-  return cleaned;
+
+  if (words.length >= 2) {
+    return words.join(" ");
+  }
+  return "";
 }
 
-function pickNameFromLines(lines: string[], email: string): string {
-  if (email) {
-    const nearEmail = extractNameNearEmail(lines, email);
-    if (nearEmail) return nearEmail;
-  }
-
-  const candidates: string[] = [];
-  for (const line of lines.slice(0, 15)) {
-    const cleaned = normalizeName(line);
-    if (isPlausibleName(cleaned, email)) {
-      candidates.push(cleaned);
+function collectEmails(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const match of text.matchAll(new RegExp(EMAIL_RE.source, "g"))) {
+    const em = match[0].toLowerCase();
+    if (!seen.has(em)) {
+      seen.add(em);
+      out.push(match[0]);
     }
   }
+  return out;
+}
 
-  if (email && candidates.length > 1) {
-    candidates.sort(
-      (a, b) => scoreNameAgainstEmail(b, email) - scoreNameAgainstEmail(a, email)
-    );
+/** Ne retient un email que s'il correspond au nom extrait du CV. */
+function pickEmailForName(emails: string[], fullName: string): string {
+  if (emails.length === 0) return "";
+  const nameParts = fullName
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((p) => p.length >= 3 && !NAME_STOP_WORDS.has(p));
+  if (nameParts.length === 0) return "";
+
+  let best = "";
+  let bestScore = 0;
+  for (const em of emails) {
+    const local = em.split("@")[0].toLowerCase().replace(/[._+\-]/g, " ");
+    let score = 0;
+    for (const part of nameParts) {
+      if (local.includes(part)) score += 2;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = em;
+    }
+  }
+  return bestScore > 0 ? best : "";
+}
+
+/** Retourne le nom s'il est lisible dans le CV, sinon chaîne vide (l'utilisateur complète). */
+export function resolveFullName(fullName: string): string {
+  const cleaned = normalizeName(fullName);
+  if (cleaned && isPlausibleName(cleaned, "")) {
+    return cleaned;
+  }
+  return "";
+}
+
+/** Identité depuis le CV uniquement — jamais de fallback sur d'anciennes valeurs. */
+export function identityFromCvExtraction(
+  profile: CvProfile,
+  filename: string,
+  rawText = ""
+): CvProfile {
+  const full_name =
+    resolveFullName(profile.full_name) || nameFromCvFilename(filename);
+  const emails = collectEmails(rawText || profile.email);
+  const email = pickEmailForName(emails, full_name);
+
+  return {
+    full_name,
+    email,
+    phone: profile.phone?.trim() || "",
+    location: profile.location?.trim() || "",
+  };
+}
+
+function pickNameFromLines(lines: string[], cvEmail: string): string {
+  if (cvEmail) {
+    const nearEmail = extractNameNearEmail(lines, cvEmail);
+    if (nearEmail && isPlausibleName(nearEmail, "")) return nearEmail;
   }
 
-  if (candidates.length > 0) return candidates[0];
-
-  if (email) {
-    const fromEmail = nameFromEmail(email);
-    if (fromEmail) return fromEmail;
+  for (const line of lines.slice(0, 15)) {
+    const cleaned = normalizeName(line);
+    if (isPlausibleName(cleaned, "")) {
+      return cleaned;
+    }
   }
 
   return "";
@@ -253,12 +298,10 @@ export function parseCvProfile(text: string): CvProfile {
     .filter(Boolean);
 
   const joined = lines.join(" ");
-  const emailMatch = joined.match(EMAIL_RE);
+  const emails = collectEmails(joined);
   const phoneMatch = joined.match(PHONE_RE);
-  const email = emailMatch?.[0] ?? "";
-
-  let full_name = pickNameFromLines(lines, email);
-  full_name = resolveFullName(full_name, email);
+  const full_name = pickNameFromLines(lines, emails[0] ?? "");
+  const email = pickEmailForName(emails, full_name);
 
   let location = "";
   for (const hint of LOCATION_HINTS) {

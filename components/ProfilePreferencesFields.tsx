@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LETTER_TONES } from "@/lib/supabase";
 import { LETTER_FILE_ACCEPT } from "@/lib/extract-letter";
 
@@ -176,6 +176,67 @@ export function TagInput({
         </div>
       )}
     </div>
+  );
+}
+
+export function LetterSampleOptional({
+  value,
+  onChange,
+  uploading,
+  onUpload,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  uploading?: boolean;
+  onUpload?: (file: File) => void | Promise<void>;
+}) {
+  const hasContent = !!value.trim();
+  const [open, setOpen] = useState(hasContent);
+  const hadContent = useRef(hasContent);
+
+  useEffect(() => {
+    if (hasContent && !hadContent.current) setOpen(true);
+    hadContent.current = hasContent;
+  }, [hasContent]);
+
+  return (
+    <details
+      className="ob__optional-fold"
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary className="ob__optional-fold__summary">
+        <span className="ob__optional-fold__title">
+          Affiner le style avec une lettre existante
+          <span className="ob__optional-fold__badge">Optionnel</span>
+        </span>
+        <span className="ob__optional-fold__hint">
+          {hasContent ? "Lettre enregistrée" : "Pas obligatoire, le ton choisi suffit"}
+        </span>
+      </summary>
+      <div className="ob__optional-fold__body">
+        <p className="ob__optional-fold__lead">
+          Vous n&apos;avez rien à coller ici pour continuer. Si vous avez déjà une lettre dont vous
+          êtes satisfait·e, JEAN PAUL s&apos;en inspire pour reproduire votre façon d&apos;écrire.
+        </p>
+        {onUpload ? (
+          <LetterSampleInput
+            value={value}
+            onChange={onChange}
+            uploading={uploading}
+            onUpload={onUpload}
+          />
+        ) : (
+          <textarea
+            className="ob__textarea ob__letter-sample__area"
+            rows={5}
+            placeholder="Collez une lettre déjà écrite, ou laissez vide."
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </div>
+    </details>
   );
 }
 

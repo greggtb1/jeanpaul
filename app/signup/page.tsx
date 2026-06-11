@@ -77,8 +77,8 @@ export default function SignupPage() {
         if (!res.ok || !data.active) throw new Error(data.error || "Paiement non confirmé");
 
         const draft = loadDraft();
-        setEmail(data.email || draft?.email || "");
-        setFullName(draft?.full_name || data.full_name || "");
+        setEmail(draft?.email || "");
+        setFullName(draft?.full_name || "");
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setChecking(false));
@@ -237,7 +237,7 @@ export default function SignupPage() {
             <p className="auth-error">Les mots de passe ne correspondent pas.</p>
           )}
           {error && <p className="auth-error">{error}</p>}
-          <button type="submit" className="btn btn--coral btn--full" disabled={loading}>
+          <button type="submit" className="btn btn--accent btn--full" disabled={loading}>
             {loading ? "Activation…" : "Accéder à mon espace"}
           </button>
         </form>

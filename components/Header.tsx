@@ -35,7 +35,7 @@ export default function Header() {
         <Link href="/login" className="btn btn--outline btn--sm header__login-btn">
           Connexion
         </Link>
-        <Link href="/onboarding?plan=pro" className="btn btn--coral btn--sm header__cta-btn">
+        <Link href="/onboarding?plan=pro" className="btn btn--outline btn--sm header__cta-btn">
           Démarrer
         </Link>
 
@@ -65,7 +65,7 @@ export default function Header() {
           ))}
           <Link
             href="/onboarding?plan=pro"
-            className="btn btn--coral btn--sm nav--mobile__cta"
+            className="btn btn--outline btn--sm nav--mobile__cta"
             onClick={() => setOpen(false)}
           >
             Démarrer

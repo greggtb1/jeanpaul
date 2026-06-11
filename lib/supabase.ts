@@ -24,6 +24,7 @@ export type Profile = {
   stripe_customer_id?: string | null;
   stripe_subscription_id?: string | null;
   plan_id?: string | null;
+  bonus_credits?: number | null;
 };
 
 export const LETTER_TONES = [

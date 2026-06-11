@@ -64,12 +64,15 @@ export default function LoginPage() {
             />
           </label>
           {error && <p className="auth-error">{error}</p>}
-          <button type="submit" className="btn btn--coral btn--full" disabled={loading}>
+          <button type="submit" className="btn btn--accent btn--full" disabled={loading}>
             {loading ? "Connexion…" : "Se connecter"}
           </button>
         </form>
         <p className="auth-card__foot">
-          Pas encore client ? <Link href="/onboarding">Commencer</Link>
+          Pas encore de compte ? <Link href="/onboarding">Commencer</Link>
+        </p>
+        <p className="auth-card__back">
+          <Link href="/">Retour à l&apos;accueil</Link>
         </p>
       </div>
     </div>
