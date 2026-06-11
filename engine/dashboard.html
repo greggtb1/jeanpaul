@@ -1,0 +1,2031 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Apply — Dashboard</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;background:#f7f7f5;color:#1a1a1a;min-height:100vh;font-size:14px}
+.header{background:#fff;padding:20px 40px;border-bottom:1px solid #e8e8e5;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:18px;font-weight:600;color:#1a1a1a;letter-spacing:-.3px}
+.header h1 span{color:#6b7280}
+.header p{color:#9ca3af;font-size:12px;margin-top:2px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:16px 40px}
+.stat-card{background:#fff;border:1px solid #e8e8e5;border-radius:8px;padding:14px 16px}
+.stat-value{font-size:24px;font-weight:600;color:#1a1a1a}
+.stat-label{font-size:11px;color:#9ca3af;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+.postule-count{font-size:24px;font-weight:600;color:#16a34a}
+.section{padding:0 40px 24px}
+.section-header{display:flex;align-items:center;justify-content:space-between;padding-top:18px;margin-bottom:10px}
+.section-title{font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px}
+.section-count{font-size:11px;color:#9ca3af;margin-left:6px}
+.filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.filter-btn{padding:3px 10px;border-radius:5px;border:1px solid #e8e8e5;background:#fff;color:#6b7280;font-size:11px;cursor:pointer;transition:all .12s;font-family:inherit}
+.filter-btn:hover{background:#f3f4f6;color:#1a1a1a}
+.filter-btn.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.search{padding:6px 11px;background:#fff;border:1px solid #e8e8e5;border-radius:6px;color:#1a1a1a;font-size:13px;outline:none;width:220px;font-family:inherit}
+.search:focus{border-color:#9ca3af}
+.search::placeholder{color:#d1d5db}
+.table-wrap{background:#fff;border:1px solid #e8e8e5;border-radius:8px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#fafafa;padding:8px 14px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#9ca3af;font-weight:600;border-bottom:1px solid #e8e8e5}
+.job-row td{padding:9px 14px;border-top:1px solid #f3f4f6;vertical-align:middle;cursor:pointer}
+.job-row:hover td{background:#fafafa}
+.job-row.done td{background:#f0fdf4}
+.job-row.done:hover td{background:#dcfce7}
+.job-row.done td strong{color:#16a34a}
+.job-row.done .col-title{color:#86efac}
+.job-row.low-score td{opacity:.4}
+.job-row.low-score:hover td{opacity:.6}
+.detail-cell{padding:0!important}
+.detail-content{padding:10px 16px;background:#fafafa;font-size:12px;color:#6b7280;border-top:1px solid #f3f4f6}
+.detail-content p{margin-bottom:3px}.detail-content strong{color:#374151}
+.muted{color:#9ca3af;font-style:italic;font-size:11px}
+.idx{color:#d1d5db;width:32px;font-size:11px;font-weight:500}
+.col-title{color:#6b7280;max-width:200px;font-size:12px}
+.badge{padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500}
+.bg{background:#dcfce7;color:#15803d}.my{background:#fef9c3;color:#92400e}
+.rd{background:#fee2e2;color:#dc2626}.gy{background:#f3f4f6;color:#9ca3af}
+.plat-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:500;margin-top:2px}
+.plat-li{background:#eff6ff;color:#2563eb}
+.plat-wttj{background:#f0fdf4;color:#15803d}
+.af-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:500;margin-top:3px;margin-left:3px}
+.af-done{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
+.af-skip{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa}
+.submit-cell{min-width:90px}
+.submit-wrap{display:inline-flex;align-items:center;gap:0;cursor:pointer;user-select:none}
+.submit-wrap input[type=checkbox]{display:none}
+.submit-btn{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;background:#f3f4f6;color:#9ca3af;border:1.5px solid #e5e7eb;cursor:pointer;transition:all .15s;white-space:nowrap}
+.submit-wrap input:checked + .submit-btn{background:#dcfce7;color:#16a34a;border-color:#86efac}
+.submit-wrap:hover .submit-btn{border-color:#d1d5db;color:#6b7280}
+.plat-spon{background:#faf5ff;color:#7c3aed}
+.row-linkedin td:first-child{border-left:2px solid #93c5fd}
+.row-wttj td:first-child{border-left:2px solid #86efac}
+.row-spon td:first-child{border-left:2px solid #d8b4fe}
+.actions{display:flex;gap:4px;flex-wrap:nowrap;align-items:center}
+.act-btn{padding:3px 8px;border-radius:5px;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap;text-decoration:none;border:1px solid #e8e8e5;background:#fff;color:#6b7280;transition:all .1s;display:inline-flex;align-items:center;font-family:inherit}
+.act-btn:hover{background:#f3f4f6;color:#1a1a1a}
+.act-link{color:#2563eb;border-color:#bfdbfe;background:#eff6ff}.act-link:hover{background:#dbeafe}
+.act-dl{color:#059669;border-color:#a7f3d0;background:#f0fdf4}.act-dl:hover{background:#dcfce7}
+.act-copy{color:#7c3aed;border-color:#ddd6fe;background:#faf5ff}.act-copy:hover{background:#ede9fe}
+.act-del{color:#dc2626;border-color:#fecaca;background:#fff5f5;padding:3px 6px}.act-del:hover{background:#fee2e2}
+/* check-wrap legacy (conservé pour compat) */
+.check-wrap{display:inline-flex;align-items:center;cursor:pointer;user-select:none}
+.check-wrap input{display:none}
+.checkmark{width:16px;height:16px;border:1.5px solid #d1d5db;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;transition:all .12s;flex-shrink:0}
+.postule-cb:checked + .checkmark{background:#16a34a;border-color:#16a34a}
+.postule-cb:checked + .checkmark::after{content:'✓';font-size:10px;color:#fff;font-weight:700}
+.postule-cb.auto-applied:checked + .checkmark{background:#7c3aed;border-color:#7c3aed}
+.check-wrap[data-when]{position:relative}
+/* Marqueur d'échec auto-apply */
+.auto-fail-marker{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#fb923c;color:#fff;font-size:11px;font-weight:700;margin-left:6px;cursor:help;position:relative;border:1.5px solid #ea580c;vertical-align:middle}
+.auto-fail-marker::after{content:'⚠';font-size:10px}
+.auto-fail-marker:hover .auto-fail-tooltip{display:block}
+.auto-fail-tooltip{display:none;position:absolute;top:24px;right:0;background:#1f2937;color:#fff;font-size:11px;padding:8px 10px;border-radius:6px;width:300px;z-index:100;text-align:left;font-weight:400;box-shadow:0 4px 12px rgba(0,0,0,.25);line-height:1.4}
+.auto-fail-tooltip strong{color:#fb923c;display:block;margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+.auto-fail-tooltip a{color:#60a5fa;text-decoration:underline;display:inline-block;margin-top:6px;font-size:11px}
+.auto-fail-tooltip .at{color:#9ca3af;font-size:10px;margin-top:4px;display:block}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border:1px solid #e8e8e5;border-radius:10px;width:680px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f3f4f6}
+.modal-title{font-size:13px;font-weight:600;color:#1a1a1a}
+.modal-close{background:none;border:none;color:#9ca3af;font-size:18px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px}
+.modal-close:hover{color:#1a1a1a;background:#f3f4f6}
+.modal-body{padding:14px 18px;overflow-y:auto;flex:1}
+.modal-letter{background:#fafafa;border:1px solid #f3f4f6;border-radius:6px;padding:14px;font-size:13px;color:#374151;line-height:1.8;white-space:pre-wrap;word-break:break-word;font-family:Georgia,serif}
+.modal-footer{padding:10px 18px;border-top:1px solid #f3f4f6;display:flex;gap:8px;align-items:center}
+.modal-copy-btn{background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .12s;font-family:inherit}
+.modal-copy-btn:hover{background:#374151}.modal-copy-btn.copied{background:#16a34a}
+.modal-pdf-btn{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit}
+.modal-pdf-btn:hover{background:#dcfce7}
+.modal-dl-btn{background:#fafafa;color:#374151;border:1px solid #e8e8e5;border-radius:6px;padding:7px 14px;font-size:12px;text-decoration:none;font-weight:500}
+.modal-dl-btn:hover{background:#f3f4f6}
+.footer{padding:14px 40px;color:#9ca3af;font-size:11px;border-top:1px solid #e8e8e5;margin-top:4px}
+.empty-state{color:#9ca3af;font-size:13px;padding:32px;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>🚀 Job Apply <span>Dashboard</span></h1>
+    <p>Mis à jour le 09/06/2026 à 18:48 · Gregoire Linée</p>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card"><div class="stat-value">64</div><div class="stat-label">Offres scrapées</div></div>
+  <div class="stat-card"><div class="stat-value">64</div><div class="stat-label">Analysées</div></div>
+  <div class="stat-card"><div class="stat-value">4.8</div><div class="stat-label">Score moyen</div></div>
+  <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">Docs générés</div></div>
+  <div class="stat-card"><div class="postule-count" id="postule-stat">0</div><div class="stat-label">✅ Postulé</div></div>
+</div>
+
+<!-- ── Table principale : offres à traiter ── -->
+<div class="section">
+  <div class="section-header">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="section-title">📋 Offres à envoyer</span>
+      <span class="section-count" id="pending-count"></span>
+    </div>
+    <div class="filters">
+      <input class="search" type="text" id="search" placeholder="Rechercher..." oninput="applyFilters()">
+      <button class="filter-btn active" onclick="setFilter('all',this)">Toutes</button>
+      <button class="filter-btn" onclick="setFilter('score8',this)">🔥 ≥ 8</button>
+      <button class="filter-btn" onclick="setFilter('score6',this)">✅ ≥ 6</button>
+      <button class="filter-btn" onclick="setFilter('docs',this)">📄 Docs</button>
+      <button class="filter-btn" onclick="setFilter('postule',this)">✅ Postulé</button>
+      <button class="filter-btn" onclick="setFilter('notpostule',this)">⏳ À envoyer</button>
+      <button class="filter-btn" style="color:#0ea5e9;border-color:#0369a1" onclick="setFilter('linkedin',this)">in LinkedIn</button>
+      <button class="filter-btn" style="color:#34d399;border-color:#065f46" onclick="setFilter('wttj',this)">🌿 WTTJ</button>
+      <button class="filter-btn" style="color:#c084fc;border-color:#7c3aed" onclick="setFilter('spon',this)">✦ Spontanées</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Entreprise</th><th>Poste</th><th>Fit</th><th>Actions</th><th>✓</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="jobs-body">
+        <tr class="job-row row-linkedin" data-score="9" data-id="This is Growth|Chief of Staff (SaaS Vendor) || 60-90k base plus Equity" data-url="https://fr.linkedin.com/jobs/view/chief-of-staff-saas-vendor-60-90k-base-plus-equity-at-this-is-growth-4413416149" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">47</td>
+          <td><strong>This is Growth</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Chief of Staff (SaaS Vendor) || 60-90k base plus Equity</td>
+          <td><span class="badge bg">9/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/chief-of-staff-saas-vendor-60-90k-base-plus-equity-at-this-is-growth-4413416149" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="This is Growth|Chief of Staff (SaaS Vendor) || 60-90k base plus Equity" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="This is Growth|Chief of Staff (SaaS Vendor) || 60-90k base plus Equity" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Chief of Staff pour une SaaS en seed stage (12 personnes), rôle de fondateur proxy touchant GTM, operations, product et hiring. Véritable opportunité de leadership avec trajectoire accélérée vers COO/VP.</p><p><strong>Pourquoi intéressant :</strong> Parfait fit pour Gregoire : rôle d'opérateur avec ownership réel sur product/GTM/ops, compatible avec son expérience fondateur et ses compétences growth. Accélérateur de carrière vers COO/founder avec equity upside.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Foodles|Rev Ops F/H" data-url="https://fr.linkedin.com/jobs/view/rev-ops-f-h-at-foodles-4425992706" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">2</td>
+          <td><strong>Foodles</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Rev Ops F/H</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/rev-ops-f-h-at-foodles-4425992706" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Foodles|Rev Ops F/H" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Foodles|Rev Ops F/H" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Sales Operations Lead piloter et structurer les outils, données et processus GTM chez Foodles pour soutenir la croissance des équipes commerciales B2B. Rôle nouveau combinant administration CRM, data/reporting et déploiement d'IA avec un manager expérimenté.</p><p><strong>Pourquoi intéressant :</strong> Poste d'ops pur en hyper-croissance avec levier immédiat sur les processus GTM et déploiement IA au cœur de la stratégie. Manager expérimenté et équipe transverse stimulante pour progresser rapidement en tant que mid-level ops.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Odaseva|Product Manager" data-url="https://fr.linkedin.com/jobs/view/product-manager-at-odaseva-4425921187" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">4</td>
+          <td><strong>Odaseva</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-at-odaseva-4425921187" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Odaseva|Product Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Odaseva|Product Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager en charge de la gestion des produits de sécurité et données chez Odaseva, une scale-up B2B SaaS leader en data resilience et compliance Salesforce. Le rôle combine vision produit, collaboration engineering et GTM.</p><p><strong>Pourquoi intéressant :</strong> Excellent fit pour Grégoire : scale-up en croissance rapide où il peut appliquer son expertise product/GTM/growth dans un contexte B2B SaaS complexe avec une user base massive. Le rôle offre une vraie influence stratégique et la possibilité de façonner une plateforme data à forte demande.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="STATION F|AI AUTOMATION ENGINEER" data-url="https://fr.linkedin.com/jobs/view/ai-automation-engineer-at-station-f-4424677805" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">8</td>
+          <td><strong>STATION F</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">AI AUTOMATION ENGINEER</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ai-automation-engineer-at-station-f-4424677805" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="STATION F|AI AUTOMATION ENGINEER" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="STATION F|AI AUTOMATION ENGINEER" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur en charge de l'intégration de l'IA et de l'automation dans tous les aspects de l'entreprise Sekoia.io. Vous combinerez engineering hands-on, gestion de projet et guidance technique pour créer des solutions innovantes aux côtés des utilisateurs finaux.</p><p><strong>Pourquoi intéressant :</strong> Poste parfait pour un founder product/ops avec expertise en AI et automation - l'opportunité de structurer une fonction émergente chez Sekoia.io dans un contexte de cybersécurité innovant. Combine engineering, product thinking et impact direct utilisateurs, idéal pour quelqu'un venant d'une startup scalée.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Sekoia.io|AI Automation Engineer" data-url="https://fr.linkedin.com/jobs/view/ai-automation-engineer-at-sekoia-io-4422075531" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">23</td>
+          <td><strong>Sekoia.io</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">AI Automation Engineer</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ai-automation-engineer-at-sekoia-io-4422075531" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Sekoia.io|AI Automation Engineer" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Sekoia.io|AI Automation Engineer" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur en automatisation et IA chargé de concevoir et déployer des solutions d'automation et de workflows IA au sein de l'équipe IT & Security. Le rôle combine engineering technique, gestion de projets et accompagnement des utilisateurs finaux.</p><p><strong>Pourquoi intéressant :</strong> Ce rôle offre l'opportunité de piloter l'intégration de l'IA et l'automation à l'échelle d'une entreprise tech, combinant product thinking avec engineering pratique. C'est une excellente transition post-startup pour monétiser son expertise en AI/automation et ops dans une structure établie.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Alan|Ops & Product Builder" data-url="https://fr.linkedin.com/jobs/view/ops-product-builder-at-alan-4379052836" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">32</td>
+          <td><strong>Alan</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Ops & Product Builder</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ops-product-builder-at-alan-4379052836" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Alan|Ops & Product Builder" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Alan|Ops & Product Builder" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Rejoindre l'équipe Ops d'Alan pour piloter des projets complexes de transformation opérationnelle et de scaling, en travaillant sur des défis majeurs comme la prévention en santé et l'optimisation des processus d'assurance. Rôle hybride Ops & Product pour quelqu'un avec un mindset entrepreneurial capable de disrupter les modèles traditionnels.</p><p><strong>Pourquoi intéressant :</strong> Poste idéal pour un founder/product builder cherchant à rejoindre une scale-up à fort impact : combinaison Ops & Product, autonomie totale, défis multiples (fraud, healthcare operations, international scaling) alignés avec expertise en automation et growth. Entreprise en hypercroissance avec des enjeux opérationnels complexes où faire la différence rapidement.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Joko|Offer Operations Lead" data-url="https://fr.linkedin.com/jobs/view/offer-operations-lead-at-joko-4390377940" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">53</td>
+          <td><strong>Joko</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Offer Operations Lead</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/offer-operations-lead-at-joko-4390377940" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Joko|Offer Operations Lead" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Joko|Offer Operations Lead" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Diriger la création d'une nouvelle équipe Offer Operations chez Joko pour garantir la fiabilité des mécaniques de monétisation (tracking affiliate, coupons, paiements par carte). Rôle fondateur qui combine opérations, data et leadership, travaillant directement avec le COO.</p><p><strong>Pourquoi intéressant :</strong> Rôle fondateur d'une nouvelle fonction au cœur de la monétisation avec leadership immédiat, fusion parfaite des compétences ops/product/data de Grégoire. Environnement hypergrowth (scaling global) idéal pour un entrepreneur cherchant une scale-up avec traction et modèle économique validé.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="sunday|Product Manager" data-url="https://fr.linkedin.com/jobs/view/product-manager-at-sunday-4407027765" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">54</td>
+          <td><strong>sunday</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-at-sunday-4407027765" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="sunday|Product Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="sunday|Product Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager owning high-impact product areas end-to-end chez sunday, une fintech de paiement restaurant en croissance rapide. Le rôle combine stratégie produit, data-driven decision making et alignment stakeholders pour maximiser l'impact business (tips, conversion, reliability).</p><p><strong>Pourquoi intéressant :</strong> Excellent match pour un fondateur product-driven : rôle d'impact immédiat sur metrics business concrètes, environnement fast-moving avec ambiguïté structurée, et opportunité de combiner product strategy avec operational excellence dans un space (restaurant tech + payments) à fort potentiel de croissance.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Fabulous|Product Manager" data-url="https://fr.linkedin.com/jobs/view/product-manager-at-fabulous-4410027744" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">56</td>
+          <td><strong>Fabulous</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-at-fabulous-4410027744" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Fabulous|Product Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Fabulous|Product Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager chez Fabulous, une app de santé et bien-être basée sur l'économie comportementale. Le rôle consiste à définir la vision produit, travailler directement avec le CEO et piloter le roadmap à travers une approche data-driven et centrée utilisateur.</p><p><strong>Pourquoi intéressant :</strong> Poste parfaitement aligné avec le profil: experience fondateur B2B2C marketplace, compétences product/growth/data et sensibilité aux user insights. L'approche data-driven et l'ambiguïté startup rappellent Gare ta Bécane, avec une opportunité de diriger le produit à impact global d'une app top 10.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="8" data-id="Joko|Operations Manager, Care Operations" data-url="https://fr.linkedin.com/jobs/view/operations-manager-care-operations-at-joko-4379266475" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">57</td>
+          <td><strong>Joko</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Operations Manager, Care Operations</td>
+          <td><span class="badge bg">8/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/operations-manager-care-operations-at-joko-4379266475" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Joko|Operations Manager, Care Operations" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Joko|Operations Manager, Care Operations" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager opérationnel au sein de l'équipe Care Operations de Joko, responsable de la définition et optimisation des processus opérationnels, de la gestion des partenaires BPO et du scaling d'un agent IA. Rôle clé pour assurer une expérience utilisateur de qualité tout en pilotant des améliorations continues basées sur les données.</p><p><strong>Pourquoi intéressant :</strong> Poste offrant ownership end-to-end sur des operations à fort impact avec scaling d'IA et gestion d'automation, exactement aligné avec expertise ops/AI de Grégoire. Opportunité de monter une fonction ops de zéro dans un scaleup profitable avec une belle traction (6M users).</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="7" data-id="Parallel|Operations Associate" data-url="https://fr.linkedin.com/jobs/view/operations-associate-at-parallel-4424225720" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">15</td>
+          <td><strong>Parallel</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Operations Associate</td>
+          <td><span class="badge my">7/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/operations-associate-at-parallel-4424225720" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Parallel|Operations Associate" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Parallel|Operations Associate" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Operations Associate chargé de mettre en place et optimiser les processus opérationnels pour soutenir la croissance d'une startup deeptech en santé. Le rôle combine gestion de clients (hôpitaux français), analytics et collaboration produit/tech pour assurer une excellente expérience utilisateur.</p><p><strong>Pourquoi intéressant :</strong> Rôle d'Ops stratégique et transverse dans une deeptech santé (secteur à fort impact), combinant gestion clients, analytics et collaboration produit/tech - parfait pour leverager ta background Product/Ops/Growth. Contexte startup B2B en croissance similaire à ton expérience chez Gare ta Bécane.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="7" data-id="Lydia – Sumeria|AI Automation Engineer F/H" data-url="https://fr.linkedin.com/jobs/view/ai-automation-engineer-f-h-at-lydia-4417895213" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">31</td>
+          <td><strong>Lydia – Sumeria</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">AI Automation Engineer F/H</td>
+          <td><span class="badge my">7/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ai-automation-engineer-f-h-at-lydia-4417895213" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Lydia – Sumeria|AI Automation Engineer F/H" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Lydia – Sumeria|AI Automation Engineer F/H" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Engineer spécialisé dans la conception et implémentation de systèmes d'automatisation interne et d'outils IA pour structurer une plateforme scalable à l'échelle de l'entreprise. Rôle stratégique combinant software engineering, no-code orchestration (n8n) et intégration d'IA.</p><p><strong>Pourquoi intéressant :</strong> Poste idéal pour quelqu'un avec background founding/ops : vous structurez une plateforme d'automatisation pour une scale-up financière en croissance, combinant product thinking, ops automation et AI—exactement vos points forts. Opportunité de créer des systèmes robustes et maintenables vs des scripts ad-hoc.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="7" data-id="Agorastore|Operations Manager" data-url="https://fr.linkedin.com/jobs/view/operations-manager-at-agorastore-4353485106" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">44</td>
+          <td><strong>Agorastore</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Operations Manager</td>
+          <td><span class="badge my">7/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/operations-manager-at-agorastore-4353485106" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Agorastore|Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Agorastore|Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager opérationnel pilotant une équipe pluridisciplinaire de 7 personnes sur une plateforme d'enchères d'actifs publics. Responsable simultanément de la délivrance opérationnelle quotidienne et de l'amélioration continue des processus.</p><p><strong>Pourquoi intéressant :</strong> Poste d'ops/management pur permettant de scaler une organisation rapidement dans un secteur niche à fort potentiel. Excellente opportunité pour quelqu'un ayant fondé une marketplace et cherchant à structurer des processus complexes tout en restant dans un rôle opérationnel impactant.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="6" data-id="TestCorp|Operations Manager" data-url="https://example.com/smoke-ops-1" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">1</td>
+          <td><strong>TestCorp</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Operations Manager</td>
+          <td><span class="badge my">6/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://example.com/smoke-ops-1" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="TestCorp|Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="TestCorp|Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Pilotage des opérations quotidiennes et optimisation des processus pour une équipe réduite. Collaboration avec les parties prenantes pour améliorer les KPIs et l'efficacité opérationnelle.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de piloter des opérations en direct et potentiellement appliquer des solutions d'automation. Contexte moins startup qu'une création d'entreprise mais avec une vraie autonomie opérationnelle.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="6" data-id="Amplee|Consultant(e) Salesforce / Product Builder" data-url="https://fr.linkedin.com/jobs/view/consultant-e-salesforce-product-builder-at-amplee-salesforce-partner-4426303979" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">3</td>
+          <td><strong>Amplee</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Consultant(e) Salesforce / Product Builder</td>
+          <td><span class="badge my">6/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/consultant-e-salesforce-product-builder-at-amplee-salesforce-partner-4426303979" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Amplee|Consultant(e) Salesforce / Product Builder" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Amplee|Consultant(e) Salesforce / Product Builder" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Consultant Salesforce / Product Builder intervenant en avant-vente et missions clients pour accompagner PME/ETI/scale-ups dans la structuration de leurs équipes commerciales via Salesforce et l'automatisation. Rôle hybride combinant conseil, implémentation CRM et construction de solutions internes.</p><p><strong>Pourquoi intéressant :</strong> Poste idéal pour un product builder entrepreneurial avec expérience start-up : combinaison de consulting client, automation/no-code et construction de produits internes. Environ 30% sous les attentes salariales (40-50k vs 60-70k demandé), mais offre forte exposition aux outils modernes (no-code, IA) et contexte d'hypercroissance.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="6" data-id="Dashlane|Product Manager" data-url="https://fr.linkedin.com/jobs/view/product-manager-at-dashlane-4395433972" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">49</td>
+          <td><strong>Dashlane</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager</td>
+          <td><span class="badge my">6/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-at-dashlane-4395433972" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Dashlane|Product Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Dashlane|Product Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager responsable de la roadmap pour les fonctionnalités clés de protection des credentials chez Dashlane, un leader mondial de la sécurité des identifiants. Le rôle combine strategy, customer insights et shipping rapide dans un environnement où l'IA est centrale.</p><p><strong>Pourquoi intéressant :</strong> Le rôle offre l'opportunité de travailler sur un produit stratégique avec impact direct, dans une company solide avec ressources importantes, tout en explorant l'IA pour la sécurité et les opérations. L'envergure globale et la maturité de Dashlane permettraient à Grégoire de déployer ses compétences en product strategy et AI/automation à plus grande échelle.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin" data-score="6" data-id="Silae|Business Operations Manager" data-url="https://fr.linkedin.com/jobs/view/business-operations-manager-at-silae-4407333514" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">52</td>
+          <td><strong>Silae</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Business Operations Manager</td>
+          <td><span class="badge my">6/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/business-operations-manager-at-silae-4407333514" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Silae|Business Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Silae|Business Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Senior Business Operations Manager chargé de structurer et accélérer la machine commerciale de Silae (leader français du logiciel de paie SaaS). Pilotage de la performance revenue, design des processus GTM et analytics stratégiques pour un centaure de 450 personnes.</p><p><strong>Pourquoi intéressant :</strong> Poste permettant de mettre en œuvre l'expertise product/ops/growth de Gregoire sur une belle scale (SaaS B2B, 450 personnes, multisite). Opportunité rare de structurer la machine revenue d'un leader technologique français soutenu par un grand fonds, combinant GTM strategy, data analytics et automation — parfait fit avec son profil multi-compétences.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Harmattan AI|Automation Software Engineer" data-url="https://fr.linkedin.com/jobs/view/automation-software-engineer-at-harmattan-ai-4318590121" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">6</td>
+          <td><strong>Harmattan AI</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Automation Software Engineer</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/automation-software-engineer-at-harmattan-ai-4318590121" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Harmattan AI|Automation Software Engineer" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Harmattan AI|Automation Software Engineer" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur en automatisation logicielle chargé de concevoir et développer des plateformes de test et d'inspection automatisés pour systèmes de défense autonomes. Rôle R&D combinant développement Python, intégration hardware et collaboration multidisciplinaire.</p><p><strong>Pourquoi intéressant :</strong> Poste tech pur à forte charge d'impact (défense/autonomie), combinant Python/automation avec hardware—aligné avec expertise AI/Automation du candidat. Environnement scale-up post-Series B offrant ownership réel sur systèmes critiques.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Theodo|Product Manager Junior - CDI Paris - Theodo Apps" data-url="https://fr.linkedin.com/jobs/view/product-manager-junior-cdi-paris-theodo-apps-at-theodo-4305553505" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">19</td>
+          <td><strong>Theodo</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager Junior - CDI Paris - Theodo Apps</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-junior-cdi-paris-theodo-apps-at-theodo-4305553505" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Theodo|Product Manager Junior - CDI Paris - Theodo Apps" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Theodo|Product Manager Junior - CDI Paris - Theodo Apps" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager Junior chez Theodo Apps, accompagnant des équipes dans la conception et le déploiement d'applications multiplateformes pour des clients variés (startups, PME, grands groupes). Le rôle combine priorisation produit, gestion de projet Lean et collaboration client étroite.</p><p><strong>Pourquoi intéressant :</strong> Excellente opportunité pour acquérir de l'expérience en Product Management sur des projets d'envergure avec de grands clients, tout en bénéficiant d'un mentorat d'un Lead PM. L'exposition à différentes problématiques tech et industries offre une montée en compétences rapide.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Cainiao Group|Pick‑Up Operations Manager" data-url="https://fr.linkedin.com/jobs/view/pick%E2%80%91up-operations-manager-at-cainiao-group-4370636583" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">21</td>
+          <td><strong>Cainiao Group</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Pick‑Up Operations Manager</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/pick%E2%80%91up-operations-manager-at-cainiao-group-4370636583" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Cainiao Group|Pick‑Up Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Cainiao Group|Pick‑Up Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Operations Manager responsable de la gestion quotidienne d'un réseau de points de retrait colis en France pour Cainiao (Alibaba Logistics). Leadership d'équipes terrain et optimisation continue des opérations pour garantir une expérience client sans faille.</p><p><strong>Pourquoi intéressant :</strong> Ce rôle combine ops/scaling (expertise d'Gregoire chez Gare ta Bécane) avec une dimension réseau B2B2C similaire. Cependant, c'est un rôle très opérationnel/terrain vs stratégique product, risque de sous-utiliser les compétences AI/automation et vision produit.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Lydia – Sumeria|Operations Manager F/H" data-url="https://fr.linkedin.com/jobs/view/operations-manager-f-h-at-lydia-4421700691" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">24</td>
+          <td><strong>Lydia – Sumeria</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Operations Manager F/H</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/operations-manager-f-h-at-lydia-4421700691" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Lydia – Sumeria|Operations Manager F/H" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Lydia – Sumeria|Operations Manager F/H" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Operations Manager au sein de Lydia-Sumeria, tu piloteras l'amélioration continue des opérations à travers l'analyse, la structuration de processus et l'automatisation. Tu travailleras en transversal avec les équipes Produit, Data, Finance et Compliance pour optimiser la performance operationnelle.</p><p><strong>Pourquoi intéressant :</strong> Poste opérationnel stratégique dans une fintech en croissance avec fort potentiel d'automatisation/AI et gestion d'équipes transverses. Contexte bancaire réglementé offre des défis opérationnels complexes alignés avec ton profil product/ops.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Joseph Joseph Ltd|Country Manager - France" data-url="https://fr.linkedin.com/jobs/view/country-manager-france-at-joseph-joseph-ltd-4418828938" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">27</td>
+          <td><strong>Joseph Joseph Ltd</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Country Manager - France</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/country-manager-france-at-joseph-joseph-ltd-4418828938" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Joseph Joseph Ltd|Country Manager - France" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Joseph Joseph Ltd|Country Manager - France" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Country Manager France pour Joseph Joseph, leader mondial des accessoires de maison design. Vous piloterez l'équipe parisienne et serez responsable de la stratégie commerciale, du P&L et de la croissance du marché français.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de piloter une branche complète (P&L, équipe, stratégie) d'une marque premium établie avec forte croissance potentielle. Le rôle combine product, GTM et ops - aligné avec vos compétences entrepreneuriales et votre expérience de scale-up.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="LG Electronics France|Product Manager - H/F" data-url="https://fr.linkedin.com/jobs/view/product-manager-h-f-at-lg-electronics-france-4415218711" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">30</td>
+          <td><strong>LG Electronics France</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager - H/F</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-h-f-at-lg-electronics-france-4415218711" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="LG Electronics France|Product Manager - H/F" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="LG Electronics France|Product Manager - H/F" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager pour la gamme électroménager encastrable chez LG Electronics France, responsable de la politique produit et du go-to-market. Rôle hybride combinant stratégie produit (50%) et mise en œuvre opérationnelle (50%).</p><p><strong>Pourquoi intéressant :</strong> Opportunité d'appliquer ses compétences en product management et GTM au sein d'un grand groupe international avec un rôle concret de gestion produit. Le contexte d'entreprise établie offre stabilité et visibilité tout en permettant d'impacter directement une gamme de produits française.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="CHANEL|E-services Product Manager (H/F)" data-url="https://fr.linkedin.com/jobs/view/e-services-product-manager-h-f-at-chanel-4416163847" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">37</td>
+          <td><strong>CHANEL</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">E-services Product Manager (H/F)</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/e-services-product-manager-h-f-at-chanel-4416163847" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="CHANEL|E-services Product Manager (H/F)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="CHANEL|E-services Product Manager (H/F)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Product Manager senior en charge de la vision et de la roadmap des eServices de Chanel en Europe (réservation, gestion des files, événements clients). Le rôle pilote le développement produit scalable dans une stratégie omnicanale complexe avec gouvernance multi-stakeholders.</p><p><strong>Pourquoi intéressant :</strong> Poste stratégique dans une marque de prestige avec forte complexité opérationnelle (multi-marchés, gouvernance, omnicanal) offrant une vraie dimension de leadership produit. Excellent pour monter en seniority et explorer le secteur luxe/retail après une expérience de fondateur.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="HADDAD BRANDS EUROPE|Business Operations Manager" data-url="https://fr.linkedin.com/jobs/view/business-operations-manager-at-haddad-brands-europe-4415104542" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">40</td>
+          <td><strong>HADDAD BRANDS EUROPE</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Business Operations Manager</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/business-operations-manager-at-haddad-brands-europe-4415104542" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="HADDAD BRANDS EUROPE|Business Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="HADDAD BRANDS EUROPE|Business Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Business Operations Manager chargé d'aligner les besoins métiers (Finance, Supply Chain, Retail) avec les solutions IT et de piloter la gouvernance des processus dans un groupe européen de distribution textile. Rôle clé de coordination entre IT et métiers pour optimiser la valeur business et réduire les risques.</p><p><strong>Pourquoi intéressant :</strong> Poste d'ops stratégique dans un groupe européen en forte croissance avec une vraie complexité métier (multi-géographies, multi-canaux wholesale/retail), permettant de valoriser l'expérience GTM et ops de Grégoire tout en acquérant de l'expertise en SI et transformation digitale à l'échelle entreprise.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Streem Energy|Customer Operations manager DE" data-url="https://fr.linkedin.com/jobs/view/customer-operations-manager-de-at-streem-energy-4415336933" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">41</td>
+          <td><strong>Streem Energy</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Customer Operations manager DE</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/customer-operations-manager-de-at-streem-energy-4415336933" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Streem Energy|Customer Operations manager DE" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Streem Energy|Customer Operations manager DE" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Customer Operations Manager pour le marché allemand chez Streem Energy, une SaaS de gestion d'actifs en énergie renouvelable. Premier membre de l'équipe ops en Allemagne, vous supporterez les clients dans l'utilisation quotidienne de la plateforme.</p><p><strong>Pourquoi intéressant :</strong> Le rôle combine operations, customer success et automation dans une scale-up deep tech du secteur énergétique en croissance. Excellente opportunité pour développer une fonction ops from scratch sur un nouveau marché.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Bacha Coffee|Deputy General Manager Operations" data-url="https://fr.linkedin.com/jobs/view/deputy-general-manager-operations-at-bacha-coffee-4414591435" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">43</td>
+          <td><strong>Bacha Coffee</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Deputy General Manager Operations</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/deputy-general-manager-operations-at-bacha-coffee-4414591435" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Bacha Coffee|Deputy General Manager Operations" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Bacha Coffee|Deputy General Manager Operations" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Pilote opérationnel pour la filiale France de Bacha Coffee, responsable de la gestion quotidienne des boutiques, coffee rooms et de la chaîne d'approvisionnement. Leadership d'équipe et expansion multi-sites dans un contexte de croissance agressive.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de mettre à l'échelle une opération retail multi-pays en croissance rapide avec une vraie dimension d'optimisation opérationnelle (processus, coûts, supply chain). Contexte startup-like d'expansion agressive.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="SymphonyAI|Customer Success Manager" data-url="https://fr.linkedin.com/jobs/view/customer-success-manager-at-symphonyai-4375141988" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">50</td>
+          <td><strong>SymphonyAI</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Customer Success Manager</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/customer-success-manager-at-symphonyai-4375141988" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="SymphonyAI|Customer Success Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="SymphonyAI|Customer Success Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Customer Success Manager pour portefeuille de clients enterprise retail/CPG en EMEA, responsable de la rétention, de l'expansion commerciale et de la réalisation de valeur. Rôle stratégique combinant gestion de compte, négociation et conseil en AI/analytics.</p><p><strong>Pourquoi intéressant :</strong> Grégoire pourrait tirer parti de son expérience produit/GTM et sa compréhension d'AI pour exceller dans ce rôle, tout en apprenant les dynamiques enterprise SaaS et retail. L'aspect commercial et stratégique plaît aux founders en transition.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="5" data-id="Tigermilk Group|Responsable des Opérations" data-url="https://fr.linkedin.com/jobs/view/responsable-des-op%C3%A9rations-at-tigermilk-group-4389317773" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">58</td>
+          <td><strong>Tigermilk Group</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Responsable des Opérations</td>
+          <td><span class="badge rd">5/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/responsable-des-op%C3%A9rations-at-tigermilk-group-4389317773" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Tigermilk Group|Responsable des Opérations" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Tigermilk Group|Responsable des Opérations" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable des Opérations pour 4-5 restaurants Tigermilk, garant de la performance financière et opérationnelle (CA, satisfaction client, food cost, plannings). Rôle managérial impliquant terrain régulier et supervision directe des managers de sites.</p><p><strong>Pourquoi intéressant :</strong> Poste d'ops dans un environnement growth avec scaling international, permettant de transférer expertise d'automatisation et d'optimisation acquise chez Gare ta Bécane à une chaîne structurante. Leadership d'équipes et responsabilité directe sur métriques clés.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Loewe|WRTW Pre collection Product Development Manager" data-url="https://fr.linkedin.com/jobs/view/wrtw-pre-collection-product-development-manager-at-loewe-4419614279" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">17</td>
+          <td><strong>Loewe</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">WRTW Pre collection Product Development Manager</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/wrtw-pre-collection-product-development-manager-at-loewe-4419614279" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Loewe|WRTW Pre collection Product Development Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Loewe|WRTW Pre collection Product Development Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager du développement de collections pré-lancement pour la marque de luxe Loewe, responsable du suivi complet des créations du design à la production. Rôle centré sur la coordination technique, la gestion des fournisseurs et l'optimisation des coûts en environnement de mode haut de gamme.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de rejoindre une maison de luxe prestigieuse avec un rôle à forte responsabilité opérationnelle et business. Excellente visibilité sur les processus d'optimisation coûts, gestion de fournisseurs complexes et outils PLM - domaines transversables à tout secteur.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="American Express Global Business Travel|Product Manager Intern" data-url="https://fr.linkedin.com/jobs/view/product-manager-intern-at-american-express-global-business-travel-4419245927" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">18</td>
+          <td><strong>American Express Global Business Travel</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Product Manager Intern</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/product-manager-intern-at-american-express-global-business-travel-4419245927" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="American Express Global Business Travel|Product Manager Intern" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="American Express Global Business Travel|Product Manager Intern" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Stagiaire Product Manager avec focus Business Analyst chez Amex GBT, contribuant au développement de produits data et BI. Vous supporterez les Product Managers dans l'exécution de la vision produit en analysant les besoins clients et en traduisant les requirements en spécifications fonctionnelles.</p><p><strong>Pourquoi intéressant :</strong> Expérience structurante dans une grande entreprise mondiale avec exposition immédiate au product management, data analytics et méthodologies agiles. Excellente opportunité de monter en compétences avant de lancer votre prochain projet entrepreneurial.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="TikTok|Logistics Operations Manager, France, TikTok Shop" data-url="https://fr.linkedin.com/jobs/view/logistics-operations-manager-france-tiktok-shop-at-tiktok-4418347407" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">22</td>
+          <td><strong>TikTok</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Logistics Operations Manager, France, TikTok Shop</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/logistics-operations-manager-france-tiktok-shop-at-tiktok-4418347407" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="TikTok|Logistics Operations Manager, France, TikTok Shop" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="TikTok|Logistics Operations Manager, France, TikTok Shop" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager des opérations logistiques pour TikTok Shop en France, responsable de la performance globale de la chaîne logistique et des relations stratégiques avec les prestataires. Le rôle exige une relocalisation à Madrid pour rejoindre l'équipe logistique EU.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de scale une opération logistique complexe pour une plateforme e-commerce majeure en Europe avec accès à des données et des problèmes opérationnels sophistiqués. Le profil d'entrepreneur avec expérience ops et automation apporterait une perspective précieuse.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Fluigent|Responsable des Opérations H/F" data-url="https://fr.linkedin.com/jobs/view/responsable-des-op%C3%A9rations-h-f-at-fluigent-4417971025" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">25</td>
+          <td><strong>Fluigent</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Responsable des Opérations H/F</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/responsable-des-op%C3%A9rations-h-f-at-fluigent-4417971025" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Fluigent|Responsable des Opérations H/F" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Fluigent|Responsable des Opérations H/F" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable des Opérations pilotant les flux ADV, Achats, Approvisionnement et Logistique dans un environnement de production mixte. Encadrement d'une équipe de 5 personnes et gestion de la planification industrielle et commerciale.</p><p><strong>Pourquoi intéressant :</strong> Poste d'ops structurant dans une PME innovante offrant une expérience solide en supply chain et management d'équipe. Excellente opportunité pour approfondir les compétences opérationnelles au-delà du product/growth.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Malt|Strategic Account Executive" data-url="https://fr.linkedin.com/jobs/view/strategic-account-executive-at-malt-4401441933" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">26</td>
+          <td><strong>Malt</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Strategic Account Executive</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/strategic-account-executive-at-malt-4401441933" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Malt|Strategic Account Executive" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Malt|Strategic Account Executive" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable de la vente entreprise chargé de piloter des cycles d'acquisition complexes end-to-end auprès de grandes entreprises en France. Vous orchestrerez les stratégies commerciales, négocierez des contrats high-stakes et piloterez la croissance prévisible de Malt à l'échelle enterprise.</p><p><strong>Pourquoi intéressant :</strong> Poste stratégique dans une marketplace B2B établie avec forte croissance, combinant GTM et product strategy. Opportunité de monter en compétences sales enterprise tout en restant en écosystème scaling français.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Loewe|Paulas Collections and Capsules Product Development Manager" data-url="https://fr.linkedin.com/jobs/view/paula-s-collections-and-capsules-product-development-manager-at-loewe-4416814881" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">28</td>
+          <td><strong>Loewe</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Paula's Collections and Capsules Product Development Manager</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/paula-s-collections-and-capsules-product-development-manager-at-loewe-4416814881" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Loewe|Paulas Collections and Capsules Product Development Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Loewe|Paulas Collections and Capsules Product Development Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager du développement des collections Paula's chez Loewe, responsable de l'évolution des collections de vêtements du studio à la production. Rôle transversal combinant gestion de projet, coordination avec les manufacturiers et suivi budgétaire.</p><p><strong>Pourquoi intéressant :</strong> Poste permettant de maîtriser la gestion de produit complexe en environnement luxury avec coordination multi-équipes, data management (PLM) et optimisation opérationnelle. Excellente opportunité pour capitaliser sur l'expérience ops d'un founder dans un contexte corporate structuré.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="JD.COM|DSP Operations Manager" data-url="https://fr.linkedin.com/jobs/view/dsp-operations-manager-at-jd-com-4416501761" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">33</td>
+          <td><strong>JD.COM</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">DSP Operations Manager</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/dsp-operations-manager-at-jd-com-4416501761" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="JD.COM|DSP Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="JD.COM|DSP Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager opérationnel chargé de la gestion quotidienne des fournisseurs de services de livraison (DSP) chez JD.com. Responsable de la coordination logistique, du respect des KPI et de la conformité réglementaire européenne.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de rejoindre un géant global avec responsabilité opérationnelle directe en logistique et scaling, mais requiert expertise DSP spécialisée. Le rôle offre peu de leverage product/automation par rapport aux aspirations de Grégoire.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Malt|Team Lead - Public Sector" data-url="https://fr.linkedin.com/jobs/view/team-lead-public-sector-at-malt-4376437681" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">34</td>
+          <td><strong>Malt</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Team Lead - Public Sector</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/team-lead-public-sector-at-malt-4376437681" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Malt|Team Lead - Public Sector" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Malt|Team Lead - Public Sector" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Piloter et développer une équipe de Key Account Managers spécialisée dans le secteur public chez Malt, marketplace européenne de freelances. Mission : devenir le partenaire de référence des organisations publiques tout en alignant la croissance avec la stratégie Enterprise globale.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de diriger une verticale stratégique en hypercroissance chez une scale-up européenne de référence, avec une équipe établie et l'accès à des décideurs publics influents. Excellente visibilité sur la stratégie Enterprise et les dynamics de négociation complexes B2B2C.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Pismo|Sales Engineering Manager - Value Added Services, Issuing Solutions" data-url="https://fr.linkedin.com/jobs/view/sales-engineering-manager-value-added-services-issuing-solutions-at-pismo-4417740958" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">35</td>
+          <td><strong>Pismo</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Sales Engineering Manager - Value Added Services, Issuing Solutions</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/sales-engineering-manager-value-added-services-issuing-solutions-at-pismo-4417740958" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Pismo|Sales Engineering Manager - Value Added Services, Issuing Solutions" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Pismo|Sales Engineering Manager - Value Added Services, Issuing Solutions" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager en charge de la stratégie de vente technique pour la plateforme Pismo (issuing et core payments) auprès des banques et fintechs européennes. Rôle hybride combinant expertise produit, architecture solutions et leadership d'équipes cross-fonctionnelles pour des deals complexes multi-produits.</p><p><strong>Pourquoi intéressant :</strong> Poste clé combinant product strategy, technical architecture et go-to-market pour une plateforme moderne en payments. Excellente opportunité d'impact à grande échelle avec une entreprise fortement investie en AI/automation et modernisation technologique.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Wellhub|People Operations Specialist" data-url="https://fr.linkedin.com/jobs/view/people-operations-specialist-at-wellhub-4415922173" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">39</td>
+          <td><strong>Wellhub</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">People Operations Specialist</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/people-operations-specialist-at-wellhub-4415922173" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Wellhub|People Operations Specialist" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Wellhub|People Operations Specialist" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Pilote opérationnel RH responsable de la gestion end-to-end du cycle de vie des collaborateurs, incluant paie, avantages, onboarding et conformité légale. Rôle d'exécution opérationnelle chez Wellhub, plateforme mondiale de wellness.</p><p><strong>Pourquoi intéressant :</strong> Poste opérationnel chez une scale-up mondiale avec opportunités claires d'automatisation et d'optimisation process. Basé à Paris avec potentiel de croissance dans une organisation en hypercroissance.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Raison|Founders Associate (Internship)" data-url="https://fr.linkedin.com/jobs/view/founders-associate-internship-at-raison-4412017524" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">42</td>
+          <td><strong>Raison</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Founders Associate (Internship)</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/founders-associate-internship-at-raison-4412017524" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Raison|Founders Associate (Internship)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Raison|Founders Associate (Internship)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Poste de stagiaire Founder Associate auprès des deux fondateurs de Raison pour contribuer à la stratégie de go-to-market, l'analytics produit et les opérations. Rôle polyvalent et hautement exposé aux décisions stratégiques dans un environnement de scale-up edtech.</p><p><strong>Pourquoi intéressant :</strong> Ce poste offre une exposition directe à la stratégie produit et growth d'une startup edtech en scaling, parfait pour quelqu'un avec ton expérience de founder cherchant à approfondir son expertise en ops/growth. C'est une opportunité rare d'apprendre auprès de deux fondateurs tout en contribuant à des décisions business impactantes.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Perrotin|Chief Operating Officer EMEA" data-url="https://fr.linkedin.com/jobs/view/chief-operating-officer-emea-at-perrotin-4413044435" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">48</td>
+          <td><strong>Perrotin</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Chief Operating Officer EMEA</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/chief-operating-officer-emea-at-perrotin-4413044435" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Perrotin|Chief Operating Officer EMEA" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Perrotin|Chief Operating Officer EMEA" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Chief Operating Officer EMEA pour la Galerie Perrotin, responsable de la supervision des opérations logistiques, de la gestion des expositions et des flux entre Paris, Londres et Dubai. Rôle stratégique combinant pilotage opérationnel, management d'équipes multi-sites et optimisation des coûts dans le secteur de l'art.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de piloter des opérations complexes et multi-sites avec responsabilités stratégiques (budget, équipes, compliance) dans un secteur spécialisé. Permet de mettre en avant l'expérience entrepreneuriale et les compétences opérationnelles/growth à plus grande échelle.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Dalma.|Junior Product Manager (F/H)" data-url="https://fr.linkedin.com/jobs/view/junior-product-manager-f-h-at-dalma-4411381176" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">51</td>
+          <td><strong>Dalma.</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Junior Product Manager (F/H)</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/junior-product-manager-f-h-at-dalma-4411381176" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Dalma.|Junior Product Manager (F/H)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Dalma.|Junior Product Manager (F/H)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Junior Product Manager chez Dalma, assurance pour animaux de compagnie en croissance. Vous piloterez des projets end-to-end en discovery et delivery, en collaboration étroite avec design et engineering.</p><p><strong>Pourquoi intéressant :</strong> Poste d'impact dans une scale-up française avec forte croissance produit, mais décalage séniorité : vous cherchez mid-level avec 3 ans d'expérience fondateur, ce poste demande junior 1-2 ans PM.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Allianz Partners|Global Head of Performance & Excellence Medical" data-url="https://fr.linkedin.com/jobs/view/global-head-of-performance-excellence-medical-at-allianz-partners-4405224653" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">55</td>
+          <td><strong>Allianz Partners</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Global Head of Performance & Excellence Medical</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/global-head-of-performance-excellence-medical-at-allianz-partners-4405224653" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Allianz Partners|Global Head of Performance & Excellence Medical" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Allianz Partners|Global Head of Performance & Excellence Medical" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Diriger l'excellence opérationnelle et la qualité des opérations médicales mondiales chez Allianz Partners. Piloter la gestion des plaintes, la conformité, la satisfaction client et l'implémentation de standards globaux across multiple regions.</p><p><strong>Pourquoi intéressant :</strong> Rôle stratégique permettant de lever des opérations complexes à l'échelle mondiale avec fort levier sur AI/automation et data analytics. Excellente opportunité pour scale expertise product/ops acquise chez Gare ta Bécane vers un groupe international.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Orus|Spain Country Commercial Lead" data-url="https://fr.linkedin.com/jobs/view/spain-country-commercial-lead-at-orus-4376783501" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">59</td>
+          <td><strong>Orus</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Spain Country Commercial Lead</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/spain-country-commercial-lead-at-orus-4376783501" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Orus|Spain Country Commercial Lead" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Orus|Spain Country Commercial Lead" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Diriger la croissance commerciale d'Orus en Espagne en tant que Country Commercial Lead, responsable des revenus, de la construction d'une équipe de vente et de la stratégie GTM. Ce rôle offre une évolution claire vers Head of Sales Spain ou Country Manager.</p><p><strong>Pourquoi intéressant :</strong> Ce poste combine un vrai ownership produit/GTM avec une responsabilité commerciale et opérationnelle, offrant une opportunité de builder un marché de zéro. L'évolution vers Country Manager permettrait de transférer les compétences d'ops et automation acquises chez Gare ta Bécane.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Orus|General Manager - Netherlands" data-url="https://fr.linkedin.com/jobs/view/general-manager-netherlands-at-orus-4374053917" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">60</td>
+          <td><strong>Orus</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">General Manager - Netherlands</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/general-manager-netherlands-at-orus-4374053917" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Orus|General Manager - Netherlands" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Orus|General Manager - Netherlands" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> General Manager pour lancer et scaler le marché néerlandais d'Orus, une insurtech européenne en forte croissance. Rôle de builder alliant stratégie de marché, exécution commerciale hands-on et construction d'équipe locale.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de leadership complet dans une scale-up européenne à haut potentiel avec accès direct au CEO et ownership d'une expansion internationale. Combine product/ops/growth expertise requise avec scale d'une nation entière, idéal pour un founder cherchant un nouveau challenge.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Spark Cleantech|Automation Engineer" data-url="https://fr.linkedin.com/jobs/view/automation-engineer-at-spark-cleantech-4372013388" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">61</td>
+          <td><strong>Spark Cleantech</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Automation Engineer</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/automation-engineer-at-spark-cleantech-4372013388" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Spark Cleantech|Automation Engineer" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Spark Cleantech|Automation Engineer" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur Automation chargé de concevoir, développer et maintenir les systèmes d'instrumentation, de contrôle et de sécurité industrielle (ESD, F&G, DCS) pour une technologie cleantech révolutionnaire. Rôle clé dans l'industrialisation d'un processus breakthrough de décarbonation des fours industriels.</p><p><strong>Pourquoi intéressant :</strong> Opportunité d'impact climate tech à grande échelle avec une technologie breakthrough en phase d'industrialisation. Rôle ops/automation critique pour un deeptech ambitieux avec financement sécurisé et croissance rapide prévue.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="Christian Dior Couture|Deputy Store Operations Manager" data-url="https://fr.linkedin.com/jobs/view/deputy-store-operations-manager-at-christian-dior-couture-4260836206" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">62</td>
+          <td><strong>Christian Dior Couture</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Deputy Store Operations Manager</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/deputy-store-operations-manager-at-christian-dior-couture-4260836206" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Christian Dior Couture|Deputy Store Operations Manager" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Christian Dior Couture|Deputy Store Operations Manager" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Deputy Store Operations Manager chez Christian Dior Couture, responsable de l'ensemble des opérations quotidiennes d'une boutique parisienne (stocks, logistique, processus, systèmes). Poste orienté excellence opérationnelle et service client dans l'univers du luxe.</p><p><strong>Pourquoi intéressant :</strong> Excellente opportunité pour appliquer les compétences ops/automation dans un contexte retail structuré avec des systèmes informatiques sophistiqués. Permet de piloter des processus à grande échelle dans une organisation prestigieuse.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="4" data-id="fortil|Ingénieur Automaticien (H/F)" data-url="https://fr.linkedin.com/jobs/view/ing%C3%A9nieur-automaticien-h-f-at-fortil-4359136046" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">63</td>
+          <td><strong>fortil</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Ingénieur Automaticien (H/F)</td>
+          <td><span class="badge rd">4/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ing%C3%A9nieur-automaticien-h-f-at-fortil-4359136046" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="fortil|Ingénieur Automaticien (H/F)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="fortil|Ingénieur Automaticien (H/F)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur automaticien en charge de la conception et programmation d'installations automatisées, de l'analyse fonctionnelle à la mise en service et formation utilisateurs. Poste basé en Île-de-France au sein d'un groupe international d'ingénierie.</p><p><strong>Pourquoi intéressant :</strong> Poste offrant une vraie montée en compétences en automatisation industrielle avec variété de projets et technos. Contexte startup-like au sein d'un groupe établi permet d'explorer l'innovation tout en bénéficiant de ressources et stabilité.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Alan|Corporate Legal Counsel" data-url="https://fr.linkedin.com/jobs/view/corporate-legal-counsel-at-alan-4407400478" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">5</td>
+          <td><strong>Alan</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Corporate Legal Counsel</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/corporate-legal-counsel-at-alan-4407400478" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Alan|Corporate Legal Counsel" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Alan|Corporate Legal Counsel" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable juridique senior pour orchestrer les structurations légales, les transactions M&A et la gouvernance d'une scale-up santé de 800+ personnes en expansion internationale. Poste d'influence stratégique combinant expertise légale, structuration d'affaires et autonomisation organisationnelle.</p><p><strong>Pourquoi intéressant :</strong> Ce poste offre une influence stratégique rare sur la structuration d'une scale-up en hyper-croissance avec des enjeux complexes (M&A, expansion multi-pays, innovation produit). La proximité avec les équipes product et business operations aligne bien avec les compétences product/ops du candidat.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Alta Ares|Quality Control Engineer (Manufaturing) H/F" data-url="https://fr.linkedin.com/jobs/view/quality-control-engineer-manufaturing-h-f-at-alta-ares-4425609767" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">7</td>
+          <td><strong>Alta Ares</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Quality Control Engineer (Manufaturing) H/F</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/quality-control-engineer-manufaturing-h-f-at-alta-ares-4425609767" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Alta Ares|Quality Control Engineer (Manufaturing) H/F" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Alta Ares|Quality Control Engineer (Manufaturing) H/F" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur Quality Control en charge de définir et implémenter les procédures de contrôle qualité (réception, en-cours, final) pour les assemblages mécaniques, électroniques et électromécaniques. Piloter l'amélioration continue des processus de qualité et la gestion des fournisseurs pour une deeptech de défense.</p><p><strong>Pourquoi intéressant :</strong> Opportunité unique de construire les fondations qualité d'une deeptech défense en hypercroissance (€50M levés), avec impact direct sur des systèmes critiques et défis de production scaling. Secteur de défense à forte demande, entreprise en phase de décollage rapide.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="STATION F|BRAS DROIT GENERAL MANAGER / REV OPS (ONECHAIN)" data-url="https://fr.linkedin.com/jobs/view/bras-droit-general-manager-rev-ops-onechain-at-station-f-4424666891" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">9</td>
+          <td><strong>STATION F</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">BRAS DROIT GENERAL MANAGER / REV OPS (ONECHAIN)</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/bras-droit-general-manager-rev-ops-onechain-at-station-f-4424666891" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="STATION F|BRAS DROIT GENERAL MANAGER / REV OPS (ONECHAIN)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="STATION F|BRAS DROIT GENERAL MANAGER / REV OPS (ONECHAIN)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Bras droit du GM de OneChain (SaaS TMS), combinant RevOps stratégique (60%) et Customer Success (40%). Rôle hybride combinant support commercial, automatisation IA et gestion client pour une plateforme de supply chain B2B.</p><p><strong>Pourquoi intéressant :</strong> Accès direct à une stratégie commerciale B2B SaaS avec responsabilités RevOps et IA/automation - parfait pour un founder cherchant à approfondir ops et scaling. Immersion complète dans supply chain digitale avec impact direct sur KPIs et décisions stratégiques.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="SERVAIR|Responsable Opérationnel Logistique Expédition Food H/F" data-url="https://fr.linkedin.com/jobs/view/responsable-op%C3%A9rationnel-logistique-exp%C3%A9dition-food-h-f-at-servair-4421149548" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">10</td>
+          <td><strong>SERVAIR</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Responsable Opérationnel Logistique Expédition Food H/F</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/responsable-op%C3%A9rationnel-logistique-exp%C3%A9dition-food-h-f-at-servair-4421149548" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="SERVAIR|Responsable Opérationnel Logistique Expédition Food H/F" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="SERVAIR|Responsable Opérationnel Logistique Expédition Food H/F" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable opérationnel d'une unité de production agroalimentaire à Roissy, pilotant 70 personnes et garantissant la qualité/sécurité des opérations d'expédition. Gestion budgétaire, KPIs et optimisation des processus logistiques en environnement aéroportuaire hautement réglementé.</p><p><strong>Pourquoi intéressant :</strong> Poste opérationnel d'envergure permettant de piloter une structure complexe avec fort impact (70 personnes, budget, optimisation). Opportunité de déployer des innovations en productivité et automation dans un environnement réglementé.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Parking Network B.V.|Control Robotics Engineer (Paris, FR)" data-url="https://fr.linkedin.com/jobs/view/control-robotics-engineer-paris-fr-at-parking-network-b-v-4424751034" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">11</td>
+          <td><strong>Parking Network B.V.</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Control Robotics Engineer (Paris, FR)</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/control-robotics-engineer-paris-fr-at-parking-network-b-v-4424751034" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Parking Network B.V.|Control Robotics Engineer (Paris, FR)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Parking Network B.V.|Control Robotics Engineer (Paris, FR)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur en contrôle robotique expert en commande prédictive non-linéaire en temps réel pour développer les algorithmes propriétaires de robots autonomes de stationnement. Poste technique et scientifique sous la responsabilité du Head of Robot Engineering.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de travailler sur des défis techniques complexes (robotique autonome, MPC temps réel) en contexte réel, similaire à l'expérience produit/ops d'un fondateur. Cependant, cette position est très spécialisée en R&D robotique/contrôle, moins alignée avec un profil product/ops/automation généraliste.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Tetra Pak|Automation Engineer" data-url="https://fr.linkedin.com/jobs/view/automation-engineer-at-tetra-pak-4411777991" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">12</td>
+          <td><strong>Tetra Pak</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Automation Engineer</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/automation-engineer-at-tetra-pak-4411777991" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Tetra Pak|Automation Engineer" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Tetra Pak|Automation Engineer" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur en automatisation industrielle chargé de concevoir, programmer et mettre en commissioning des systèmes d'automation sur des projets agroalimentaires. Pilotage complet du cycle projet avec respect des standards de groupe Tetra Pak.</p><p><strong>Pourquoi intéressant :</strong> Poste structurant chez un géant industriel offrant une montée en expertise technique et une portée internationale, mais requiert une expertise très spécialisée (Siemens PLC) et 50% de déplacements qui ne correspondent pas au profil product/ops/automation recherché.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Astek|Ingénieur  automaticien: Step 7/ Tia portal - Paris, France  (H/F)" data-url="https://fr.linkedin.com/jobs/view/ing%C3%A9nieur-automaticien-step-7-tia-portal-paris-france-h-f-at-astek-4403247080" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">13</td>
+          <td><strong>Astek</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Ingénieur  automaticien: Step 7/ Tia portal - Paris, France  (H/F)</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ing%C3%A9nieur-automaticien-step-7-tia-portal-paris-france-h-f-at-astek-4403247080" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Astek|Ingénieur  automaticien: Step 7/ Tia portal - Paris, France  (H/F)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Astek|Ingénieur  automaticien: Step 7/ Tia portal - Paris, France  (H/F)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur automaticien spécialisé en automates industriels (Step 7/TiaPortal) pour concevoir et développer des solutions d'automatisation complexes en R&D. Mission pluridisciplinaire couvrant la conception, le développement PLC, les tests et le support terrain.</p><p><strong>Pourquoi intéressant :</strong> Ce poste offre une excellente opportunité de croissance technique dans l'automatisme industriel avec accès à des projets complexes et innovants. Pour un fondateur ayant géré des opérations B2B2C, la dimension projet + ops (planning, coûts, délais) et les responsabilités de suivi client terrain sont valorisantes.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Air Canada|Operations Manager - Airports - France" data-url="https://fr.linkedin.com/jobs/view/operations-manager-airports-france-at-air-canada-4420734168" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">14</td>
+          <td><strong>Air Canada</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Operations Manager - Airports - France</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/operations-manager-airports-france-at-air-canada-4420734168" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Air Canada|Operations Manager - Airports - France" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Air Canada|Operations Manager - Airports - France" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Manager des opérations aéroportuaires pour Air Canada à Roissy CDG, supervisant les opérations quotidiennes et garantissant la conformité aux normes de sécurité et de service. Coordination entre les équipes internes, les partenaires Star Alliance et les autorités aéroportuaires.</p><p><strong>Pourquoi intéressant :</strong> Opportunité de manager des opérations complexes à grande échelle dans un environnement hautement réglementé, avec possibilité d'optimiser les processus et les performances. Excellente visibilité sur les métriques d'impact (OTP, service quality) et collaboration multidisciplinaire.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Choose|CDD - Customer Care Agent" data-url="https://fr.linkedin.com/jobs/view/cdd-customer-care-agent-at-choose-4411441866" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">16</td>
+          <td><strong>Choose</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">CDD - Customer Care Agent</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/cdd-customer-care-agent-at-choose-4411441866" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Choose|CDD - Customer Care Agent" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Choose|CDD - Customer Care Agent" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Agent Customer Care en CDD (jusqu'au 31/12/2026) au sein du pôle Ops de Choose, responsable de la gestion des tickets clients et de l'excellence opérationnelle pour une verticale e-commerce (Mode, Maison, Cosmétiques ou Kids). Le rôle combine support client, collaboration opérationnelle et amélioration continue des processus.</p><p><strong>Pourquoi intéressant :</strong> Ce poste offre une opportunité d'être immergé dans les Ops d'une scale-up e-commerce avec une forte dimension d'amélioration continue et d'insights produit, permettant de développer une compréhension holistique de l'expérience client et des processus opérationnels.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Natilia|Directeur/trice dagence - Constructeur de maisons individuelles environnementales" data-url="https://fr.linkedin.com/jobs/view/directeur-trice-d-agence-constructeur-de-maisons-individuelles-environnementales-at-natilia-4422880679" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">20</td>
+          <td><strong>Natilia</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Directeur/trice d'agence - Constructeur de maisons individuelles environnementales</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/directeur-trice-d-agence-constructeur-de-maisons-individuelles-environnementales-at-natilia-4422880679" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Natilia|Directeur/trice dagence - Constructeur de maisons individuelles environnementales" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Natilia|Directeur/trice dagence - Constructeur de maisons individuelles environnementales" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Directeur/trice d'agence franchisée Natilia chargé de créer et développer une agence de construction de maisons à ossature bois écologiques. Responsable de l'accompagnement clients de A à Z et du pilotage commercial de l'agence.</p><p><strong>Pourquoi intéressant :</strong> Opportunité entrepreneuriale permettant de créer sa propre agence avec le support d'un grand groupe et des outils numériques modernes. Secteur porteur de la construction écologique offrant une mission à impact social et environnemental.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Thales|Responsable des Opérations F/H" data-url="https://fr.linkedin.com/jobs/view/responsable-des-op%C3%A9rations-f-h-at-thales-4407448840" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">38</td>
+          <td><strong>Thales</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Responsable des Opérations F/H</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/responsable-des-op%C3%A9rations-f-h-at-thales-4407448840" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Thales|Responsable des Opérations F/H" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Thales|Responsable des Opérations F/H" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable des Opérations au sein de Thales, pilotant les ressources (budgets, effectifs, IT, immobilier) d'un secteur défense stratégique et assurant la transformation opérationnelle. Rôle transversal d'autorité d'homologation IT et de management d'une équipe de 6 personnes.</p><p><strong>Pourquoi intéressant :</strong> Poste stratégique en grande organisation technologique avec enjeux de transformation et d'innovation, offrant une visibilité sur des systèmes complexes et une opportunité de piloter à grande échelle. Accès direct à la direction générale et management d'équipe pluridisciplinaire.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Mondial Relay|Responsable dexploitation (H/F)" data-url="https://fr.linkedin.com/jobs/view/responsable-d-exploitation-h-f-at-mondial-relay-4410372708" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">46</td>
+          <td><strong>Mondial Relay</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Responsable d'exploitation (H/F)</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/responsable-d-exploitation-h-f-at-mondial-relay-4410372708" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Mondial Relay|Responsable dexploitation (H/F)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Mondial Relay|Responsable dexploitation (H/F)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable d'exploitation chez Mondial Relay, leader européen de la logistique et du e-commerce. Pilotage des opérations et optimisation des processus logistiques.</p><p><strong>Pourquoi intéressant :</strong> Opportunité d'appliquer son expertise en optimisation opérationnelle et automation à grande échelle dans un groupe établi. Cependant, le rôle est très opérationnel et peu product-oriented.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="3" data-id="Emotors|INGENIEUR AUTOMATISME (H/F)" data-url="https://fr.linkedin.com/jobs/view/ingenieur-automatisme-h-f-at-emotors-4304081454" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">64</td>
+          <td><strong>Emotors</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">INGENIEUR AUTOMATISME (H/F)</td>
+          <td><span class="badge rd">3/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ingenieur-automatisme-h-f-at-emotors-4304081454" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Emotors|INGENIEUR AUTOMATISME (H/F)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Emotors|INGENIEUR AUTOMATISME (H/F)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur automatisme chargé de concevoir et réaliser les études électriques et automatismes pour de nouveaux moyens industriels de fabrication de moteurs électriques. Vous programmerez des automates Siemens et mettrez en service les installations en atelier et sur site.</p><p><strong>Pourquoi intéressant :</strong> Opportunité dans un secteur stratégique (mobilités durables) avec un groupe solide et innovant. Excellente visibilité sur les procédés industriels et l'automatisation pour développer une expertise technique transférable.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="2" data-id="LUsine Nouvelle|Ingénieur Assurance Qualité Développement F/H" data-url="https://fr.linkedin.com/jobs/view/ing%C3%A9nieur-assurance-qualit%C3%A9-d%C3%A9veloppement-f-h-at-l-usine-nouvelle-4415277842" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">29</td>
+          <td><strong>L'Usine Nouvelle</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Ingénieur Assurance Qualité Développement F/H</td>
+          <td><span class="badge rd">2/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/ing%C3%A9nieur-assurance-qualit%C3%A9-d%C3%A9veloppement-f-h-at-l-usine-nouvelle-4415277842" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="LUsine Nouvelle|Ingénieur Assurance Qualité Développement F/H" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="LUsine Nouvelle|Ingénieur Assurance Qualité Développement F/H" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Ingénieur Assurance Qualité expérimenté pilotant la conformité qualité et l'amélioration continue sur des équipements de test complexes pour des programmes à forte exigence (Défense, Aéronautique). Référent qualité multidisciplinaire (mécanique, électronique, électrique, software) auprès des équipes Engineering et Operations.</p><p><strong>Pourquoi intéressant :</strong> Poste de haut niveau technique dans un contexte Défense/Aéronautique prestigieux, combinant ops/processus et impact stratégique, mais peu aligné avec le background product/growth et les préférences de freelance/equity du candidat.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="2" data-id="Aircall|Founding Account Executive, New AI product, German market" data-url="https://fr.linkedin.com/jobs/view/founding-account-executive-new-ai-product-german-market-at-aircall-4377833683" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">36</td>
+          <td><strong>Aircall</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Founding Account Executive, New AI product, German market</td>
+          <td><span class="badge rd">2/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/founding-account-executive-new-ai-product-german-market-at-aircall-4377833683" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Aircall|Founding Account Executive, New AI product, German market" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Aircall|Founding Account Executive, New AI product, German market" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Founding Account Executive pour un nouveau produit IA révolutionnant la gestion de pipeline commercial. Vous construirez la machine commerciale from scratch sur le marché allemand en tant que premier boots on the ground.</p><p><strong>Pourquoi intéressant :</strong> Poste de founding executive dans un 'startup within a startup' avec pleine autonomie de marché et opportunité de co-créer une nouvelle ligne produit AI revenue-generating. Alignement parfait avec background founder et compétences GTM/growth de Grégoire.</p></div>
+          </td>
+        </tr>
+        
+
+        <tr class="job-row row-linkedin  low-score" data-score="2" data-id="Mondial Relay|Responsable dexploitation - Nuit (H/F)" data-url="https://fr.linkedin.com/jobs/view/responsable-d-exploitation-nuit-h-f-at-mondial-relay-4410381358" data-hasdocs="false" data-platform="linkedin" data-autofilled="false">
+          <td class="idx">45</td>
+          <td><strong>Mondial Relay</strong><br><span class="plat-badge plat-li">in LinkedIn</span></td>
+          <td class="col-title">Responsable d'exploitation - Nuit (H/F)</td>
+          <td><span class="badge rd">2/10</span></td>
+          <td onclick="event.stopPropagation()"><div class="actions"><a class="act-btn act-link" href="https://fr.linkedin.com/jobs/view/responsable-d-exploitation-nuit-h-f-at-mondial-relay-4410381358" target="_blank">Voir ↗</a></div></td>
+          <td onclick="event.stopPropagation()" class="submit-cell">
+            <label class="submit-wrap" title="Cocher dès que tu as cliqué Submit">
+              <input type="checkbox" class="postule-cb" data-id="Mondial Relay|Responsable dexploitation - Nuit (H/F)" onchange="saveCheck(this)">
+              <span class="submit-btn">✅ Soumis</span>
+            </label>
+            <span class="auto-fail-marker" data-id="Mondial Relay|Responsable dexploitation - Nuit (H/F)" style="display:none"></span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="act-btn act-del" title="Supprimer cette ligne" onclick="deleteRow(this)">✕</button>
+          </td>
+        </tr>
+        <tr class="detail-row" style="display:none">
+          <td colspan="6" class="detail-cell">
+            <div class="detail-content"><p><strong>Résumé :</strong> Responsable de l'exploitation des opérations de Mondial Relay pendant les heures de nuit. Gestion des équipes et des flux logistiques en période nocturne.</p><p><strong>Pourquoi intéressant :</strong> Peu d'intérêt pour ce profil : poste opérationnel de management d'équipe sur quart de nuit, sans dimension product, automation ou growth qui correspondent aux aspirations du candidat.</p></div>
+          </td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" id="empty-state" style="display:none">Aucune offre à afficher.</div>
+  </div>
+</div>
+
+<!-- ── Modal lettre ── -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Lettre de motivation</span>
+      <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-letter" id="modal-letter-text"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-copy-btn" id="modal-copy-btn" onclick="copyLetter()">📋 Copier le texte</button>
+      <button class="modal-pdf-btn" id="modal-pdf-btn" onclick="downloadLetterPDF()">⬇ Lettre PDF</button>
+      <a class="modal-dl-btn" id="modal-dl-btn" href="#" download style="display:none">⬇ CV</a>
+    </div>
+  </div>
+</div>
+
+<div class="footer">Job Apply · python main.py dashboard · Gregoire Linée</div>
+
+<script>
+  const STATE_URL = 'http://127.0.0.1:7433/state';
+  let currentFilter = 'all';
+
+  // ── État embarqué à la génération (source de vérité principale) ──
+  const BAKED_STATE = {"applied": {}, "deleted": [], "auto_failed": {}};
+  let _state = JSON.parse(JSON.stringify(BAKED_STATE));
+
+  // ── Données lettres ──
+  const MODAL_DATA = [];
+  const modalMap = {};
+  MODAL_DATA.forEach(d => { modalMap[d.id] = d; });
+
+  // ── Sauvegarde vers serveur + localStorage ──
+  async function saveState() {
+    localStorage.setItem('jobapply_state', JSON.stringify(_state));
+    try { await fetch(STATE_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(_state)}); } catch(e) {}
+  }
+
+  // ── Init ──
+  async function init() {
+    // Charge localStorage en premier (historique potentiellement plus complet)
+    let lsState = {};
+    try {
+      const ls = JSON.parse(localStorage.getItem('jobapply_state') || 'null');
+      if (ls && typeof ls === 'object') lsState = ls;
+    } catch(e) {}
+
+    try {
+      const r = await fetch(STATE_URL, {cache:'no-store'});
+      if (r.ok) {
+        const srv = await r.json();
+        if (srv && typeof srv === 'object') {
+          // Merge : union de localStorage + serveur (localStorage peut avoir des ticks
+          // cochés quand le serveur était éteint — on ne veut pas les perdre)
+          const mergedApplied = Object.assign({}, lsState.applied || {}, srv.applied || {});
+          const srvDel = srv.deleted || [];
+          const lsDel  = lsState.deleted || [];
+          const mergedDeleted = [...new Set([...srvDel, ...lsDel])];
+          _state = { applied: mergedApplied, deleted: mergedDeleted };
+          // Resauve immédiatement le merge au serveur pour que user_state.json soit complet
+          try { await fetch(STATE_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(_state)}); } catch(e) {}
+        }
+      }
+    } catch(e) {
+      // Serveur absent → localStorage seul
+      if (lsState && typeof lsState === 'object') {
+        _state = { applied: lsState.applied || {}, deleted: lsState.deleted || [] };
+      }
+    }
+
+    if (!_state.applied) _state.applied = {};
+    if (!_state.deleted) _state.deleted = [];
+
+    // Cache les lignes supprimées
+    _state.deleted.forEach(id => {
+      document.querySelectorAll('tr.job-row').forEach(row => {
+        if (row.dataset.id === id) {
+          const det = row.nextElementSibling;
+          if (det?.classList.contains('detail-row')) det.remove();
+          row.remove();
+        }
+      });
+    });
+    // Coche les postulés (auto vs manuel)
+    document.querySelectorAll('.postule-cb').forEach(cb => {
+      const val = _state.applied[cb.dataset.id];
+      if (!val) return;
+      cb.checked = true;
+      cb.closest('tr').classList.add('done');
+      // Auto-soumission : objet avec {auto:true, submitted_at:...}
+      if (typeof val === 'object' && val.auto) {
+        cb.classList.add('auto-applied');
+        const wrap = cb.closest('.check-wrap');
+        if (wrap && val.submitted_at) {
+          // Format lisible : "05/05 14:32 (auto)"
+          const d = new Date(val.submitted_at);
+          if (!isNaN(d)) {
+            const fmt = d.toLocaleString('fr-FR', {
+              day:'2-digit', month:'2-digit',
+              hour:'2-digit', minute:'2-digit'
+            });
+            wrap.setAttribute('data-when', '⚡ Auto · ' + fmt);
+          } else {
+            wrap.setAttribute('data-when', '⚡ Soumise auto');
+          }
+        }
+      }
+    });
+    // Marqueurs d'échec auto-apply (orange)
+    const autoFailed = _state.auto_failed || {};
+    document.querySelectorAll('.auto-fail-marker').forEach(marker => {
+      const id = marker.dataset.id;
+      const fail = autoFailed[id];
+      if (!fail) return;
+      // Si la candidature a entre-temps été cochée comme soumise, n'affiche pas l'échec
+      if (_state.applied[id]) return;
+      marker.style.display = 'inline-flex';
+      const tooltip = document.createElement('span');
+      tooltip.className = 'auto-fail-tooltip';
+      let when = '';
+      if (fail.at) {
+        const d = new Date(fail.at);
+        if (!isNaN(d)) {
+          when = d.toLocaleString('fr-FR', {
+            day:'2-digit', month:'2-digit',
+            hour:'2-digit', minute:'2-digit'
+          });
+        }
+      }
+      const reasonEsc = (fail.reason || 'Échec auto-apply')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      tooltip.innerHTML =
+        '<strong>⚠ Auto-apply échoué</strong>' +
+        reasonEsc +
+        (fail.screenshot ? '<br><a href="/' + fail.screenshot + '" target="_blank">📸 Voir screenshot</a>' : '') +
+        (when ? '<span class="at">' + when + '</span>' : '');
+      marker.appendChild(tooltip);
+    });
+    updateStat();
+    applyFilters();
+  }
+
+  // ── Sauvegarde une coche (manuelle) ──
+  async function saveCheck(cb) {
+    if (!_state.applied) _state.applied = {};
+    const id = cb.dataset.id;
+    if (cb.checked) {
+      _state.applied[id] = true;
+      cb.closest('tr').classList.add('done');
+    } else {
+      delete _state.applied[id];
+      cb.closest('tr').classList.remove('done');
+      cb.classList.remove('auto-applied');
+      const wrap = cb.closest('.check-wrap');
+      if (wrap) wrap.removeAttribute('data-when');
+    }
+    await saveState();
+    updateStat();
+    applyFilters();
+  }
+
+  function updateStat() {
+    const count = document.querySelectorAll('.postule-cb:checked').length;
+    document.getElementById('postule-stat').textContent = count;
+  }
+
+  // ── Filtres ──
+  function setFilter(f, btn) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const query = document.getElementById('search').value.toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('#jobs-body .job-row').forEach(row => {
+      const score   = parseInt(row.dataset.score) || 0;
+      const text    = row.textContent.toLowerCase();
+      const hasDocs = row.dataset.hasdocs === 'true';
+      const posted  = row.querySelector('.postule-cb')?.checked || false;
+
+      const platform = row.dataset.platform || '';
+      const filterOk = (
+        currentFilter === 'all'       ? true :
+        currentFilter === 'score8'    ? score >= 8 :
+        currentFilter === 'score6'    ? score >= 6 :
+        currentFilter === 'docs'      ? hasDocs :
+        currentFilter === 'postule'   ? posted :
+        currentFilter === 'notpostule'? !posted :
+        currentFilter === 'linkedin'  ? platform.includes('linkedin') :
+        currentFilter === 'wttj'      ? (platform.includes('wttj') && !platform.includes('spontaneous')) :
+        currentFilter === 'spon'      ? platform.includes('spontaneous') : true
+      );
+      const searchOk = !query || text.includes(query);
+      const show = filterOk && searchOk;
+
+      row.style.display = show ? '' : 'none';
+      const detail = row.nextElementSibling;
+      if (detail?.classList.contains('detail-row') && !show) detail.style.display = 'none';
+      if (show) visible++;
+    });
+
+    document.getElementById('pending-count').textContent = visible > 0 ? `${visible} offre${visible > 1 ? 's' : ''}` : '';
+    document.getElementById('empty-state').style.display = visible === 0 ? '' : 'none';
+  }
+
+  // ── Toggle détail au clic sur une ligne ──
+  document.addEventListener('click', e => {
+    const row = e.target.closest('.job-row');
+    if (!row) return;
+    const detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row')) {
+      detail.style.display = detail.style.display === 'none' ? 'table-row' : 'none';
+    }
+  });
+
+  // ── Modal ──
+  function openModal(cardId) {
+    const d = modalMap[cardId];
+    if (!d) return;
+    document.getElementById('modal-title').textContent = d.label;
+    document.getElementById('modal-letter-text').textContent = d.letter;
+    const dlBtn = document.getElementById('modal-dl-btn');
+    if (d.cv) { dlBtn.href = d.cv; dlBtn.style.display = ''; }
+    else dlBtn.style.display = 'none';
+    document.getElementById('modal-copy-btn').textContent = '📋 Copier le texte';
+    document.getElementById('modal-copy-btn').classList.remove('copied');
+    document.getElementById('modal-overlay').classList.add('open');
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('modal-overlay')) closeModalDirect();
+  }
+  function closeModalDirect() {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModalDirect(); });
+
+  function copyLetter() {
+    const text = document.getElementById('modal-letter-text').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('modal-copy-btn');
+      btn.textContent = '✅ Copié !';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = '📋 Copier le texte'; btn.classList.remove('copied'); }, 2500);
+    });
+  }
+
+
+  async function deleteRow(btn) {
+    const row = btn.closest('tr');
+    if (!row) return;
+    const jobId = row.dataset.id || '';
+    const jobUrl = row.dataset.url || '';
+    const detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row')) detail.remove();
+    row.remove();
+    // Persiste la suppression
+    if (jobId) {
+      if (!_state.deleted) _state.deleted = [];
+      if (!_state.deleted.includes(jobId)) _state.deleted.push(jobId);
+      await saveState();
+    }
+    // Blackliste l'URL dans seen.json pour ne plus la scraper
+    if (jobUrl) {
+      try {
+        await fetch('http://127.0.0.1:7433/blacklist', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url: jobUrl})
+        });
+      } catch(e) { /* serveur non dispo — pas bloquant */ }
+    }
+    const visible = document.querySelectorAll('tr.job-row').length;
+    const countEl = document.getElementById('pending-count');
+    if (countEl) countEl.textContent = visible > 0 ? visible + ' offre' + (visible > 1 ? 's' : '') : '';
+  }
+
+  function downloadLetterPDF() {
+    const label   = document.getElementById('modal-title').textContent;
+    const company = label.split(' — ')[0].trim();
+    const text    = document.getElementById('modal-letter-text').textContent;
+    const docTitle = 'Lettre ' + company + ' — Gregoire Linée';
+    const paras = text.split('\n\n').filter(p => p.trim()).map(p =>
+      '<p style="margin:0 0 14px;line-height:1.7">' + p.trim().replace(/\n/g,'<br>') + '</p>'
+    ).join('');
+    const html = '<html><head><meta charset="UTF-8"><title>' + docTitle + '</title>'
+      + '<style>body{font-family:Georgia,serif;max-width:660px;margin:40px auto;padding:0 32px;color:#1a1a2e;font-size:10.5pt;line-height:1.8}'
+      + 'h2{font-size:13pt;margin-bottom:4px}.info{color:#888;font-size:9pt;margin-bottom:8px}hr{border:none;border-top:1px solid #ddd;margin:16px 0}'
+      + '.btn{position:fixed;top:16px;right:16px;padding:8px 18px;background:#667eea;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}'
+      + '@media print{.btn{display:none}}'
+      + '#ubersuggest-app,[class*="ubersuggest"],[id*="ubersuggest"],[class*="grammarly"],[id*="grammarly"],'
+      + '[class*="loom"],[id*="loom-companion"],[class*="notion-companion"],'
+      + 'body>div[style*="position:fixed"]:not(.btn),body>div[style*="position: fixed"]:not(.btn),'
+      + 'body>iframe,body>div:empty{display:none!important}'
+      + '</style></head>'
+      + '<body><button class="btn" onclick="window.print()">🖨 Imprimer / PDF</button>'
+      + '<h2>Gregoire Linée</h2><p class="info">gregoire.linee@gmail.com · Paris</p><hr>'
+      + '<p style="margin-bottom:20px;font-weight:600">' + label + '</p>'
+      + paras + '</body></html>';
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      // Supprime les injections d'extensions (Ubersuggest, Grammarly, Loom…)
+      // après le chargement car elles s'injectent après document.close()
+      w.addEventListener('load', () => {
+        const kill = (n) => {
+          if (!n || n.nodeType !== 1) return;
+          const id  = (n.id  || '').toLowerCase();
+          const cls = (typeof n.className === 'string' ? n.className : '').toLowerCase();
+          const tag = (n.tagName || '').toLowerCase();
+          const st  = (n.getAttribute && n.getAttribute('style') || '').toLowerCase();
+          if (id.includes('ubersuggest') || cls.includes('ubersuggest') ||
+              id.includes('grammarly')   || cls.includes('grammarly')   ||
+              id.includes('loom')        || cls.includes('loom')        ||
+              tag === 'iframe'           ||
+              (st.includes('position') && st.includes('fixed') && !n.classList.contains('btn'))) {
+            n.remove();
+          }
+        };
+        // Nettoie ce qui est déjà là
+        Array.from(w.document.body.children).forEach(kill);
+        // Surveille les futures injections
+        new w.MutationObserver(muts => {
+          muts.forEach(m => m.addedNodes.forEach(kill));
+        }).observe(w.document.body, { childList: true, subtree: false });
+      });
+    } else alert('Autorise les pop-ups pour générer le PDF.');
+  }
+
+  init();
+</script>
+</body>
+</html>

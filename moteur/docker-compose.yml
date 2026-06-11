@@ -1,0 +1,109 @@
+version: "3.9"
+
+services:
+  # ── Base de données ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: jobapply
+      POSTGRES_USER: jobapply
+      POSTGRES_PASSWORD: jobapply_secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # ── Redis (queue workers) ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # ── Backend FastAPI ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jobapply:jobapply_secret@postgres:5432/jobapply
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - files_data:/tmp/jobapply-files
+      - browser_profiles:/tmp/jobapply-browsers
+
+  # ── Worker scrape ────────────────────────────────────────────────────────────
+  worker-scrape:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    restart: always
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jobapply:jobapply_secret@postgres:5432/jobapply
+      REDIS_URL: redis://redis:6379/0
+    command: rq worker scrape --url redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+  # ── Worker analyze + generate ────────────────────────────────────────────────
+  worker-ai:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    restart: always
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jobapply:jobapply_secret@postgres:5432/jobapply
+      REDIS_URL: redis://redis:6379/0
+    command: rq worker analyze generate pipeline --url redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+  # ── Worker autofill (Playwright, GPU-light) ──────────────────────────────────
+  worker-autofill:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.playwright
+    restart: always
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jobapply:jobapply_secret@postgres:5432/jobapply
+      REDIS_URL: redis://redis:6379/0
+      PLAYWRIGHT_HEADLESS: "true"
+    command: rq worker autofill --url redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - browser_profiles:/tmp/jobapply-browsers
+    shm_size: 2gb  # Chromium a besoin de mémoire partagée
+
+  # ── Frontend Next.js ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  files_data:
+  browser_profiles:

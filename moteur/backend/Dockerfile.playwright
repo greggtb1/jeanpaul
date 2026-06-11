@@ -1,0 +1,13 @@
+FROM mcr.microsoft.com/playwright/python:v1.48.0-noble
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Chromium déjà installé dans l'image officielle Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY . .
+
+CMD ["rq", "worker", "autofill", "--url", "redis://redis:6379/0"]

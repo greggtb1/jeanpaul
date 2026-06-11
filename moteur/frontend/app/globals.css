@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a0a0f;
+  --surface: #111118;
+  --border: #1e1e2e;
+  --text: #e8e8f0;
+  --muted: #6b6b80;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --green: #22c55e;
+  --yellow: #eab308;
+  --red: #ef4444;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+}
+
+.glass {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+.btn-primary {
+  @apply bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-5 py-2.5 rounded-lg transition-colors;
+}
+
+.btn-ghost {
+  @apply text-gray-400 hover:text-white hover:bg-white/5 px-4 py-2 rounded-lg transition-colors;
+}
+
+.card {
+  @apply rounded-xl border border-white/[0.06] bg-white/[0.02] p-5;
+}
+
+/* Score badge */
+.score-high  { @apply bg-green-500/15 text-green-400 border border-green-500/20; }
+.score-mid   { @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/20; }
+.score-low   { @apply bg-red-500/15 text-red-400 border border-red-500/20; }
+
+/* Status pill */
+.pill { @apply text-xs font-medium px-2.5 py-0.5 rounded-full; }

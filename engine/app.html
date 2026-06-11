@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JEAN PAUL — App</title>
+<style>
+  :root{
+    --navy:#11103a; --coral:#ff6b5e; --ink:#1c1b3a; --border:#e7e5f2;
+    --bg:#f6f5fb; --muted:#6b6a86;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Inter,sans-serif;background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:14px;padding:12px 18px;background:var(--navy);color:#fff;flex-wrap:wrap}
+  .brand{font-weight:800;letter-spacing:-.02em;font-size:18px}
+  .spacer{flex:1}
+  button{font:inherit;font-weight:700;border:none;border-radius:999px;padding:9px 18px;cursor:pointer;transition:transform .05s ease, box-shadow .1s ease}
+  button:active{transform:translateY(1px)}
+  .btn-coral{background:var(--coral);color:#fff;box-shadow:0 3px 0 #c9483d}
+  .btn-coral:active{box-shadow:0 1px 0 #c9483d}
+  .btn-ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .status{font-size:13px;color:#cfcfe8}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7be07b;margin-right:6px;vertical-align:middle}
+  .dot.run{background:#ffd166;animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.4}}
+  main{flex:1;display:flex;min-height:0}
+  iframe{flex:1;border:none;background:#fff}
+  #logs{width:360px;max-width:40vw;background:#0f0e24;color:#d7d7ee;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:12px;overflow:auto;white-space:pre-wrap;line-height:1.5;display:none}
+  #logs.show{display:block}
+  .toggle{font-size:12px;color:#cfcfe8;background:transparent;border:1px solid rgba(255,255,255,.3);padding:6px 12px}
+</style>
+</head>
+<body>
+  <header>
+    <span class="brand">JEAN&nbsp;PAUL</span>
+    <button id="btnScrape" class="btn-coral">Scraper les offres</button>
+    <button id="btnApply" class="btn-ghost">Générer mes candidatures</button>
+    <button id="btnRefresh" class="btn-ghost">Rafraîchir</button>
+    <span class="spacer"></span>
+    <span class="status"><span id="dot" class="dot"></span><span id="statusText">Prêt</span></span>
+    <button id="btnLogs" class="toggle">Logs</button>
+  </header>
+  <main>
+    <iframe id="dash" src="/dashboard.html"></iframe>
+    <pre id="logs"></pre>
+  </main>
+<script>
+const $ = (id)=>document.getElementById(id);
+let polling = false;
+
+async function post(path, body){
+  const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined});
+  return r.json();
+}
+function setBusy(b){
+  $('btnScrape').disabled = b; $('btnApply').disabled = b;
+  $('dot').className = 'dot' + (b?' run':'');
+}
+async function poll(){
+  if(polling) return; polling = true;
+  try{
+    while(true){
+      const s = await (await fetch('/run-status')).json();
+      $('logs').textContent = (s.log||[]).join('\n');
+      $('logs').scrollTop = $('logs').scrollHeight;
+      $('statusText').textContent = s.running ? (s.label || 'En cours…') : 'Prêt';
+      setBusy(s.running);
+      if(!s.running){ break; }
+      await new Promise(r=>setTimeout(r, 1200));
+    }
+    // recharge le dashboard une fois fini
+    $('dash').src = '/dashboard.html?ts=' + Date.now();
+  } finally { polling = false; }
+}
+$('btnScrape').onclick = async ()=>{ $('logs').classList.add('show'); setBusy(true); await post('/scrape'); poll(); };
+$('btnApply').onclick  = async ()=>{ $('logs').classList.add('show'); setBusy(true); await post('/apply', {min_score:6}); poll(); };
+$('btnRefresh').onclick= ()=>{ $('dash').src = '/dashboard.html?ts=' + Date.now(); };
+$('btnLogs').onclick   = ()=>{ $('logs').classList.toggle('show'); };
+// reprend le suivi si un run est déjà en cours au chargement
+poll();
+</script>
+</body>
+</html>

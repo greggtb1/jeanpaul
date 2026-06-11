@@ -1,0 +1,48 @@
+# ============================================================
+#  Config de recherche — à modifier selon tes besoins
+# ============================================================
+
+search:
+  queries:
+    - "ops manager"
+    - "operations manager"
+    - "product manager"
+    - "strategic ops"
+    - "rev ops"
+    - "automation engineer"
+    - "product builder"
+  location: "Paris"
+  radius_km: 30
+  max_per_query: 12          # offres à scraper par requête (~168 raw/run → ~30 nouvelles/jour)
+  sort_by_recent: true       # trie par date de publication (offres fraîches en priorité)
+  recent_days: 0             # 0 = pas de filtre d'âge (seen.json gère les doublons)
+  platforms:
+    - linkedin
+
+filters:
+  # Exclure les offres avec ces mots (case-insensitive)
+  exclude_keywords:
+    - "senior"
+    - "lead engineer"
+    - "VP"
+    - "Director"
+    - "C-level"
+  # Inclure uniquement si au moins un de ces mots est présent (laisser vide = tout)
+  require_keywords: []
+  # Salaire minimum estimé (en k€) — utilisé pour filtrer si l'offre mentionne un salaire
+  salary_min_k: 50
+  # Langue : "fr" = priorité français, "both" = FR + EN, "en" = anglais uniquement
+  language_preference: "fr"
+
+application:
+  # Langue de la lettre de motivation générée
+  cover_letter_language: "fr"   # "fr" ou "en" selon l'offre
+  # Nombre max de lettres à générer en une passe
+  max_per_run: 20
+  # Dossier de sortie (relatif au projet)
+  output_dir: "applications"
+
+anthropic:
+  model: "claude-sonnet-4-6"
+  # Clé lue depuis engine/.env (ANTHROPIC_API_KEY) — ne pas committer de clé ici
+  api_key: ""
