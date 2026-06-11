@@ -16,7 +16,7 @@ function buildLineItems(plan: Plan): Stripe.Checkout.SessionCreateParams.LineIte
         currency: "eur",
         unit_amount: STRIPE_LAUNCH_UNIT_AMOUNT,
         product_data: {
-          name: `JEAN PAUL — ${plan.name}`,
+          name: `JEAN PAUL · ${plan.name}`,
           description: `${plan.description} (accès lancement, paiement unique)`,
         },
       },

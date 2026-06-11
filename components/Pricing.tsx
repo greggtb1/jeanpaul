@@ -14,7 +14,7 @@ export default function Pricing() {
           <span className="eyebrow">Tarifs</span>
           <h2 className="section__title">Un abonnement, pas une commission</h2>
           <p className="section__subtitle">
-            Vous payez pour le temps gagné — pas un pourcentage sur votre salaire.
+            Vous payez pour le temps gagné, pas un pourcentage sur votre salaire.
             Sans engagement, résiliable à tout moment. Choisissez l&apos;intensité
             qui correspond à votre recherche.
           </p>
@@ -62,7 +62,7 @@ export default function Pricing() {
 
         <p className="pricing__note">
           <strong>Offre lancement :</strong> tous les plans à {LAUNCH_PRICE_EUR} €/mois
-          via Stripe. Le tarif affiché barré sera appliqué plus tard — votre plan choisi
+          via Stripe. Le tarif affiché barré sera appliqué plus tard selon votre plan choisi
           est enregistré dès l&apos;inscription.
         </p>
       </div>

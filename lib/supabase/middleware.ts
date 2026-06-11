@@ -44,10 +44,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isSignup) {
+  const isSubscribe = path === "/subscribe" || path.startsWith("/subscribe/");
+
+  if (user && (isSignup || isSubscribe) && !path.startsWith("/subscribe/success")) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("subscription_status")
+      .select("subscription_status, onboarding_done")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -55,7 +57,8 @@ export async function updateSession(request: NextRequest) {
       profile?.subscription_status === "active" || profile?.subscription_status === "trialing";
     if (active) {
       const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
+      // S'il reste à finir l'onboarding, on l'y renvoie plutôt qu'au dashboard
+      url.pathname = profile?.onboarding_done ? "/dashboard" : "/onboarding";
       return NextResponse.redirect(url);
     }
   }

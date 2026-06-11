@@ -229,7 +229,7 @@ export function parsePipelinePhase(
   const huntTargetMatch = log.match(/arrêt à (\d+) offres|cible\s*:\s*(\d+)\s+offres/i);
   const huntTarget = huntTargetMatch
     ? parseInt(huntTargetMatch[1] || huntTargetMatch[2], 10)
-    : 10;
+    : 5;
   const qualifying = qualRunMatch
     ? parseInt(qualRunMatch[1], 10)
     : qualHuntDetail
@@ -307,7 +307,7 @@ export function parsePipelinePhase(
       : qualifying
         ? `${qualifying}/${huntTarget} offres ≥6/10`
         : "Scrape + analyse au fil de l'eau";
-    subdetail = "Arrêt dès l'objectif atteint — pas d'offres non analysées";
+    subdetail = "Arrêt dès l'objectif atteint. Chaque offre est analysée.";
   } else if (subPhase === "analyze") {
     stepLabel = "Analyse JEAN PAUL";
     detail = analyzeTotal

@@ -201,7 +201,7 @@ export default function Dashboard() {
   const supabase = createClient();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [tab, setTab] = useState("all");
+  const [tab, setTab] = useState<TabId>("all");
   const [loading, setLoading] = useState(true);
   const [run, setRun] = useState<PipelineRun | null>(null);
   const [lastSearch, setLastSearch] = useState<PipelineRun | null>(null);
@@ -326,7 +326,7 @@ export default function Dashboard() {
     setRun({
       ...run,
       status: "cancelled",
-      log: `${run.log || ""}${run.log?.includes("Arrêt demandé") ? "" : "\n⛔ Arrêt demandé — interruption en cours…\n"}`,
+      log: `${run.log || ""}${run.log?.includes("Arrêt demandé") ? "" : "\n⛔ Arrêt demandé. Interruption en cours…\n"}`,
       finished_at: new Date().toISOString(),
     });
     try {
@@ -597,7 +597,7 @@ export default function Dashboard() {
         ) : filtered.length === 0 ? (
           <div className="db__empty">
             <div className="db__empty-emoji">🛰️</div>
-            <h3>Aucune offre pour l'instant</h3>
+            <h3>Aucune offre pour l&apos;instant</h3>
             <p>Lancez une nouvelle recherche ci-dessus pour scanner LinkedIn selon vos critères.</p>
           </div>
         ) : (

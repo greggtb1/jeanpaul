@@ -77,7 +77,10 @@ export async function uploadPendingCvForUser(
   });
   if (error) throw error;
 
-  const { data } = supabase.storage.from("cvs").getPublicUrl(path);
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from("cvs")
+    .createSignedUrl(path, 60 * 60 * 24 * 365); // 1 an
+  if (signedError || !signedData?.signedUrl) throw signedError ?? new Error("URL indisponible");
   await clearPendingCv();
-  return { url: data.publicUrl, filename: file.name, path };
+  return { url: signedData.signedUrl, filename: file.name, path };
 }

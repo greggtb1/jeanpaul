@@ -24,7 +24,7 @@ export function killPipelineProcess(pid: number) {
   }, 3000);
 }
 
-const STOP_LINE = "⛔ Arrêt demandé — interruption en cours…";
+const STOP_LINE = "⛔ Arrêt demandé. Interruption en cours…";
 
 export async function stopPipelineRun(
   admin: SupabaseClient,

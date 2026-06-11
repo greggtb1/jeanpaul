@@ -5,28 +5,16 @@ const columns = [
   {
     title: "Produit",
     links: [
-      { label: "Démo", href: "#" },
       { label: "Fonctionnement", href: "#fonctionnement" },
       { label: "Tarifs", href: "#tarifs" },
-      { label: "Nouveautés", href: "#" },
+      { label: "FAQ", href: "#faq" },
     ],
   },
   {
     title: "Ressources",
     links: [
-      { label: "Blog", href: "#" },
-      { label: "Guide candidature", href: "#" },
-      { label: "FAQ", href: "#faq" },
-      { label: "Support", href: "#" },
-    ],
-  },
-  {
-    title: "Entreprise",
-    links: [
-      { label: "À propos", href: "#" },
-      { label: "Confidentialité", href: "#" },
-      { label: "Conditions", href: "#" },
-      { label: "Contact", href: "mailto:contact@jeanpaul.app" },
+      { label: "Guide candidature", href: "#fonctionnement" },
+      { label: "Support", href: "mailto:contact@jeanpaul.app" },
     ],
   },
 ];
@@ -60,8 +48,12 @@ export default function Footer() {
       </div>
 
       <div className="footer__bottom">
-        <span suppressHydrationWarning>© {new Date().getFullYear()} JEAN PAUL. Tous droits réservés.</span>
-        <span>Fait avec soin pour les candidats pressés.</span>
+        <span suppressHydrationWarning>© {new Date().getFullYear()} JEAN PAUL</span>
+        <nav className="footer__legal" aria-label="Mentions légales">
+          <Link href="/cgu">CGU</Link>
+          <Link href="/confidentialite">Confidentialité</Link>
+          <a href="mailto:contact@jeanpaul.app">Contact</a>
+        </nav>
       </div>
     </footer>
   );

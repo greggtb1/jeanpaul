@@ -49,7 +49,7 @@ const STEPS = [
         <div className="tuto__browser-body">
           <div className="tuto__field tuto__field--filled">Grégoire Linée ✓</div>
           <div className="tuto__field tuto__field--filled">CV_adapté.pdf ✓</div>
-          <div className="tuto__btn-fake tuto__btn-fake--go">Submit →</div>
+          <div className="tuto__btn-fake tuto__btn-fake--go">Submit</div>
         </div>
       </div>
     ),

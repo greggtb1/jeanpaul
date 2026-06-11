@@ -12,60 +12,55 @@ function statPrimary(phase: ReturnType<typeof parsePipelinePhase>): { val: strin
       val: autoapplyTotal
         ? `${autoapplyReady || autoapplyCurrent || 0}/${autoapplyTotal}`
         : String(autoapplyCurrent || "…"),
-      lbl: "Onglets",
+      lbl: "onglets",
     };
   }
   if (subPhase === "scrape_query" || subPhase === "scrape_prepare" || subPhase === "boot") {
     return {
       val: queriesTotal ? `${queriesDone}/${queriesTotal}` : String(queriesDone || "…"),
-      lbl: "Requêtes",
+      lbl: "requêtes",
     };
   }
   if (subPhase === "scrape_desc") {
-    return { val: descTotal ? `${descCurrent}/${descTotal}` : "…", lbl: "Descriptions" };
+    return { val: descTotal ? `${descCurrent}/${descTotal}` : "…", lbl: "descriptions" };
   }
   if (subPhase === "scrape_done") {
-    return { val: String(offersNew || "…"), lbl: "Nouvelles offres" };
+    return { val: String(offersNew || "…"), lbl: "nouvelles offres" };
   }
   if (subPhase === "analyze" || subPhase === "hunt_fill") {
     return {
       val: analyzeTotal ? `${analyzeDone}/${analyzeTotal}` : String(analyzeDone || "…"),
-      lbl: "Analysées",
+      lbl: "analysées",
     };
   }
   if (subPhase === "generate" || subPhase === "sync" || subPhase === "done") {
-    return { val: generated ? `${generated}/${generateMax}` : "…", lbl: "Candidatures" };
+    return { val: generated ? `${generated}/${generateMax}` : "…", lbl: "candidatures" };
   }
-  return { val: String(offersThisQuery || "…"), lbl: "Cette requête" };
+  return { val: String(offersThisQuery || "…"), lbl: "cette requête" };
 }
 
 function statSecondary(phase: ReturnType<typeof parsePipelinePhase>): { val: string; lbl: string } | null {
   const { subPhase, offersThisQuery, offersNew, offersTotal, qualifying, maxPerQuery, formPage } = phase;
 
-  if (subPhase === "autoapply_fill" && formPage > 0) return { val: String(formPage), lbl: "Page formulaire" };
-  if (subPhase === "autoapply_ready") return { val: "Manuel", lbl: "Clique Submit" };
-  if (subPhase === "scrape_query") return { val: String(offersThisQuery || 0), lbl: `Offres (max ${maxPerQuery})` };
-  if (subPhase === "scrape_desc") return { val: String(offersThisQuery || 0), lbl: "Sur cette requête" };
-  if (subPhase === "scrape_done") return { val: String(offersTotal || "…"), lbl: "Total en base" };
+  if (subPhase === "autoapply_fill" && formPage > 0) return { val: String(formPage), lbl: "page formulaire" };
+  if (subPhase === "autoapply_ready") return { val: "Manuel", lbl: "clique Submit" };
+  if (subPhase === "scrape_query") return { val: String(offersThisQuery || 0), lbl: `offres (max ${maxPerQuery})` };
+  if (subPhase === "scrape_desc") return { val: String(offersThisQuery || 0), lbl: "sur cette requête" };
+  if (subPhase === "scrape_done") return { val: String(offersTotal || "…"), lbl: "en base" };
   if (subPhase === "analyze" || subPhase === "hunt_fill") return { val: String(qualifying), lbl: "≥ 6/10" };
-  if (subPhase === "generate") return { val: String(qualifying || offersNew), lbl: "Éligibles" };
+  if (subPhase === "generate") return { val: String(qualifying || offersNew), lbl: "éligibles" };
   return null;
 }
 
 function AutoApplyValidateCallout({ count }: { count: number }) {
   return (
-    <div className="db-auto-validate" role="status" aria-live="polite">
-      <div className="db-auto-validate__icon" aria-hidden="true">🪟</div>
-      <div className="db-auto-validate__body">
-        <p className="db-auto-validate__title">Validez vos candidatures dans Chromium</p>
-        <p className="db-auto-validate__text">
-          {count > 1
-            ? `${count} onglets sont ouverts avec les formulaires pré-remplis.`
-            : "Un onglet est ouvert avec le formulaire pré-rempli."}{" "}
-          Passez sur chaque offre, vérifiez le CV et cliquez « Envoyer la candidature ».
-        </p>
-        <p className="db-auto-validate__hint">Fermez la fenêtre Chromium quand vous avez tout envoyé.</p>
-      </div>
+    <div className="db-auto-validate db-auto-validate--lite" role="status" aria-live="polite">
+      <p className="db-auto-validate__text">
+        {count > 1
+          ? `${count} onglets ouverts avec les formulaires pré-remplis.`
+          : "Un onglet est ouvert avec le formulaire pré-rempli."}{" "}
+        Vérifiez puis cliquez « Envoyer la candidature ».
+      </p>
     </div>
   );
 }
@@ -73,7 +68,7 @@ function AutoApplyValidateCallout({ count }: { count: number }) {
 export default function PipelineProgress({
   run,
   jobsFound = 0,
-  targetRoles,
+  targetRoles: _targetRoles,
   compact = false,
   onStop,
   stopping,
@@ -97,16 +92,25 @@ export default function PipelineProgress({
   const eyebrow = awaitingValidation
     ? "Dernière étape"
     : autoapply
-      ? "Auto-postulation en cours"
+      ? "Auto-postulation"
       : analyzeOnly
-        ? "Analyse en cours"
-        : "Recherche en cours";
+        ? "Analyse"
+        : "Recherche";
 
   const stopLabel = autoapply
     ? "Stopper l'auto-postulation"
     : analyzeOnly
       ? "Stopper l'analyse"
-      : "Stopper la recherche";
+      : "Stopper";
+
+  const metaLine = [
+    `${primary.val} ${primary.lbl}`,
+    secondary ? `${secondary.val} ${secondary.lbl}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const stepLine = `Étape ${phase.step || 1}/${steps.length} · ${phase.stepLabel}`;
 
   if (compact) {
     return (
@@ -114,27 +118,23 @@ export default function PipelineProgress({
         {phase.subPhase === "autoapply_ready" && (
           <AutoApplyValidateCallout count={phase.autoapplyTotal || phase.autoapplyReady || 1} />
         )}
-        <div className="db-pipeline-live__compact-row">
-          <div className="db-pipeline-live__compact-left">
-            <span className="db-pipeline-live__compact-eyebrow">{eyebrow}</span>
-            <span className="db-pipeline-live__compact-step">
-              Étape {phase.step || 1}/{steps.length} · {phase.stepLabel}
-            </span>
-            <span className="db-pipeline-live__compact-detail">{phase.detail}</span>
+        <div className="db-pipeline-live__head">
+          <div className="db-pipeline-live__head-main">
+            <p className="db-pipeline-live__meta">
+              {eyebrow} · {stepLine} · {phase.progress}%
+            </p>
+            <p className="db-pipeline-live__title">{phase.detail}</p>
           </div>
-          <div className="db-pipeline-live__compact-right">
-            <span className="db-pipeline-live__pct">{phase.progress}%</span>
-            {onStop && (
-              <button
-                type="button"
-                className="btn--stop-search"
-                disabled={stopping}
-                onClick={onStop}
-              >
-                {stopping ? "Arrêt…" : stopLabel}
-              </button>
-            )}
-          </div>
+          {onStop && (
+            <button
+              type="button"
+              className="db-pipeline-live__stop"
+              disabled={stopping}
+              onClick={onStop}
+            >
+              {stopping ? "Arrêt…" : stopLabel}
+            </button>
+          )}
         </div>
         <div className="db-pipeline-live__bar" aria-hidden="true">
           <span style={{ width: `${phase.progress}%` }} />
@@ -148,68 +148,33 @@ export default function PipelineProgress({
       {phase.subPhase === "autoapply_ready" && (
         <AutoApplyValidateCallout count={phase.autoapplyTotal || phase.autoapplyReady || 1} />
       )}
-      <header className="db-pipeline-live__top">
-        <div className="db-pipeline-live__top-body">
-          <p className="db-pipeline-live__eyebrow">{eyebrow}</p>
-          <h3 className="db-pipeline-live__title">{phase.detail}</h3>
-          <p className="db-pipeline-live__sub">
-            Étape {phase.step || 1} / {steps.length} · {phase.stepLabel}
+      <div className="db-pipeline-live__head">
+        <div className="db-pipeline-live__head-main">
+          <p className="db-pipeline-live__meta">
+            {eyebrow} · {stepLine} · {phase.progress}%
           </p>
-          {phase.subdetail && <p className="db-pipeline-live__sub">{phase.subdetail}</p>}
+          <h3 className="db-pipeline-live__title">{phase.detail}</h3>
+          {phase.subdetail ? (
+            <p className="db-pipeline-live__sub">{phase.subdetail}</p>
+          ) : null}
         </div>
-        <div className="db-pipeline-live__top-aside">
-          <span className="db-pipeline-live__pct">{phase.progress}%</span>
-          {onStop && (
-            <button
-              type="button"
-              className="btn--stop-search"
-              disabled={stopping}
-              onClick={onStop}
-            >
-              {stopping ? "Arrêt…" : stopLabel}
-            </button>
-          )}
-        </div>
-      </header>
+        {onStop && (
+          <button
+            type="button"
+            className="db-pipeline-live__stop"
+            disabled={stopping}
+            onClick={onStop}
+          >
+            {stopping ? "Arrêt…" : stopLabel}
+          </button>
+        )}
+      </div>
 
       <div className="db-pipeline-live__bar" aria-hidden="true">
         <span style={{ width: `${phase.progress}%` }} />
       </div>
 
-      <ol className="db-pipeline-live__steps">
-        {steps.map((s) => {
-          const state = phase.step > s.id ? "done" : phase.step === s.id ? "active" : "pending";
-          return (
-            <li key={s.id} className={`db-pipeline-live__step db-pipeline-live__step--${state}`}>
-              <span className="db-pipeline-live__step-num">{state === "done" ? "✓" : s.id}</span>
-              <span className="db-pipeline-live__step-label">{s.label}</span>
-            </li>
-          );
-        })}
-      </ol>
-
-      <div className="db-pipeline-live__stats">
-        <div className="db-pipeline-live__stat">
-          <span className="db-pipeline-live__stat-val">{primary.val}</span>
-          <span className="db-pipeline-live__stat-lbl">{primary.lbl}</span>
-        </div>
-        {secondary && (
-          <div className="db-pipeline-live__stat">
-            <span className="db-pipeline-live__stat-val">{secondary.val}</span>
-            <span className="db-pipeline-live__stat-lbl">{secondary.lbl}</span>
-          </div>
-        )}
-        {targetRoles?.length ? (
-          <div className="db-pipeline-live__stat db-pipeline-live__stat--wide">
-            <span className="db-pipeline-live__stat-lbl">Postes cibles</span>
-            <span className="db-pipeline-live__stat-tags">
-              {targetRoles.slice(0, 4).map((r) => (
-                <span key={r} className="db-pipeline-live__tag">{r}</span>
-              ))}
-            </span>
-          </div>
-        ) : null}
-      </div>
+      <p className="db-pipeline-live__nums">{metaLine}</p>
     </section>
   );
 }

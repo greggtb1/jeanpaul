@@ -7,12 +7,12 @@ import { getPlan, LAUNCH_PRICE_EUR, parsePlanId } from "@/lib/plans";
 import type { SubscriptionInfo } from "@/app/api/stripe/subscription/route";
 
 function fmtDate(iso: string | null) {
-  if (!iso) return "—";
+  if (!iso) return "Non renseigné";
   return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(iso));
 }
 
 function fmtAmount(amount: number | null, currency: string | null) {
-  if (amount == null) return "—";
+  if (amount == null) return "Non renseigné";
   const cur = (currency || "eur").toUpperCase();
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: cur }).format(amount / 100);
 }
@@ -134,7 +134,7 @@ export default function FacturationPage() {
             onClick={openPortal}
             disabled={!canManage || portalLoading || loading}
           >
-            {portalLoading ? "Ouverture…" : canManage ? "Gérer l'abonnement →" : "Gérer l'abonnement"}
+            {portalLoading ? "Ouverture…" : "Gérer l'abonnement"}
           </button>
           {!canManage && !loading && (
             <p className="fact-hint">
@@ -181,7 +181,7 @@ export default function FacturationPage() {
               <div className="fact-invoice__row">
                 <span className="fact-invoice__label">Reçu</span>
                 <a href={sub.lastInvoicePdfUrl} target="_blank" rel="noopener" className="fact-invoice__link">
-                  Télécharger →
+                  Télécharger
                 </a>
               </div>
             )}

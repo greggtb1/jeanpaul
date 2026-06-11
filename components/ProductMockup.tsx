@@ -194,7 +194,7 @@ export default function ProductMockup() {
           </ul>
 
           <Link href="#" className="pcard__link">
-            Voir toutes les offres →
+            Voir toutes les offres
           </Link>
         </article>
 

@@ -29,7 +29,7 @@ from user_profile import clear_profile_cache
 APPS_DIR = BASE / "applications"
 
 MIN_SCORE = 6
-HUNT_TARGET = 10  # arrêt dès N offres ≥ MIN_SCORE (comme le script initial)
+HUNT_TARGET = 5  # arrêt dès N offres ≥ MIN_SCORE
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -375,7 +375,7 @@ def run_analyze_pending(user_id: str, run_id: str):
     pipeline_set_status(run_id, "running", progress=65)
     pipeline_log(run_id, "\n── Étape 3 : Génération CV + lettres (offres ≥ 6/10) ──")
     rc = run_main(
-        ["apply", "--min-score", "6", "--max", "10", "--no-dashboard"],
+        ["apply", "--min-score", "6", "--max", str(HUNT_TARGET), "--no-dashboard"],
         user_id, run_id,
     )
     if rc == 130:
@@ -523,7 +523,7 @@ def main():
     pipeline_set_status(run_id, "running", progress=65)
     pipeline_log(run_id, "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──")
     rc = run_main(
-        ["apply", "--min-score", "6", "--max", "10", "--no-dashboard"],
+        ["apply", "--min-score", "6", "--max", str(HUNT_TARGET), "--no-dashboard"],
         opts.user_id, run_id,
     )
     if rc != 0:

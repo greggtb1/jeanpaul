@@ -282,7 +282,7 @@ export function CvDropzone({
               <p className="ob__drop-title">{cvFilename || "CV.pdf"}</p>
               {!compact && (
                 <p className="ob__drop-sub">
-                  {canView ? "CV actuellement enregistré" : "CV enregistré — upload à la création du compte"}
+                  {canView ? "CV actuellement enregistré" : "CV enregistré à la création du compte"}
                 </p>
               )}
             </div>

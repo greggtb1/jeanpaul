@@ -68,7 +68,7 @@ export async function reconcileStalePipelineRun(
   const log = run.log || "";
   const logAppend = log.includes("Arrêt demandé")
     ? log
-    : `${log}${log ? "\n" : ""}🛑 Run interrompu — état réconcilié au chargement.\n`;
+    : `${log}${log ? "\n" : ""}🛑 Run interrompu. État réconcilié au chargement.\n`;
 
   const { data: updated, error } = await admin
     .from("pipeline_runs")

@@ -56,7 +56,7 @@ export function buildLetterPdfBuffer(
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10.5);
   doc.setTextColor(26, 26, 46);
-  const subject = `Objet : Candidature — ${title} chez ${company}`;
+  const subject = `Objet : Candidature · ${title} chez ${company}`;
   const subjectLines = doc.splitTextToSize(subject, maxW);
   for (const line of subjectLines) {
     doc.text(line, margin, y);

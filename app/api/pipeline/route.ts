@@ -89,6 +89,20 @@ export async function POST(req: NextRequest) {
     const { supabase, user } = session;
     const userId = user.id;
 
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const subscribed =
+      profile?.subscription_status === "active" ||
+      profile?.subscription_status === "trialing";
+
+    if (!subscribed) {
+      return NextResponse.json({ error: "Abonnement inactif" }, { status: 403 });
+    }
+
     const { data: active } = await supabase
       .from("pipeline_runs")
       .select("*")

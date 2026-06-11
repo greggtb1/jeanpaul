@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LETTER_TONES } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import { parsePlanId, planQuery } from "@/lib/plans";
@@ -54,8 +53,6 @@ const STEPS = [
   "Salaire",
   "CV",
   "Lettres",
-  "Profil",
-  "Récap",
 ];
 
 export default function Onboarding() {
@@ -69,8 +66,7 @@ export default function Onboarding() {
   const [uploading, setUploading] = useState(false);
   const [parsingCv, setParsingCv] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [profileFromCv, setProfileFromCv] = useState(false);
-
+  const [alreadyPaid, setAlreadyPaid] = useState(false);
   useEffect(() => {
     const draft = loadDraft();
     if (draft) {
@@ -103,6 +99,10 @@ export default function Onboarding() {
       .maybeSingle()
       .then(({ data }) => {
         if (!data) return;
+        const paid =
+          data.subscription_status === "active" ||
+          data.subscription_status === "trialing";
+        setAlreadyPaid(paid);
         setForm((f) => ({
           ...f,
           full_name: data.full_name ?? user?.user_metadata?.full_name ?? f.full_name,
@@ -130,22 +130,8 @@ export default function Onboarding() {
 
   const canNext = useMemo(() => {
     if (step === 2) return form.target_roles.length > 0;
-    if (step === 6) {
-      return form.full_name.trim().length > 1 && /\S+@\S+\.\S+/.test(form.email);
-    }
     return true;
   }, [step, form]);
-
-  useEffect(() => {
-    if (step !== 6) return;
-    const email = form.email.trim();
-    if (!/\S+@\S+\.\S+/.test(email)) return;
-    setForm((f) => {
-      const resolved = resolveFullName(f.full_name, email);
-      if (resolved === f.full_name) return f;
-      return { ...f, full_name: resolved };
-    });
-  }, [step, form.email]);
 
   async function handleFile(file: File) {
     if (!file) return;
@@ -164,7 +150,6 @@ export default function Onboarding() {
         const profile = await extractCvProfile(file);
         const hasData = !!(profile.full_name || profile.email || profile.phone || profile.location);
         if (hasData) {
-          setProfileFromCv(true);
           setForm((f) => {
             const email = profile.email || f.email;
             return {
@@ -193,7 +178,39 @@ export default function Onboarding() {
   async function finish() {
     setSaving(true);
     try {
-      saveDraft({ ...form, plan_id: planId });
+      const email = form.email || user?.email || "";
+      const fullName =
+        form.full_name ||
+        (user?.user_metadata?.full_name as string | undefined) ||
+        "";
+
+      if (alreadyPaid && uid) {
+        // Utilisateur déjà abonné : sauvegarder directement en base et aller au dashboard
+        await supabase.from("profiles").update({
+          full_name: fullName || undefined,
+          email: email || undefined,
+          phone: form.phone || undefined,
+          location: form.location || undefined,
+          target_roles: form.target_roles.length ? form.target_roles : undefined,
+          target_locations: form.target_locations.length ? form.target_locations : undefined,
+          contract_type: form.contract_type.length ? form.contract_type : undefined,
+          remote_pref: form.remote_pref.length ? form.remote_pref : undefined,
+          salary_min: form.salary_min ? Number(form.salary_min) : undefined,
+          letter_tone: form.letter_tone || undefined,
+          letter_sample: form.letter_sample || undefined,
+          onboarding_done: true,
+          updated_at: new Date().toISOString(),
+        }).eq("id", uid);
+        router.push("/dashboard");
+        return;
+      }
+
+      saveDraft({
+        ...form,
+        plan_id: planId,
+        email,
+        full_name: fullName,
+      });
       router.push(`/subscribe${planQuery(planId)}`);
     } catch (e) {
       alert("Erreur : " + (e as Error).message);
@@ -224,7 +241,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Quel type de contrat ?"
-              subtitle="On commence par le cadre — contrat et mode de travail."
+              subtitle="On commence par le cadre : contrat et mode de travail."
             >
               <Field label="Type de contrat">
                 <MultiChoice
@@ -249,7 +266,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Où souhaitez-vous travailler ?"
-              subtitle="Ville, région ou remote — plusieurs choix possibles."
+              subtitle="Ville, région ou remote. Plusieurs choix possibles."
             >
               <Field label="Lieux">
                 <TagInput
@@ -266,14 +283,13 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Que recherchez-vous ?"
-              subtitle="Les postes qui vous intéressent — métier rare ou hybride accepté."
+              subtitle="Les postes qui vous intéressent. Métier rare ou hybride accepté."
             >
               <Field label="Postes visés">
                 <TagInput
                   value={form.target_roles}
                   onChange={(v) => set({ target_roles: v })}
                   groups={ROLE_GROUPS}
-                  freeform
                   placeholder="Ex. Growth Marketing, Product Manager…"
                   hint="Entrée pour valider."
                 />
@@ -285,7 +301,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Salaire minimum ?"
-              subtitle="Optionnel — utile pour filtrer les offres en dessous de vos attentes."
+              subtitle="Optionnel. Utile pour filtrer les offres en dessous de vos attentes."
             >
               <Field label="Salaire minimum souhaité (k€/an)">
                 <input
@@ -344,104 +360,6 @@ export default function Onboarding() {
             </Section>
           )}
 
-          {step === 6 && (
-            <Section
-              kicker="Vos coordonnées"
-              title="Vérifiez vos informations"
-              subtitle={
-                profileFromCv
-                  ? "Extraites de votre CV — modifiez si besoin."
-                  : "Nécessaires pour le paiement et vos candidatures."
-              }
-            >
-              <Field label="Nom complet">
-                <input
-                  className="ob__input"
-                  placeholder="Grégoire Linée"
-                  value={form.full_name}
-                  autoFocus
-                  onChange={(e) => set({ full_name: e.target.value })}
-                />
-              </Field>
-              <Field label="Email">
-                <input
-                  className="ob__input"
-                  type="email"
-                  placeholder="vous@email.com"
-                  value={form.email}
-                  onChange={(e) => set({ email: e.target.value })}
-                />
-              </Field>
-              <div className="ob__row">
-                <Field label="Téléphone">
-                  <input
-                    className="ob__input"
-                    placeholder="06 12 34 56 78"
-                    value={form.phone}
-                    onChange={(e) => set({ phone: e.target.value })}
-                  />
-                </Field>
-                <Field label="Ville">
-                  <input
-                    className="ob__input"
-                    placeholder="Paris"
-                    value={form.location}
-                    onChange={(e) => set({ location: e.target.value })}
-                  />
-                </Field>
-              </div>
-            </Section>
-          )}
-
-          {step === 7 && (
-            <Section
-              kicker="Récapitulatif"
-              title={`Tout est bon${form.full_name ? `, ${form.full_name.split(" ")[0]}` : ""} !`}
-              subtitle="Vérifiez avant de passer au paiement."
-            >
-              <ul className="ob__recap">
-                <li>
-                  <span>Contrat</span>
-                  <strong>{form.contract_type.join(", ") || "Non précisé"}</strong>
-                </li>
-                <li>
-                  <span>Présentiel</span>
-                  <strong>{form.remote_pref.join(", ") || "Non précisé"}</strong>
-                </li>
-                <li>
-                  <span>Lieux</span>
-                  <strong>{form.target_locations.join(", ") || "Non précisé"}</strong>
-                </li>
-                <li>
-                  <span>Postes</span>
-                  <strong>{form.target_roles.join(", ") || "…"}</strong>
-                </li>
-                <li>
-                  <span>Salaire min.</span>
-                  <strong>{form.salary_min ? `${form.salary_min} k€` : "Non précisé"}</strong>
-                </li>
-                <li>
-                  <span>CV</span>
-                  <strong>{form.cv_filename || "Non fourni"}</strong>
-                </li>
-                <li>
-                  <span>Ton des lettres</span>
-                  <strong>
-                    {LETTER_TONES.find((t) => t.id === form.letter_tone)?.label ?? "…"}
-                  </strong>
-                </li>
-                <li>
-                  <span>Email</span>
-                  <strong>{form.email || "…"}</strong>
-                </li>
-                <li>
-                  <span>Téléphone</span>
-                  <strong>{form.phone || "Non renseigné"}</strong>
-                </li>
-              </ul>
-            </Section>
-          )}
-
           <div className="ob__actions">
             {step > 0 ? (
               <button className="btn btn--outline" onClick={back} disabled={busy}>
@@ -454,7 +372,9 @@ export default function Onboarding() {
               {saving
                 ? "Redirection…"
                 : step === STEPS.length - 1
-                  ? "Continuer vers le paiement"
+                  ? alreadyPaid
+                    ? "Accéder au dashboard"
+                    : "Aller au paiement"
                   : step === 3 && !form.salary_min
                     ? "Passer"
                     : step === 4 && !form.cv_filename

@@ -54,8 +54,9 @@ export async function POST(req: NextRequest) {
       const userId = session.client_reference_id || session.metadata?.supabase_user_id;
       if (!userId || session.metadata?.pending === "true") break;
 
-      const updates: Record<string, string> = {
+      const updates: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
+        onboarding_done: true,
       };
       if (typeof session.customer === "string") updates.stripe_customer_id = session.customer;
       if (session.metadata?.plan_id) updates.plan_id = session.metadata.plan_id;

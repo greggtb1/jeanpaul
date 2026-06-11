@@ -37,60 +37,80 @@ ANSWER_BANK_FILE = Path.home() / ".job-apply-browser" / "answer_bank.json"
 # Nom du fichier de cache des réponses dans chaque dossier de candidature
 APP_ANSWERS_FILE = "autofill_answers.json"
 
-# ── Données du candidat ───────────────────────────────────────────────────────
-from profile import PROFILE
-
-CANDIDATE = {
-    "first_name":  "Gregoire",
-    "last_name":   "Linée",
-    "full_name":   "Gregoire Linée",
-    "email":       PROFILE["email"],
-    "phone":          "+33 6 75 02 90 38",
-    "phone_intl":     "+33675029038",
-    "phone_national": "0675029038",
-    "website":     "https://gregoire.pro",
-    "linkedin":    "https://www.linkedin.com/in/gregoire-linee-4a5984175/",
-    "github":      "",
-    "address":     "8 rue Gambetta",
-    "city":        "Saint-Ouen-sur-Seine",
-    "postcode":    "93400",
-    "country":     "France",
-    "location":    "Saint-Ouen-sur-Seine, France (Paris area)",
-    "nationality": "French",
-    "work_authorization_eu":     True,
+# ── Données du candidat (remplies par sync_candidate_from_profile) ───────────
+CANDIDATE: Dict[str, Any] = {
+    "first_name": "",
+    "last_name": "",
+    "full_name": "",
+    "email": "",
+    "phone": "",
+    "phone_intl": "",
+    "phone_national": "",
+    "phone_local": "",
+    "website": "",
+    "linkedin": "",
+    "github": "",
+    "address": "",
+    "city": "",
+    "postcode": "",
+    "country": "France",
+    "location": "",
+    "nationality": "",
+    "work_authorization_eu": True,
     "work_authorization_france": True,
-    "needs_visa_sponsorship":    False,
-    "availability":          "End of May 2026",
-    "earliest_start_date":   "2026-05-31",
-    "salary_expectation":    "65-80k EUR",
-    "salary_min":            65000,
-    "salary_max":            80000,
-    "currency":              "EUR",
-    "notice_period":         "None (available end of May 2026)",
-    "years_of_experience":   4,
-    # Langues & niveaux — utilisés pour les questions "niveau d'anglais" et "langues parlées"
-    "english_level":         "Courant",          # FR : Courant / Bilingue / Natif
-    "english_level_en":      "Fluent",            # EN : Fluent / Native / Advanced
-    "french_level":          "Natif",
-    "french_level_en":       "Native",
-    "languages_fluent":      ["French", "English"],
-    "languages_fr":          ["Français", "Anglais"],
-    # Réponses génériques aux questions récurrentes
-    "consent_certify":       "Yes",              # "I certify the info is correct"
-    "consent_privacy":       "Yes",              # "I accept the privacy policy"
-    "gender":                "Prefer not to say",
-    "ethnicity":             "Prefer not to say",
-    "disability":            "No",
-    "veteran_status":        "I am not a protected veteran",
-    "how_did_you_hear":      "LinkedIn",
-    "referred_by":           "",
-    "phone_local":           "675029038",  # sans indicatif (+33), pour LinkedIn
+    "needs_visa_sponsorship": False,
+    "availability": "",
+    "earliest_start_date": "",
+    "salary_expectation": "",
+    "salary_min": None,
+    "salary_max": None,
+    "currency": "EUR",
+    "notice_period": "",
+    "years_of_experience": None,
+    "english_level": "Courant",
+    "english_level_en": "Fluent",
+    "french_level": "Natif",
+    "french_level_en": "Native",
+    "languages_fluent": ["French", "English"],
+    "languages_fr": ["Français", "Anglais"],
+    "consent_certify": "Yes",
+    "consent_privacy": "Yes",
+    "gender": "Prefer not to say",
+    "ethnicity": "Prefer not to say",
+    "disability": "No",
+    "veteran_status": "I am not a protected veteran",
+    "how_did_you_hear": "LinkedIn",
+    "referred_by": "",
     "comfortable_commuting": True,
-    "comfortable_hybrid":    True,
-    "has_masters_degree":    True,
-    "has_bachelors_degree":  True,
-    "remote_pref":           ["hybrid", "remote", "onsite"],
+    "comfortable_hybrid": True,
+    "has_masters_degree": False,
+    "has_bachelors_degree": False,
+    "remote_pref": [],
 }
+
+
+def _urls_from_cv_text(cv_text: str) -> Dict[str, str]:
+    """Extrait LinkedIn / site web depuis le texte du CV uploadé."""
+    out = {"linkedin": "", "website": ""}
+    if not cv_text:
+        return out
+    m = re.search(r"https?://(?:www\.)?linkedin\.com/in/[\w\-%/]+", cv_text, re.I)
+    if m:
+        out["linkedin"] = m.group(0).rstrip("/.,;)")
+    for m in re.finditer(r"https?://[^\s\)\]>\"']+", cv_text):
+        u = m.group(0).rstrip(".,;)")
+        if "linkedin.com" not in u.lower():
+            out["website"] = u
+            break
+    if not out["website"]:
+        dm = re.search(
+            r"(?:^|\s)([\w\-]+\.(?:pro|com|io|fr|dev|me|net|org))(?:\s|$)",
+            cv_text,
+            re.I | re.M,
+        )
+        if dm:
+            out["website"] = f"https://{dm.group(1)}"
+    return out
 
 
 def _parse_phone(raw: str) -> Dict[str, str]:
@@ -113,10 +133,10 @@ def _parse_phone(raw: str) -> Dict[str, str]:
     if len(local) == 9:
         spaced = f"+33 {local[0]} {local[1:3]} {local[3:5]} {local[5:7]} {local[7:9]}"
     return {
-        "phone": spaced or raw or CANDIDATE.get("phone", ""),
-        "phone_intl": f"+33{local}" if local else CANDIDATE.get("phone_intl", ""),
-        "phone_national": national or CANDIDATE.get("phone_national", ""),
-        "phone_local": local or CANDIDATE.get("phone_local", ""),
+        "phone": spaced or raw or "",
+        "phone_intl": f"+33{local}" if local else "",
+        "phone_national": national or "",
+        "phone_local": local or "",
     }
 
 
@@ -136,16 +156,28 @@ def sync_candidate_from_profile() -> None:
         locs = prof.get("target_locations") or []
         city_from_profile = str(locs[0]).strip() if isinstance(locs, list) and locs else ""
 
+        location = (prof.get("location") or city_from_profile or "").strip()
+
         updates: Dict[str, Any] = {
             "first_name": parts[0],
             "last_name": parts[1] if len(parts) > 1 else "",
             "full_name": name,
-            "email": (prof.get("email") or CANDIDATE["email"]).strip(),
-            "location": prof.get("location") or CANDIDATE["location"],
+            "email": (prof.get("email") or "").strip(),
+            "location": location,
             **phone_bits,
         }
         if city_from_profile:
             updates["city"] = city_from_profile
+        elif location:
+            updates["city"] = location.split(",")[0].split("(")[0].strip()
+
+        if prof.get("website"):
+            updates["website"] = str(prof["website"]).strip()
+        cv_urls = _urls_from_cv_text(prof.get("cv_text") or "")
+        if cv_urls["linkedin"]:
+            updates["linkedin"] = cv_urls["linkedin"]
+        if cv_urls["website"] and not updates.get("website"):
+            updates["website"] = cv_urls["website"]
         sm = prof.get("salary_min")
         if sm:
             try:
@@ -185,7 +217,17 @@ def sync_candidate_from_profile() -> None:
             pass
 
         CANDIDATE.update({k: v for k, v in updates.items() if v is not None and v != ""})
-        console.print(f"  [green]✓ Profil candidat : {name} · {CANDIDATE['email']}[/green]")
+        email_hint = CANDIDATE.get("email") or "email manquant"
+        console.print(f"  [green]✓ Profil candidat : {name} · {email_hint}[/green]")
+        missing = [
+            k
+            for k in ("email", "phone", "location")
+            if not (CANDIDATE.get(k) or "").strip()
+        ]
+        if missing:
+            console.print(
+                f"  [yellow]⚠ Profil incomplet ({', '.join(missing)}) : certains champs ne seront pas remplis[/yellow]"
+            )
     except Exception as e:
         console.print(f"  [dim]profil user : {str(e)[:60]}[/dim]")
 
@@ -195,16 +237,13 @@ def _linkedin_city_typeahead_query() -> Tuple[str, List[str]]:
     city = (CANDIDATE.get("city") or "").strip()
     loc = (CANDIDATE.get("location") or "").strip()
     raw = city or loc.split(",")[0].split("(")[0].strip()
-    blob = f"{raw} {loc}".lower()
-    if re.search(
-        r"saint|seine|ouen|boulogne|montreuil|vincennes|idf|île-de-france|ile-de-france|paris",
-        blob,
-        re.I,
-    ):
-        return "Paris", ["Paris", "France", "Île-de-France", "Ile-de-France"]
-    if raw:
-        return raw[:24], [raw, "France"]
-    return "Paris", ["Paris", "France"]
+    if not raw:
+        return "", []
+    hints = [raw]
+    if loc and loc.split(",")[0].strip() not in hints:
+        hints.append(loc.split(",")[0].strip())
+    hints.append("France")
+    return raw[:24], hints
 
 
 def _is_city_like_field(label: str, placeholder: str = "") -> bool:
@@ -1260,6 +1299,8 @@ JS_STEP_INDICATOR = """
 # ── Utilitaires Playwright (legacy fill()) ────────────────────────────────────
 
 def _try_fill(page, field_key: str, value: str) -> bool:
+    if not value or not str(value).strip():
+        return False
     for sel in FIELD_SELECTORS.get(field_key, []):
         try:
             loc = page.locator(sel).first
@@ -2299,12 +2340,15 @@ class AutoFiller:
                 loc = scope.locator(sel).first
                 if loc.count() == 0 or not loc.is_visible(timeout=600):
                     continue
+                email = (CANDIDATE.get("email") or "").strip()
+                if not email:
+                    break
                 cur = (loc.input_value() or "").strip()
-                if not cur or cur != CANDIDATE["email"]:
+                if not cur or cur != email:
                     loc.click(timeout=1500)
-                    loc.fill(CANDIDATE["email"])
+                    loc.fill(email)
                     loc.evaluate(JS_DISPATCH_REACT_EVENTS)
-                    console.print(f"  [dim]  ✓ LinkedIn email → {CANDIDATE['email']}[/dim]")
+                    console.print(f"  [dim]  ✓ LinkedIn email → {email}[/dim]")
                     filled = True
                 break
             except Exception:
@@ -2313,6 +2357,8 @@ class AutoFiller:
         self._fill_linkedin_country_code(scope, page)
 
         local = CANDIDATE.get("phone_local") or CANDIDATE.get("phone_national", "").lstrip("0")
+        if not local:
+            return filled
         for sel in (
             "input[type='tel']",
             "input[id*='phone' i]",
@@ -2498,6 +2544,8 @@ class AutoFiller:
     def _fill_linkedin_city_fields(self, scope, page) -> bool:
         """Remplit le(s) champ(s) ville dans la modale Easy Apply si vides."""
         query, hints = _linkedin_city_typeahead_query()
+        if not query:
+            return False
         filled = False
         selectors = (
             "input[aria-label*='ville' i]",
@@ -3837,7 +3885,7 @@ COVER LETTER EXCERPT (rewrite shorter and simpler, do not copy verbatim, no em-d
 {letter_excerpt}
 
 Example output:
-{{"first_name": "Gregoire", "email": "gregoire.linee@gmail.com", "cv_upload": "__CV_FILE__", "work_auth::yes": "Yes", "salary": "70000", "why_company": "What you are building lines up with what I have done over the last three years. The mix of product, ops and growth fits exactly what I do best. I would love to bring that to your team."}}"""
+{{"first_name": "Marie", "email": "marie.dupont@example.com", "cv_upload": "__CV_FILE__", "work_auth::yes": "Yes", "salary": "55000", "why_company": "What you are building lines up with my background. The mix of product and operations fits what I do best. I would love to bring that to your team."}}"""
 
         msg = client.messages.create(
             model=model,

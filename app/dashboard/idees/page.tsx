@@ -55,6 +55,7 @@ export default function IdeesPage() {
 
   async function toggleVote(req: FeatureRequest) {
     const vote = req.voted ? "-1" : "1";
+    const snapshot = requests;
     setRequests((prev) =>
       prev.map((r) =>
         r.id === req.id
@@ -62,11 +63,27 @@ export default function IdeesPage() {
           : r
       )
     );
-    await fetch(`/api/feedback?vote=${vote}`, {
+    const res = await fetch(`/api/feedback?vote=${vote}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ request_id: req.id }),
     });
+    if (!res.ok) {
+      setRequests(snapshot);
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Impossible d'enregistrer le vote");
+      return;
+    }
+    const { request } = await res.json();
+    if (request) {
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === request.id
+            ? { ...r, votes: request.votes, voted: request.voted }
+            : r
+        )
+      );
+    }
   }
 
   return (

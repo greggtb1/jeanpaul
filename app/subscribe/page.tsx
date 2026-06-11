@@ -87,10 +87,10 @@ export default function SubscribePage() {
           <span> une fois</span>
         </div>
         <p className="paywall-card__launch-note">
-          Offre lancement — paiement unique (pas d&apos;abonnement pour l&apos;instant).
+          Offre lancement : paiement unique (pas d&apos;abonnement pour l&apos;instant).
         </p>
         {cancelled && (
-          <p className="paywall-card__warn">Paiement annulé — vous pouvez réessayer quand vous voulez.</p>
+          <p className="paywall-card__warn">Paiement annulé. Vous pouvez réessayer quand vous voulez.</p>
         )}
         {error && <p className="paywall-card__error">{error}</p>}
         <button
@@ -99,7 +99,7 @@ export default function SubscribePage() {
           disabled={loading}
           onClick={subscribe}
         >
-          {loading ? "Redirection vers Stripe…" : `Payer ${LAUNCH_PRICE_EUR} € →`}
+          {loading ? "Redirection vers Stripe…" : `Payer ${LAUNCH_PRICE_EUR} €`}
         </button>
         <p className="paywall-card__foot">
           Paiement sécurisé par Stripe · création de compte juste après

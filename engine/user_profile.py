@@ -154,9 +154,9 @@ _cache: Optional[Dict[str, Any]] = None
 
 
 def _storage_path_from_public_url(url: str) -> Optional[str]:
-    marker = "/storage/v1/object/public/cvs/"
-    if marker in url:
-        return url.split(marker, 1)[1].split("?")[0]
+    for marker in ("/storage/v1/object/public/cvs/", "/storage/v1/object/sign/cvs/"):
+        if marker in url:
+            return url.split(marker, 1)[1].split("?")[0]
     return None
 
 

@@ -158,8 +158,11 @@ export default function SearchPreferencesForm() {
         contentType: "application/pdf",
       });
       if (error) throw error;
-      const { data } = supabase.storage.from("cvs").getPublicUrl(path);
-      set({ cv_url: data.publicUrl, cv_filename: file.name });
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from("cvs")
+        .createSignedUrl(path, 60 * 60 * 24 * 365); // 1 an
+      if (signedError || !signedData?.signedUrl) throw signedError ?? new Error("URL indisponible");
+      set({ cv_url: signedData.signedUrl, cv_filename: file.name });
     } catch (e) {
       alert("Upload échoué : " + (e as Error).message);
     } finally {

@@ -9,6 +9,8 @@ import AuthProvisioning from "@/components/AuthProvisioning";
 import { activateAccount } from "@/lib/activate-account";
 import { loadDraft } from "@/lib/onboarding-draft";
 
+const MIN_PASSWORD = 6;
+
 function PasswordField({
   label,
   value,
@@ -30,7 +32,6 @@ function PasswordField({
       <input
         type={show ? "text" : "password"}
         required
-        minLength={8}
         autoComplete={autoComplete}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -63,8 +64,6 @@ export default function SignupPage() {
   const [confirmEmail, setConfirmEmail] = useState(false);
 
   const passwordsMatch = password === passwordConfirm;
-  const canSubmit =
-    password.length >= 8 && passwordConfirm.length >= 8 && passwordsMatch && !loading;
 
   useEffect(() => {
     if (!sessionId) {
@@ -89,6 +88,10 @@ export default function SignupPage() {
     e.preventDefault();
     if (!sessionId) return;
 
+    if (password.length < MIN_PASSWORD) {
+      setError(`Mot de passe trop court (${MIN_PASSWORD} caractères minimum).`);
+      return;
+    }
     if (password !== passwordConfirm) {
       setError("Les mots de passe ne correspondent pas.");
       return;
@@ -126,6 +129,17 @@ export default function SignupPage() {
         setProvisioningStep("");
       }
       return;
+    }
+
+    // Email de confirmation requis : sauvegarder quand même le profil + onboarding_done=true
+    // pour que le user puisse se connecter directement sans être bloqué.
+    if (data.user) {
+      const draft = loadDraft();
+      fetch("/api/auth/pre-activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, user_id: data.user.id, draft }),
+      }).catch(() => {/* non-bloquant */});
     }
 
     setLoading(false);
@@ -216,11 +230,14 @@ export default function SignupPage() {
             onToggleShow={() => setShowPassword((v) => !v)}
             autoComplete="off"
           />
+          {password.length > 0 && password.length < MIN_PASSWORD && (
+            <p className="auth-hint">{MIN_PASSWORD} caractères minimum</p>
+          )}
           {passwordConfirm.length > 0 && !passwordsMatch && (
             <p className="auth-error">Les mots de passe ne correspondent pas.</p>
           )}
           {error && <p className="auth-error">{error}</p>}
-          <button type="submit" className="btn btn--coral btn--full" disabled={!canSubmit}>
+          <button type="submit" className="btn btn--coral btn--full" disabled={loading}>
             {loading ? "Activation…" : "Accéder à mon espace"}
           </button>
         </form>

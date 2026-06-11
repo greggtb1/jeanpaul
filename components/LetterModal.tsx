@@ -70,7 +70,7 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     } catch {
-      setError("Copie impossible — sélectionnez le texte manuellement");
+      setError("Copie impossible. Sélectionnez le texte manuellement.");
     }
   };
 
