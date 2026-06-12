@@ -44,7 +44,7 @@ const EMPTY: Form = {
   cv_url: "",
   cv_filename: "",
   cv_path: "",
-  letter_tone: "pro",
+  letter_tone: "",
   letter_sample: "",
 };
 
@@ -87,7 +87,7 @@ export default function Onboarding() {
         cv_url: draft.cv_url ?? "",
         cv_filename: draft.cv_filename ?? "",
         cv_path: draft.cv_path ?? "",
-        letter_tone: draft.letter_tone ?? "pro",
+        letter_tone: draft.letter_tone ?? "",
         letter_sample: draft.letter_sample ?? "",
       }));
     }
@@ -175,8 +175,12 @@ export default function Onboarding() {
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
   const canNext = useMemo(() => {
+    if (step === 0) {
+      return form.contract_type.length > 0 && form.remote_pref.length > 0;
+    }
+    if (step === 1) return form.target_locations.length > 0;
     if (step === 2) return form.target_roles.length > 0;
-    if (step === 4) return !!form.full_name.trim() && !!form.email.trim();
+    if (step === 5) return !!form.letter_tone.trim();
     return true;
   }, [step, form]);
 
@@ -222,13 +226,8 @@ export default function Onboarding() {
   async function finish() {
     setSaving(true);
     try {
-      const email = form.email.trim();
+      const email = user?.email?.trim() || form.email.trim();
       const fullName = form.full_name.trim();
-      if (!fullName || !email) {
-        alert("Merci de renseigner votre nom et votre email.");
-        setSaving(false);
-        return;
-      }
 
       if (alreadyPaid && uid) {
         const res = await fetch("/api/onboarding/complete", {
@@ -369,7 +368,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre CV"
               title="Déposez votre CV"
-              subtitle="PDF uniquement. On pré-remplit ce qu'on trouve — complétez le reste vous-même."
+              subtitle="PDF uniquement. Optionnel — vous pourrez l'ajouter plus tard."
             >
               <CvDropzone
                 cvUrl={form.cv_url}
@@ -377,49 +376,9 @@ export default function Onboarding() {
                 uploading={uploading || parsingCv}
                 onFile={handleFile}
               />
-              <Field label="Nom complet">
-                <input
-                  className="ob__input"
-                  type="text"
-                  placeholder="Prénom Nom"
-                  value={form.full_name}
-                  onChange={(e) => set({ full_name: e.target.value })}
-                  required
-                />
-              </Field>
-              <Field label="Email">
-                <input
-                  className="ob__input"
-                  type="email"
-                  placeholder="vous@exemple.com"
-                  value={form.email}
-                  onChange={(e) => set({ email: e.target.value })}
-                  required
-                />
-              </Field>
-              <Field label="Téléphone">
-                <input
-                  className="ob__input"
-                  type="tel"
-                  placeholder="06 12 34 56 78"
-                  value={form.phone}
-                  onChange={(e) => set({ phone: e.target.value })}
-                />
-              </Field>
-              <Field label="Ville">
-                <input
-                  className="ob__input"
-                  type="text"
-                  placeholder="Paris"
-                  value={form.location}
-                  onChange={(e) => set({ location: e.target.value })}
-                />
-              </Field>
-              <p className="ob__hint">
-                {parsingCv
-                  ? "Analyse du CV en cours…"
-                  : "Le CV est optionnel, mais nom et email sont requis pour postuler."}
-              </p>
+              {parsingCv && (
+                <p className="ob__hint">Analyse du CV en cours…</p>
+              )}
             </Section>
           )}
 

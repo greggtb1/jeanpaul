@@ -69,18 +69,18 @@ export default function Pricing() {
 
                 <p className="pricing-card__desc">{plan.description}</p>
 
-                <ul className="pricing-card__features">
-                  {plan.features.map((f) => (
-                    <li key={f}>{f}</li>
-                  ))}
-                </ul>
-
                 <Link
                   href={`/onboarding${planQuery(plan.id as PlanId, plan.kind === "subscription" ? billing : undefined)}`}
                   className={`btn pricing-card__cta${plan.featured ? " btn--accent" : " btn--outline"}`}
                 >
                   Choisir {plan.name}
                 </Link>
+
+                <ul className="pricing-card__features">
+                  {plan.features.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
               </article>
             );
           })}

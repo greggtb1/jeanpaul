@@ -417,12 +417,6 @@ export default function FacturationPage() {
                     <p className="pricing-card__savings">{pPrice.billingSavings}</p>
                   )}
 
-                  <ul className="pricing-card__features">
-                    {p.features.map((f) => (
-                      <li key={f}>{f}</li>
-                    ))}
-                  </ul>
-
                   <button
                     type="button"
                     className="btn btn--outline pricing-card__cta"
@@ -431,6 +425,12 @@ export default function FacturationPage() {
                   >
                     {isLoading ? "Redirection…" : `Choisir ${p.name}`}
                   </button>
+
+                  <ul className="pricing-card__features">
+                    {p.features.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
                 </article>
               );
             })}

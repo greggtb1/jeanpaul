@@ -142,12 +142,6 @@ export default function SubscribePage() {
 
                 <p className="pricing-card__desc">{plan.description}</p>
 
-                <ul className="pricing-card__features">
-                  {plan.features.map((f) => (
-                    <li key={f}>{f}</li>
-                  ))}
-                </ul>
-
                 <button
                   type="button"
                   className="btn btn--outline pricing-card__cta"
@@ -156,6 +150,12 @@ export default function SubscribePage() {
                 >
                   {loading ? "Redirection…" : `Choisir ${plan.name}`}
                 </button>
+
+                <ul className="pricing-card__features">
+                  {plan.features.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
               </article>
             );
           })}

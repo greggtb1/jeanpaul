@@ -1440,7 +1440,13 @@ main {
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--text);
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+}
+
+.pricing-card__cta {
+  width: 100%;
+  justify-content: center;
+  margin-top: 0;
 }
 
 .pricing-card__features {
@@ -1448,9 +1454,9 @@ main {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 0 0 28px;
-  padding: 0;
-  flex: 1;
+  margin: 20px 0 0;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--border);
 }
 
 .pricing-card__features li {
@@ -1470,12 +1476,6 @@ main {
   height: 8px;
   border-radius: 50%;
   background: var(--mint-strong);
-}
-
-.pricing-card__cta {
-  width: 100%;
-  justify-content: center;
-  margin-top: auto;
 }
 
 .pricing__note {
