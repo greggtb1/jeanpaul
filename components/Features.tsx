@@ -39,7 +39,7 @@ const features = [
     iconClass: "feature__icon feature__icon--blue",
     title: "Suivi centralisé",
     description:
-      "Toutes vos candidatures au même endroit, avec leur statut. Vous gardez le contrôle, du début à la fin.",
+      "Tous vos dossiers au même endroit, avec leur statut. Vous gardez le contrôle, du début à la fin.",
     icon: (
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
         <rect x="3" y="3" width="8" height="8" rx="2" stroke="#f0b000" strokeWidth="1.9" />

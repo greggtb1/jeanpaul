@@ -1,5 +1,12 @@
+import type Stripe from "stripe";
 import { getStripe, isCheckoutSessionActive } from "@/lib/stripe";
-import { parsePlanId } from "@/lib/plans";
+import {
+  isPlanId,
+  oneTimePriceCents,
+  parsePlanId,
+  PLANS,
+  type PlanId,
+} from "@/lib/plans";
 
 export type CheckoutSessionInfo = {
   active: boolean;
@@ -14,18 +21,60 @@ export type CheckoutSessionInfo = {
   userId: string | null;
 };
 
+function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
+/** Paiement unique (mode payment) → toujours Découverte si aucun plan explicite. */
+export function resolvePlanIdFromCheckoutSession(
+  session: Stripe.Checkout.Session
+): PlanId {
+  const raw = session.metadata?.plan_id?.trim();
+  if (isPlanId(raw)) return raw;
+
+  const isOneTime =
+    session.metadata?.checkout_type === "one_time" ||
+    (session.mode === "payment" && !session.subscription);
+
+  if (isOneTime) {
+    return "test";
+  }
+
+  const testPlan = PLANS.test;
+  const testCents = oneTimePriceCents(testPlan);
+  const quota = session.metadata?.applications_quota;
+  const amountMeta = session.metadata?.amount_cents;
+  if (
+    quota === String(testPlan.applicationsQuota) ||
+    amountMeta === String(testCents) ||
+    session.amount_total === testCents
+  ) {
+    return "test";
+  }
+
+  return parsePlanId(raw);
+}
+
 export function sessionBelongsToUser(
   info: CheckoutSessionInfo,
   user: { id: string; email?: string | null }
 ): boolean {
-  if (info.userId && info.userId !== user.id && !info.pending) {
+  if (info.userId && info.userId !== user.id) {
     return false;
   }
-  if (info.email && user.email && !info.pending) {
-    if (info.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) {
-      return false;
-    }
+
+  const paidEmail = normalizeEmail(info.email);
+  const userEmail = normalizeEmail(user.email);
+
+  if (info.pending && !paidEmail) {
+    return false;
   }
+
+  if (paidEmail && userEmail && paidEmail !== userEmail) {
+    return false;
+  }
+
   return true;
 }
 
@@ -43,6 +92,7 @@ export async function getCheckoutSessionInfo(sessionId: string): Promise<Checkou
   const email =
     session.customer_details?.email ??
     (customer && !("deleted" in customer) ? customer.email : null) ??
+    session.metadata?.checkout_email ??
     session.metadata?.email ??
     null;
 
@@ -55,12 +105,21 @@ export async function getCheckoutSessionInfo(sessionId: string): Promise<Checkou
   const userId = session.client_reference_id || session.metadata?.supabase_user_id || null;
   const active = isCheckoutSessionActive(session);
 
+  const customerPlanRaw =
+    customer && !("deleted" in customer)
+      ? customer.metadata?.plan_id?.trim()
+      : undefined;
+  let planId = resolvePlanIdFromCheckoutSession(session);
+  if (planId === "chill" && isPlanId(customerPlanRaw)) {
+    planId = customerPlanRaw;
+  }
+
   return {
     active,
     status: active ? "active" : session.payment_status ?? null,
     email,
     fullName,
-    planId: parsePlanId(session.metadata?.plan_id),
+    planId,
     draftId: session.metadata?.draft_id ?? null,
     customerId:
       typeof session.customer === "string"
@@ -90,16 +149,19 @@ export async function attachCheckoutToUser(
     throw new Error("Paiement non confirmé");
   }
 
-  if (info.email && !info.pending) {
-    const paid = info.email.trim().toLowerCase();
-    const user = userEmail.trim().toLowerCase();
-    if (paid !== user) {
-      throw new Error("L'email du compte doit correspondre à celui du paiement");
-    }
+  if (info.userId && info.userId !== userId) {
+    throw new Error("Session déjà rattachée à un autre compte");
   }
 
-  if (info.userId && info.userId !== userId && !info.pending) {
-    throw new Error("Session déjà rattachée à un autre compte");
+  const paidEmail = normalizeEmail(info.email);
+  const accountEmail = normalizeEmail(userEmail);
+
+  if (info.pending && !paidEmail) {
+    throw new Error("Session invalide : email de paiement manquant");
+  }
+
+  if (paidEmail && accountEmail && paidEmail !== accountEmail) {
+    throw new Error("L'email du compte doit correspondre à celui du paiement");
   }
 
   const metadata = {
@@ -108,9 +170,16 @@ export async function attachCheckoutToUser(
     draft_id: info.draftId ?? "",
   };
 
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  const mergedSessionMetadata = {
+    ...(session.metadata ?? {}),
+    ...metadata,
+    pending: "false",
+  };
+
   const tasks: Promise<unknown>[] = [
     stripe.checkout.sessions.update(sessionId, {
-      metadata: { ...metadata, pending: "false" },
+      metadata: mergedSessionMetadata,
     }),
   ];
 

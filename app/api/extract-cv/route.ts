@@ -26,7 +26,8 @@ export async function POST(req: Request) {
 
     const profile = parseCvProfile(raw);
     return Response.json({ profile });
-  } catch {
+  } catch (err) {
+    console.error("[extract-cv]", err);
     return Response.json({ error: "Impossible d'analyser le CV." }, { status: 500 });
   }
 }

@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getPlan, PLANS, type Plan, type PlanId } from "@/lib/plans";
+import { getPlan, PLANS, monthlyApplicationsQuota, type Plan, type PlanId } from "@/lib/plans";
+
+import { countQuotaJobs, countWeeklyQuotaJobs } from "@/lib/job-ready";
 
 export type PipelineMode = "full" | "autoapply" | "analyze";
 
-/** Candidatures générées max par scan (aligné sur HUNT_TARGET du moteur). */
-export const CREDITS_PER_RUN = 5;
+/** Dossiers prêts générés max par scan (aligné sur HUNT_TARGET du moteur). */
+export const CREDITS_PER_RUN = 15;
 
 export type QuotaOpts = {
   generatedCount: number;
@@ -16,7 +18,10 @@ export type QuotaOpts = {
 export type QuotaUsage = {
   label: string;
   used: number;
+  /** Dénominateur affiché (mensuel pour les abos). */
   limit: number;
+  /** Plafond hebdo réel (jauge + blocage). */
+  weeklyLimit?: number;
   exhausted: boolean;
   bonusCredits: number;
   searchesUsed?: number;
@@ -31,20 +36,24 @@ export type UpgradeOffer = {
 };
 
 export function countGeneratedJobs(
-  jobs: { cv_url?: string | null; updated_at?: string | null }[]
+  jobs: {
+    cv_url?: string | null;
+    fit_score?: number | null;
+    data?: Record<string, unknown> | null;
+  }[]
 ): number {
-  return jobs.filter((j) => j.cv_url).length;
+  return countQuotaJobs(jobs);
 }
 
 export function countWeeklyGeneratedJobs(
-  jobs: { cv_url?: string | null; updated_at?: string | null }[]
+  jobs: {
+    cv_url?: string | null;
+    fit_score?: number | null;
+    data?: Record<string, unknown> | null;
+    updated_at?: string | null;
+  }[]
 ): number {
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return jobs.filter((j) => {
-    if (!j.cv_url) return false;
-    if (!j.updated_at) return true;
-    return new Date(j.updated_at).getTime() >= weekAgo;
-  }).length;
+  return countWeeklyQuotaJobs(jobs);
 }
 
 function weeklyCount(opts: QuotaOpts): number {
@@ -55,18 +64,23 @@ function bonus(opts: QuotaOpts): number {
   return Math.max(0, opts.bonusCredits ?? 0);
 }
 
+function remainingBaseQuota(plan: Plan, opts: QuotaOpts): number {
+  if (plan.kind === "one_time") {
+    return Math.max(0, plan.applicationsQuota - opts.generatedCount);
+  }
+  return Math.max(0, plan.applicationsQuota - weeklyCount(opts));
+}
+
 /**
  * Le quota de base du plan est-il épuisé pour ce mode ?
- * - Découverte : 1 recherche + plafond total de candidatures
- * - Abonnements : plafond hebdomadaire de candidatures
+ * - Découverte : plafond total de dossiers prêts
+ * - Abonnements : plafond hebdomadaire de dossiers prêts
  */
 function baseQuotaExhausted(plan: Plan, mode: PipelineMode, opts: QuotaOpts): boolean {
   if (mode === "autoapply") return false;
 
   if (plan.kind === "one_time") {
-    if (opts.generatedCount >= plan.applicationsQuota) return true;
-    if (mode === "full" && opts.firstSearchDone) return true;
-    return false;
+    return opts.generatedCount >= plan.applicationsQuota;
   }
 
   return weeklyCount(opts) >= plan.applicationsQuota;
@@ -79,7 +93,7 @@ export function isCreditFundedRun(
   opts: QuotaOpts
 ): boolean {
   if (mode === "autoapply") return false;
-  return baseQuotaExhausted(plan, mode, opts) && bonus(opts) > 0;
+  return baseQuotaExhausted(plan, mode, opts) && bonus(opts) >= CREDITS_PER_RUN;
 }
 
 /**
@@ -93,16 +107,16 @@ export function pipelineQuotaBlockReason(
 ): string | null {
   if (mode === "autoapply") return null;
   if (!baseQuotaExhausted(plan, mode, opts)) return null;
-  if (bonus(opts) > 0) return null;
-
-  if (plan.kind === "one_time") {
-    if (opts.generatedCount >= plan.applicationsQuota) {
-      return `Vos ${plan.applicationsQuota} candidatures ${plan.name} sont utilisées.`;
-    }
-    return `Le plan ${plan.name} inclut une seule recherche (${plan.applicationsQuota} candidatures).`;
+  if (bonus(opts) >= CREDITS_PER_RUN) return null;
+  if (bonus(opts) > 0) {
+    return `Il vous reste ${bonus(opts)} dossier(s) bonus. Il en faut ${CREDITS_PER_RUN} pour lancer une recherche complète.`;
   }
 
-  return `Vous avez atteint vos ${plan.applicationsQuota} candidatures de la semaine (${plan.name}).`;
+  if (plan.kind === "one_time") {
+    return `Votre recherche ${plan.name} est utilisée (${plan.applicationsQuota} dossiers prêts).`;
+  }
+
+  return `Vous avez atteint vos ${plan.applicationsQuota} dossiers prêts de la semaine (${plan.name}).`;
 }
 
 /** Consommation pour affichage (dashboard + facturation). */
@@ -111,22 +125,22 @@ export function getQuotaUsage(plan: Plan, opts: QuotaOpts): QuotaUsage {
 
   if (plan.kind === "one_time") {
     return {
-      label: "Candidatures",
+      label: "Dossiers prêts à soumettre",
       used: opts.generatedCount,
       limit: plan.applicationsQuota,
-      exhausted: baseQuotaExhausted(plan, "full", opts) && bonusCredits <= 0,
+      exhausted: baseQuotaExhausted(plan, "full", opts) && bonusCredits < CREDITS_PER_RUN,
       bonusCredits,
-      searchesUsed: opts.firstSearchDone ? 1 : 0,
-      searchesLimit: 1,
     };
   }
 
   const weekly = weeklyCount(opts);
+  const weeklyLimit = plan.applicationsQuota;
   return {
-    label: "Candidatures cette semaine",
+    label: "Dossiers prêts ce mois",
     used: weekly,
-    limit: plan.applicationsQuota,
-    exhausted: weekly >= plan.applicationsQuota && bonusCredits <= 0,
+    limit: monthlyApplicationsQuota(plan),
+    weeklyLimit,
+    exhausted: weekly >= weeklyLimit && bonusCredits < CREDITS_PER_RUN,
     bonusCredits,
   };
 }
@@ -188,7 +202,7 @@ export async function fetchGeneratedJobCounts(
 ): Promise<{ total: number; weekly: number }> {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [totalRes, weeklyRes] = await Promise.all([
+  const [withCv, withoutCv] = await Promise.all([
     admin
       .from("jobs")
       .select("*", { count: "exact", head: true })
@@ -200,19 +214,41 @@ export async function fetchGeneratedJobCounts(
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
       .eq("deleted", false)
+      .is("cv_url", null)
+      .gte("fit_score", 6)
+      .contains("data", { ready_without_cv: true }),
+  ]);
+
+  const total = (withCv.count ?? 0) + (withoutCv.count ?? 0);
+
+  const [weeklyWithCv, weeklyWithoutCv] = await Promise.all([
+    admin
+      .from("jobs")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("deleted", false)
       .not("cv_url", "is", null)
+      .gte("updated_at", weekAgo),
+    admin
+      .from("jobs")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("deleted", false)
+      .is("cv_url", null)
+      .gte("fit_score", 6)
+      .contains("data", { ready_without_cv: true })
       .gte("updated_at", weekAgo),
   ]);
 
   return {
-    total: totalRes.count ?? 0,
-    weekly: weeklyRes.count ?? 0,
+    total,
+    weekly: (weeklyWithCv.count ?? 0) + (weeklyWithoutCv.count ?? 0),
   };
 }
 
 /**
  * Vérifie le quota côté serveur. Si le lancement est financé par crédits,
- * décompte CREDITS_PER_RUN (plafonné au solde) avant de l'autoriser.
+ * décompte CREDITS_PER_RUN avant de l'autoriser.
  */
 export async function assertPipelineQuota(
   admin: SupabaseClient,
@@ -223,7 +259,9 @@ export async function assertPipelineQuota(
     first_search_done?: boolean | null;
     bonus_credits?: number | null;
   }
-): Promise<{ ok: true; creditFunded?: boolean } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; creditFunded?: boolean; runTarget: number } | { ok: false; error: string }
+> {
   const plan = getPlan(profile.plan_id);
   const { total, weekly } = await fetchGeneratedJobCounts(admin, userId);
 
@@ -237,16 +275,26 @@ export async function assertPipelineQuota(
   const reason = pipelineQuotaBlockReason(plan, mode, opts);
   if (reason) return { ok: false, error: reason };
 
+  const baseRemaining = remainingBaseQuota(plan, opts);
+  const runTarget = mode === "autoapply" ? 0 : Math.min(CREDITS_PER_RUN, baseRemaining || CREDITS_PER_RUN);
+
+  if (baseQuotaExhausted(plan, mode, opts) && bonus(opts) > 0 && bonus(opts) < CREDITS_PER_RUN) {
+    return {
+      ok: false,
+      error: `Il vous reste ${bonus(opts)} dossier(s) bonus. Il en faut ${CREDITS_PER_RUN} pour lancer une recherche complète.`,
+    };
+  }
+
   if (isCreditFundedRun(plan, mode, opts)) {
     const { error } = await admin.rpc("consume_bonus_credits", {
       p_user_id: userId,
       p_credits: CREDITS_PER_RUN,
     });
     if (error) {
-      return { ok: false, error: "Impossible de décompter vos candidatures bonus. Réessayez." };
+      return { ok: false, error: "Impossible de décompter vos dossiers prêts bonus. Réessayez." };
     }
-    return { ok: true, creditFunded: true };
+    return { ok: true, creditFunded: true, runTarget: CREDITS_PER_RUN };
   }
 
-  return { ok: true };
+  return { ok: true, runTarget };
 }

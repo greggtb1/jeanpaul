@@ -56,7 +56,7 @@ def _run_cli(steps, label):
                     RUN["log"].append(line.rstrip("\n"))
                 proc.wait()
                 if proc.returncode != 0:
-                    RUN["log"].append(f"[!] échec (code {proc.returncode}) — arrêt.")
+                    RUN["log"].append(f"[!] échec (code {proc.returncode}), arrêt.")
                     break
             RUN["log"].append("✅ Terminé.")
         except Exception as e:

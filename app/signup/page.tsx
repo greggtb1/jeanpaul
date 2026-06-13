@@ -61,8 +61,6 @@ export default function SignupPage() {
   const [provisioningStep, setProvisioningStep] = useState("");
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
-  const [confirmEmail, setConfirmEmail] = useState(false);
-
   const passwordsMatch = password === passwordConfirm;
 
   useEffect(() => {
@@ -77,8 +75,8 @@ export default function SignupPage() {
         if (!res.ok || !data.active) throw new Error(data.error || "Paiement non confirmé");
 
         const draft = loadDraft();
-        setEmail(draft?.email || "");
-        setFullName(draft?.full_name || "");
+        setEmail(data.email || draft?.email || "");
+        setFullName(data.full_name || draft?.full_name || "");
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setChecking(false));
@@ -100,50 +98,42 @@ export default function SignupPage() {
     setLoading(true);
     setError("");
 
-    const supabase = createClient();
-    const completeUrl = `/signup/complete?session_id=${encodeURIComponent(sessionId)}`;
-    const { data, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName.trim() || undefined },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(completeUrl)}`,
-      },
+    const registerRes = await fetch("/api/auth/register-after-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        email,
+        password,
+        full_name: fullName.trim(),
+      }),
     });
 
+    const registerData = await registerRes.json().catch(() => ({}));
+    if (!registerRes.ok) {
+      setError(registerData.error || "Impossible de créer le compte");
+      setLoading(false);
+      return;
+    }
+
+    const supabase = createClient();
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError) {
       setError(authError.message);
       setLoading(false);
       return;
     }
 
-    if (data.session && data.user) {
-      try {
-        setProvisioningStep("Création de votre espace…");
-        await activateAccount(sessionId, { onStep: setProvisioningStep });
-        setProvisioningStep("Ouverture de votre espace…");
-        router.replace("/dashboard");
-      } catch (err) {
-        setError((err as Error).message);
-        setLoading(false);
-        setProvisioningStep("");
-      }
-      return;
+    try {
+      setProvisioningStep("Création de votre espace…");
+      await activateAccount(sessionId, { onStep: setProvisioningStep });
+      setProvisioningStep("Ouverture de votre espace…");
+      router.replace("/dashboard");
+    } catch (err) {
+      setError((err as Error).message);
+      setLoading(false);
+      setProvisioningStep("");
     }
-
-    // Email de confirmation requis : sauvegarder quand même le profil + onboarding_done=true
-    // pour que le user puisse se connecter directement sans être bloqué.
-    if (data.user) {
-      const draft = loadDraft();
-      fetch("/api/auth/pre-activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, user_id: data.user.id, draft }),
-      }).catch(() => {/* non-bloquant */});
-    }
-
-    setLoading(false);
-    setConfirmEmail(true);
   }
 
   if (loading && provisioningStep) {
@@ -156,24 +146,6 @@ export default function SignupPage() {
         <div className="bg-decor" aria-hidden="true" />
         <div className="auth-card">
           <p>Vérification du paiement…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (confirmEmail) {
-    return (
-      <div className="auth-page">
-        <div className="bg-decor" aria-hidden="true" />
-        <div className="auth-card">
-          <h1>Vérifiez votre email</h1>
-          <p className="auth-card__lead">
-            Paiement OK. Un lien de confirmation a été envoyé à <strong>{email}</strong>.
-            Cliquez dessus pour finaliser votre compte.
-          </p>
-          <Link href="/login" className="btn btn--outline btn--full">
-            Retour à la connexion
-          </Link>
         </div>
       </div>
     );

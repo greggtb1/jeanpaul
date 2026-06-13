@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "jp_dashboard_onboarding_v1";
+const STORAGE_PREFIX = "jp_dashboard_onboarding_v1";
+
+function storageKey(userId: string) {
+  return `${STORAGE_PREFIX}:${userId}`;
+}
+
+export function hasSeenDashboardOnboarding(userId: string): boolean {
+  if (typeof window === "undefined") return true;
+  return !!localStorage.getItem(storageKey(userId));
+}
 
 const STEPS = [
   {
@@ -31,18 +40,19 @@ const STEPS = [
   },
 ];
 
-export default function DashboardOnboarding() {
+export default function DashboardOnboarding({ userId }: { userId: string | null }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem(STORAGE_KEY)) {
+    if (!userId) return;
+    if (!hasSeenDashboardOnboarding(userId)) {
       setOpen(true);
     }
-  }, []);
+  }, [userId]);
 
   function close() {
-    localStorage.setItem(STORAGE_KEY, "1");
+    if (userId) localStorage.setItem(storageKey(userId), "1");
     setOpen(false);
   }
 

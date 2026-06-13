@@ -1,6 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+
+const MOBILE_SUGGEST_MAX = 720;
+const MOBILE_GROUP_LIMIT = 2;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_SUGGEST_MAX}px)`);
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  return isMobile;
+}
 import { LETTER_TONES } from "@/lib/supabase";
 import { LETTER_FILE_ACCEPT } from "@/lib/extract-letter";
 
@@ -14,10 +31,10 @@ export function PrefField({
   className?: string;
 }) {
   return (
-    <label className={["ob__field", className].filter(Boolean).join(" ")}>
+    <div className={["ob__field", className].filter(Boolean).join(" ")}>
       <span className="ob__label">{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
 
@@ -29,19 +46,26 @@ export function LetterTonePicker({
   onChange: (id: string) => void;
 }) {
   return (
-    <div className="ob__choice">
+    <div className="ob__tone-list">
       {LETTER_TONES.map((tone) => {
         const active = value === tone.id;
         return (
           <button
             type="button"
             key={tone.id}
-            className={`ob__chip ${active ? "is-active" : ""}`}
+            className={`ob__tone-card ${active ? "is-active" : ""}`}
             onClick={() => onChange(tone.id)}
             aria-pressed={active}
-            title={tone.tagline}
           >
-            {tone.label}
+            <div className="ob__tone-card-head">
+              <span className="ob__tone-label">{tone.label}</span>
+              {active && (
+                <span className="ob__tone-check" aria-hidden="true">
+                  ✓
+                </span>
+              )}
+            </div>
+            <p className="ob__tone-sample">{tone.tagline}</p>
           </button>
         );
       })}
@@ -99,6 +123,8 @@ export function TagInput({
   compact?: boolean;
 }) {
   const [draft, setDraft] = useState("");
+  const [suggestExpanded, setSuggestExpanded] = useState(false);
+  const isMobile = useIsMobile();
   const add = (t: string) => {
     const v = t.trim();
     if (v && !value.includes(v)) onChange([...value, v]);
@@ -145,25 +171,50 @@ export function TagInput({
       {hint && !compact && <p className="ob__hint ob__hint--inline">{hint}</p>}
 
       {groups ? (
-        <div className={`ob__suggest-groups ${compact ? "ob__suggest-groups--compact" : ""}`}>
-          {!compact && <p className="ob__suggest-lead">Ou cliquez sur une suggestion :</p>}
-          {groups.map((group) => {
-            const items = group.items.filter((s) => !value.includes(s));
-            if (!items.length) return null;
-            return (
-              <div className="ob__suggest-group" key={group.label}>
-                <span className="ob__suggest-group-label">{group.label}</span>
-                <div className="ob__suggest">
-                  {items.map((s) => (
-                    <button type="button" key={s} className="ob__suggest-chip" onClick={() => add(s)}>
-                      {s}
-                    </button>
-                  ))}
+        (() => {
+          const availableGroups = groups
+            .map((group) => ({
+              ...group,
+              items: group.items.filter((s) => !value.includes(s)),
+            }))
+            .filter((group) => group.items.length > 0);
+
+          const collapseOnMobile = isMobile && !compact && !suggestExpanded;
+          const visibleGroups = collapseOnMobile
+            ? availableGroups.slice(0, MOBILE_GROUP_LIMIT)
+            : availableGroups;
+          const hiddenGroupCount = collapseOnMobile
+            ? Math.max(0, availableGroups.length - MOBILE_GROUP_LIMIT)
+            : 0;
+
+          return (
+            <div className={`ob__suggest-groups ${compact ? "ob__suggest-groups--compact" : ""}`}>
+              {!compact && <p className="ob__suggest-lead">Ou cliquez sur une suggestion :</p>}
+              {visibleGroups.map((group) => (
+                <div className="ob__suggest-group" key={group.label}>
+                  <span className="ob__suggest-group-label">{group.label}</span>
+                  <div className="ob__suggest">
+                    {group.items.map((s) => (
+                      <button type="button" key={s} className="ob__suggest-chip" onClick={() => add(s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              ))}
+              {hiddenGroupCount > 0 && (
+                <button
+                  type="button"
+                  className="ob__suggest-more"
+                  onClick={() => setSuggestExpanded(true)}
+                >
+                  Voir plus de suggestions ({hiddenGroupCount} catégorie
+                  {hiddenGroupCount > 1 ? "s" : ""})
+                </button>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <div className="ob__suggest">
           {flatSuggestions

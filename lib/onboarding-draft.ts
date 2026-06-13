@@ -103,7 +103,6 @@ export function draftToProfilePayload(draft: OnboardingDraft, userId: string) {
     letter_tone: draft.letter_tone || "pro",
     letter_sample: draft.letter_sample?.trim() || null,
     onboarding_done: true,
-    plan_id: draft.plan_id || parsePlanId(null),
     updated_at: new Date().toISOString(),
   };
 }
@@ -142,7 +141,7 @@ export function normalizeDraft(
     draft_id: stored.draft_id || fallback.draft_id || base.draft_id || crypto.randomUUID(),
     email: stored.email || fallback.email || "",
     full_name: stored.full_name || fallback.full_name || "",
-    plan_id: parsePlanId(stored.plan_id || fallback.plan_id),
+    plan_id: parsePlanId(fallback.plan_id ?? stored.plan_id),
     cv_url: cvUrl,
     target_roles: stored.target_roles ?? [],
     target_locations: stored.target_locations ?? [],

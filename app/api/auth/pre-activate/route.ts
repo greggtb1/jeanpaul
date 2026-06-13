@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCheckoutSessionInfo, attachCheckoutToUser } from "@/lib/stripe-session";
+import {
+  attachCheckoutToUser,
+  getCheckoutSessionInfo,
+  sessionBelongsToUser,
+} from "@/lib/stripe-session";
 import { draftToProfilePayload, normalizeDraft, type OnboardingDraft } from "@/lib/onboarding-draft";
 
 /**
@@ -27,13 +31,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 404 });
     }
 
-    // Vérifier le paiement Stripe
     const info = await getCheckoutSessionInfo(sessionId);
     if (!info.active) {
       return NextResponse.json({ error: "Paiement non confirmé" }, { status: 400 });
     }
 
-    // Rattacher la session Stripe à l'utilisateur
+    if (!sessionBelongsToUser(info, user)) {
+      return NextResponse.json({ error: "Session invalide" }, { status: 403 });
+    }
+
     await attachCheckoutToUser(sessionId, userId, user.email, info);
 
     const fullName = clientDraft?.full_name || info.fullName || "";
@@ -47,6 +53,7 @@ export async function POST(req: Request) {
 
     await admin.from("profiles").upsert({
       ...draftToProfilePayload(draft, userId),
+      plan_id: info.planId,
       subscription_status: "active",
       stripe_customer_id: info.customerId,
     });

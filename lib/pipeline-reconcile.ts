@@ -3,6 +3,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const STOP_MARKERS = ["Arrêt demandé", "Recherche arrêtée", "Script interrompu"];
 /** Ne pas réconcilier un run tout juste lancé (PID / spawn pas encore stable). */
 const STARTUP_GRACE_MS = 45_000;
+/** Log vide ou bootstrap seul = moteur qui ne répond pas. */
+const ENGINE_SILENCE_MS = 90_000;
+
+const BOOTSTRAP_LOG = "[api] Moteur Python lancé…";
+
+function isEngineStillSilent(log: string): boolean {
+  const trimmed = (log || "").trim();
+  return !trimmed || trimmed === BOOTSTRAP_LOG;
+}
 
 export function isProcessAlive(pid: number): boolean {
   try {
@@ -50,7 +59,8 @@ export async function reconcileStalePipelineRun(
 
   const cancelFlag = !!(cancelRow?.data as { cancelled?: boolean } | null)?.cancelled;
   const pid = (pidRow?.data as { pid?: number } | null)?.pid;
-  const logStop = shouldMarkCancelled(run.log || "");
+  const log = run.log || "";
+  const logStop = shouldMarkCancelled(log);
 
   // Run fraîchement créé : le poll GET ne doit pas le tuer (PID pas encore en base).
   if (ageMs < STARTUP_GRACE_MS && !cancelFlag && !logStop) {
@@ -60,26 +70,30 @@ export async function reconcileStalePipelineRun(
   const noPid = typeof pid !== "number";
   const pidDead = typeof pid === "number" ? !isProcessAlive(pid) : false;
   const staleWithoutPid = noPid && ageMs >= STARTUP_GRACE_MS;
+  const engineSilent = isEngineStillSilent(log) && ageMs >= ENGINE_SILENCE_MS;
 
-  if (!cancelFlag && !pidDead && !logStop && !staleWithoutPid) {
+  if (!cancelFlag && !pidDead && !logStop && !staleWithoutPid && !engineSilent) {
     return run;
   }
 
-  const log = run.log || "";
   const logAppend = log.includes("Arrêt demandé")
     ? log
-    : `${log}${log ? "\n" : ""}🛑 Run interrompu. État réconcilié au chargement.\n`;
+    : engineSilent
+      ? `${log}${log ? "\n" : ""}❌ Moteur sans réponse après ${Math.round(ENGINE_SILENCE_MS / 1000)}s. Vérifiez ENGINE_DIR / SUPABASE_SERVICE_ROLE_KEY sur le serveur.\n`
+      : `${log}${log ? "\n" : ""}🛑 Run interrompu. État réconcilié au chargement.\n`;
 
   const { data: updated, error } = await admin
     .from("pipeline_runs")
     .update({
-      status: "cancelled",
+      status: engineSilent ? "failed" : "cancelled",
       log: logAppend,
       finished_at: new Date().toISOString(),
       result: {
-        cancelled: true,
+        cancelled: !engineSilent,
         reconciled: true,
-        reason: cancelFlag
+        reason: engineSilent
+          ? "engine_silent"
+          : cancelFlag
           ? "cancel_flag"
           : logStop
             ? "log_marker"

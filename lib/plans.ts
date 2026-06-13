@@ -6,6 +6,18 @@ export const MONTHLY_DISCOUNT_PERCENT = 15;
 /** Semaines facturées pour dériver le tarif mensuel (4 sem. × prix hebdo, −15 %). */
 export const WEEKS_PER_MONTH = 4;
 
+/** Affichage marketing : quota hebdo × 4 (le plafond réel reste hebdomadaire). */
+export function monthlyApplicationsQuota(plan: Plan): number {
+  return plan.applicationsQuota * WEEKS_PER_MONTH;
+}
+
+export function applicationsQuotaLabel(plan: Plan): string {
+  if (plan.kind === "one_time") {
+    return `1 recherche complète · jusqu'à ${plan.applicationsQuota} dossiers`;
+  }
+  return `${monthlyApplicationsQuota(plan)} dossiers / mois`;
+}
+
 const LEGACY_PLAN_IDS: Record<string, PlanId> = {
   essentiel: "chill",
   pro: "chill",
@@ -30,17 +42,18 @@ export const PLANS: Record<PlanId, Plan> = {
   test: {
     id: "test",
     name: "Découverte",
-    tagline: "On trouve les offres qui vous correspondent vraiment",
+    tagline: "Une vraie recherche pour tester JEAN PAUL jusqu'au bout",
     description:
-      "Paiement unique pour tester le parcours : offres scorées pour votre profil, CV et lettre prêts sur chaque match.",
+      "Paiement unique : JEAN PAUL scanne LinkedIn, note les offres et prépare jusqu'à 15 dossiers complets prêts à soumettre.",
     features: [
-      "5 candidatures adaptées à votre profil",
-      "CV et lettre personnalisés par offre retenue",
-      "Score de pertinence /10 avant chaque dossier",
+      "Scan LinkedIn selon vos critères",
+      "Jusqu'à 15 offres retenues et personnalisées",
+      "CV + lettre prêts pour chaque bon match",
+      "Score de pertinence /10 sur les offres analysées",
       "Sans abonnement",
     ],
     kind: "one_time",
-    applicationsQuota: 5,
+    applicationsQuota: 15,
     priceOneTimeEur: 2.99,
     priceWeeklyEur: null,
   },
@@ -49,15 +62,15 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Essentiel",
     tagline: "Votre prochain poste, sans passer vos soirées à postuler",
     description:
-      "Jusqu'à 30 candidatures adaptées à votre profil par semaine. JEAN PAUL scanne, score et prépare chaque dossier pour vous.",
+      "Jusqu'à 180 dossiers prêts par mois. JEAN PAUL scanne, score et prépare chaque dossier pour vous.",
     features: [
-      "30 candidatures adaptées / semaine",
+      "180 dossiers prêts / mois",
       "Offres triées pour coller à votre profil",
       "CV et lettre sur mesure par annonce",
       "Formulaires pré-remplis, vous validez l'envoi",
     ],
     kind: "subscription",
-    applicationsQuota: 30,
+    applicationsQuota: 45,
     priceOneTimeEur: null,
     priceWeeklyEur: 15,
   },
@@ -66,16 +79,16 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Intensif",
     tagline: "Accélérez sans brûler vos nuits",
     description:
-      "50 candidatures adaptées à votre profil par semaine quand vous voulez viser large sans tout faire à la main.",
+      "300 dossiers prêts par mois quand vous voulez viser large sans tout faire à la main.",
     features: [
-      "50 candidatures adaptées / semaine",
+      "300 dossiers prêts / mois",
       "Tout le plan Essentiel inclus",
-      "Candidatures soumises sans lever le petit doigt",
+      "Dossiers candidatés sans lever le petit doigt",
       "Pensé pour la recherche active",
     ],
     featured: true,
     kind: "subscription",
-    applicationsQuota: 50,
+    applicationsQuota: 75,
     priceOneTimeEur: null,
     priceWeeklyEur: 25,
   },
@@ -134,6 +147,11 @@ export function monthlyPriceEur(weeklyEur: number): number {
   return Math.round(raw * 100) / 100;
 }
 
+/** Prix hebdo équivalent quand l'utilisateur paie au mois (−15 %). */
+export function effectiveWeeklyPriceEur(weeklyEur: number): number {
+  return Math.round((monthlyPriceEur(weeklyEur) / WEEKS_PER_MONTH) * 100) / 100;
+}
+
 export function monthlyPriceCents(weeklyEur: number): number {
   return Math.round(monthlyPriceEur(weeklyEur) * 100);
 }
@@ -161,16 +179,17 @@ export function displayPrice(
   }
   if (billing === "monthly" && plan.priceWeeklyEur != null) {
     const monthly = monthlyPriceEur(plan.priceWeeklyEur);
+    const perWeek = effectiveWeeklyPriceEur(plan.priceWeeklyEur);
     return {
-      amount: formatPriceEur(monthly),
-      suffix: "/ mois",
-      billingSavings: `−${MONTHLY_DISCOUNT_PERCENT} % vs paiement hebdo`,
+      amount: formatPriceEur(perWeek),
+      suffix: "/ semaine",
+      billingSavings: `−${MONTHLY_DISCOUNT_PERCENT} % · facturé ${formatPriceEur(monthly)} € / mois`,
     };
   }
   if (plan.priceWeeklyEur != null) {
     return { amount: formatPriceEur(plan.priceWeeklyEur), suffix: "/ semaine" };
   }
-  return { amount: "—", suffix: "" };
+  return { amount: "…", suffix: "" };
 }
 
 export function checkoutAmountCents(
@@ -184,13 +203,13 @@ export function checkoutAmountCents(
   return weeklyPriceCents(plan);
 }
 
-/* ── Packs de candidatures supplémentaires (achat one-shot) ─────────────── */
+/* ── Packs de dossiers prêts supplémentaires (achat one-shot) ───────────── */
 
 export type CreditPackId = "pack5" | "pack15" | "pack30";
 
 export type CreditPack = {
   id: CreditPackId;
-  /** Nombre de candidatures créditées */
+  /** Nombre de dossiers prêts crédités */
   credits: number;
   priceEur: number;
   label: string;
@@ -201,25 +220,25 @@ export type CreditPack = {
 export const CREDIT_PACKS: Record<CreditPackId, CreditPack> = {
   pack5: {
     id: "pack5",
-    credits: 5,
-    priceEur: 3.99,
-    label: "5 candidatures",
-    hint: "1 scan supplémentaire",
+    credits: 15,
+    priceEur: 4.99,
+    label: "15 dossiers prêts",
+    hint: "1 recherche supplémentaire",
   },
   pack15: {
     id: "pack15",
-    credits: 15,
-    priceEur: 9.99,
-    label: "15 candidatures",
-    hint: "3 scans supplémentaires",
+    credits: 30,
+    priceEur: 7.99,
+    label: "30 dossiers prêts",
+    hint: "2 recherches supplémentaires",
     featured: true,
   },
   pack30: {
     id: "pack30",
-    credits: 30,
-    priceEur: 17.99,
-    label: "30 candidatures",
-    hint: "6 scans supplémentaires",
+    credits: 60,
+    priceEur: 12.99,
+    label: "60 dossiers prêts",
+    hint: "4 recherches supplémentaires",
   },
 };
 

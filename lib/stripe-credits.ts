@@ -6,7 +6,7 @@ export function isCreditsSession(session: Stripe.Checkout.Session): boolean {
 }
 
 /**
- * Crédite les candidatures d'une session payée, une seule fois
+ * Crédite les dossiers prêts d'une session payée, une seule fois
  * (idempotent via une ligne app_state `credits_grant:{sessionId}`).
  * Appelé par le webhook ET par le retour de paiement.
  */

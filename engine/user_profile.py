@@ -358,8 +358,19 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
     except Exception:
         p = {}
 
-    if not p.get("full_name") and not p.get("cv_url"):
-        # Utilisateur Supabase sans profil rempli : partir d'une base vide, jamais du profil de Greg.
+    summary = (p.get("summary") or "").strip()
+    roles = p.get("target_roles") or []
+    locs = p.get("target_locations") or []
+    has_profile_data = bool(
+        p.get("full_name")
+        or p.get("cv_url")
+        or roles
+        or locs
+        or summary
+    )
+
+    if not has_profile_data:
+        # Compte sans critères ni CV : base vide (jamais le profil CLI par défaut).
         _cache = {
             **_empty_user_structured(),
             "name": "",
@@ -368,7 +379,6 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
             "_source": "user",
             "_has_uploaded_cv": False,
             "_uid": uid,
-            # Identité du compte : filet de sécurité pour l'autofill (jamais pour les CV générés)
             "_account_email": (p.get("email") or "").strip(),
             "_account_name": (p.get("full_name") or "").strip(),
             "_account_phone": (p.get("phone") or "").strip(),
@@ -410,10 +420,11 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
         "email": email,
         "phone": phone,
         "location": location,
-        "tagline": (p.get("summary") or "").strip(),
+        "tagline": summary,
         "cv_text": cv_text,
         "cv_url": cv_url,
         "target_roles": roles,
+        "target_locations": locs,
         "contract_type": p.get("contract_type"),
         "remote_pref": p.get("remote_pref"),
         "salary_min": p.get("salary_min"),
@@ -440,20 +451,28 @@ def cv_filename_for(company: str) -> str:
 
 
 def candidate_block_for_letter(profile: Dict[str, Any]) -> str:
+    display_name = (profile.get("name") or "").strip() or "Candidat"
     lines = [
-        f"Nom : {profile.get('name', '')}",
+        f"Nom : {display_name}",
         f"Email : {profile.get('email', '')}",
         f"Téléphone : {profile.get('phone', '')}",
         f"Localisation : {profile.get('location', '')}",
     ]
     if profile.get("target_roles"):
-        lines.append(f"Postes visés : {', '.join(profile['target_roles'])}")
+        roles = profile["target_roles"]
+        lines.append(
+            f"Postes visés : {', '.join(roles) if isinstance(roles, list) else roles}"
+        )
+    if profile.get("target_locations"):
+        locs = profile["target_locations"]
+        if isinstance(locs, list) and locs:
+            lines.append(f"Lieux recherchés : {', '.join(locs)}")
     if profile.get("salary_min"):
         lines.append(f"Salaire minimum souhaité : {profile['salary_min']}k€/an")
-    if profile.get("tagline") and profile.get("_source") == "user":
-        lines.append(f"Résumé : {profile['tagline']}")
     cv = profile.get("cv_text") or ""
     if cv:
+        if profile.get("tagline") and profile.get("_source") == "user":
+            lines.append(f"Résumé : {profile['tagline']}")
         lines.append("\n--- CV SOURCE (uploadé par le candidat) ---")
         lines.append(cv[:8000])
     elif profile.get("_source") == "default":
@@ -464,22 +483,23 @@ def candidate_block_for_letter(profile: Dict[str, Any]) -> str:
             ensure_ascii=False, indent=2,
         )[:6000])
     else:
-        # Utilisateur Supabase sans CV uploadé : donner un maximum de contexte
-        # depuis son profil d'onboarding pour que Claude ne devine pas.
-        notes = []
+        lines.append("\n--- PROFIL CANDIDAT (sans CV uploadé) ---")
         if profile.get("tagline"):
-            notes.append(f"Résumé : {profile['tagline']}")
+            lines.append(f"Parcours : {profile['tagline']}")
         contract = profile.get("contract_type")
         if contract:
-            notes.append(f"Contrat recherché : {', '.join(contract) if isinstance(contract, list) else contract}")
+            lines.append(
+                f"Contrat recherché : {', '.join(contract) if isinstance(contract, list) else contract}"
+            )
         remote = profile.get("remote_pref")
         if remote:
-            notes.append(f"Préférence télétravail : {', '.join(remote) if isinstance(remote, list) else remote}")
-        if notes:
-            lines.append("\n--- INFORMATIONS PROFIL (pas de CV uploadé) ---")
-            lines.extend(notes)
-        else:
-            lines.append("\n(Aucun CV uploadé — se baser uniquement sur les postes visés et la localisation)")
+            lines.append(
+                f"Préférence télétravail : {', '.join(remote) if isinstance(remote, list) else remote}"
+            )
+        if not profile.get("tagline") and not contract and not remote:
+            lines.append(
+                "Profil partiel : se baser sur les postes visés, lieux et critères ci-dessus."
+            )
     return "\n".join(lines)
 
 

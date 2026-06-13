@@ -24,7 +24,14 @@ export default function LoginPage() {
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (authError) {
-      setError(authError.message);
+      const msg = authError.message.toLowerCase();
+      if (msg.includes("invalid login credentials")) {
+        setError("Email ou mot de passe incorrect.");
+      } else if (msg.includes("email not confirmed")) {
+        setError("Compte non activé. Refaites l'inscription après paiement pour définir votre mot de passe.");
+      } else {
+        setError(authError.message);
+      }
       return;
     }
     await fetch("/api/auth/merge-legacy", { method: "POST" });
@@ -41,7 +48,7 @@ export default function LoginPage() {
           <BrandName />
         </Link>
         <h1>Connexion</h1>
-        <p className="auth-card__lead">Retrouvez vos offres et candidatures.</p>
+        <p className="auth-card__lead">Retrouvez vos offres et dossiers.</p>
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="auth-field">
             <span>Email</span>

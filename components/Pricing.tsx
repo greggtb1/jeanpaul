@@ -54,27 +54,30 @@ export default function Pricing() {
                   <span className="pricing-card__badge">Le plus populaire</span>
                 )}
 
-                <div className="pricing-card__head">
-                  <h3>{plan.name}</h3>
-                  <p className="pricing-card__tagline">{plan.tagline}</p>
-                </div>
+                <h3 className="pricing-card__title">{plan.name}</h3>
+                <p className="pricing-card__tagline">{plan.tagline}</p>
 
                 <div className="pricing-card__price">
                   <strong>{price.amount} €</strong>
                   <span>{price.suffix}</span>
                 </div>
-                {price.billingSavings && (
-                  <p className="pricing-card__savings">{price.billingSavings}</p>
-                )}
+
+                <div className="pricing-card__savings-slot">
+                  {price.billingSavings && (
+                    <p className="pricing-card__savings">{price.billingSavings}</p>
+                  )}
+                </div>
 
                 <p className="pricing-card__desc">{plan.description}</p>
 
-                <Link
-                  href={`/onboarding${planQuery(plan.id as PlanId, plan.kind === "subscription" ? billing : undefined)}`}
-                  className={`btn pricing-card__cta${plan.featured ? " btn--accent" : " btn--outline"}`}
-                >
-                  Choisir {plan.name}
-                </Link>
+                <div className="pricing-card__cta-wrap">
+                  <Link
+                    href={`/onboarding${planQuery(plan.id as PlanId, plan.kind === "subscription" ? billing : undefined)}`}
+                    className={`btn pricing-card__cta${plan.featured ? " btn--accent" : " btn--outline"}`}
+                  >
+                    Choisir {plan.name}
+                  </Link>
+                </div>
 
                 <ul className="pricing-card__features">
                   {plan.features.map((f) => (
@@ -87,7 +90,7 @@ export default function Pricing() {
         </div>
 
         <p className="pricing__note">
-          <strong>Découverte</strong> : paiement unique ({displayPrice(PLANS_LIST[0]).amount} €, 5 candidatures adaptées à votre profil).
+          <strong>Découverte</strong> : paiement unique ({displayPrice(PLANS_LIST[0]).amount} €, 1 recherche complète jusqu&apos;à 15 dossiers prêts à soumettre).
           {" "}
           <strong>Essentiel</strong> et <strong>Intensif</strong> : abonnement hebdo ou mensuel (−{MONTHLY_DISCOUNT_PERCENT} %),
           résiliable à tout moment.

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import BrandName from "@/components/BrandName";
 import {
   MONTHLY_DISCOUNT_PERCENT,
@@ -16,26 +16,16 @@ import { getOrCreateDraftId, loadDraft, saveDraft } from "@/lib/onboarding-draft
 import { parseApiJson } from "@/lib/parse-api-json";
 
 export default function SubscribePage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [loadingPlanId, setLoadingPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState("");
-  const [draftEmail, setDraftEmail] = useState("");
+
   const cancelled = searchParams.get("cancelled") === "1";
 
   const initialPlanId = parsePlanId(searchParams.get("plan"));
   const [billing, setBilling] = useState<BillingInterval>(
     parseBillingInterval(searchParams.get("billing"))
   );
-
-  useEffect(() => {
-    const current = loadDraft();
-    if (!current?.email) {
-      router.replace(`/onboarding?plan=${initialPlanId}`);
-      return;
-    }
-    setDraftEmail(current.email);
-  }, [router, initialPlanId]);
 
   async function subscribe(planId: PlanId) {
     setLoadingPlanId(planId);
@@ -50,19 +40,14 @@ export default function SubscribePage() {
         draft_id: getOrCreateDraftId(),
       });
 
-      if (!current.email?.trim()) {
-        router.replace(`/onboarding?plan=${planId}`);
-        return;
-      }
-
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plan: planId,
           billing: isSubscription ? billing : undefined,
-          email: current.email,
-          full_name: current.full_name,
+          email: current.email || undefined,
+          full_name: current.full_name || undefined,
           draft_id: current.draft_id,
         }),
       });
@@ -86,11 +71,6 @@ export default function SubscribePage() {
         </div>
         <span className="paywall-card__badge">Étape 2 sur 3</span>
         <h1>Choisissez votre formule</h1>
-        {draftEmail && (
-          <p className="paywall-card__lead paywall-card__lead--email">
-            Compte à créer après paiement : <strong>{draftEmail}</strong>
-          </p>
-        )}
 
         <div className="paywall-card__billing" role="group" aria-label="Facturation">
           <button
@@ -127,29 +107,32 @@ export default function SubscribePage() {
                   <span className="pricing-card__badge">Le plus populaire</span>
                 )}
 
-                <div className="pricing-card__head">
-                  <h3>{plan.name}</h3>
-                  <p className="pricing-card__tagline">{plan.tagline}</p>
-                </div>
+                <h3 className="pricing-card__title">{plan.name}</h3>
+                <p className="pricing-card__tagline">{plan.tagline}</p>
 
                 <div className="pricing-card__price">
                   <strong>{price.amount} €</strong>
                   <span>{price.suffix}</span>
                 </div>
-                {price.billingSavings && (
-                  <p className="pricing-card__savings">{price.billingSavings}</p>
-                )}
+
+                <div className="pricing-card__savings-slot">
+                  {price.billingSavings && (
+                    <p className="pricing-card__savings">{price.billingSavings}</p>
+                  )}
+                </div>
 
                 <p className="pricing-card__desc">{plan.description}</p>
 
-                <button
-                  type="button"
-                  className="btn btn--outline pricing-card__cta"
-                  disabled={busy}
-                  onClick={() => subscribe(plan.id)}
-                >
-                  {loading ? "Redirection…" : `Choisir ${plan.name}`}
-                </button>
+                <div className="pricing-card__cta-wrap">
+                  <button
+                    type="button"
+                    className="btn btn--outline pricing-card__cta"
+                    disabled={busy}
+                    onClick={() => subscribe(plan.id)}
+                  >
+                    {loading ? "Redirection…" : `Choisir ${plan.name}`}
+                  </button>
+                </div>
 
                 <ul className="pricing-card__features">
                   {plan.features.map((f) => (

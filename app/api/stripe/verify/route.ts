@@ -47,6 +47,8 @@ export async function GET(req: NextRequest) {
       status: info.status,
       pending: info.pending,
       plan_id: info.planId,
+      email: info.email,
+      full_name: info.fullName,
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });

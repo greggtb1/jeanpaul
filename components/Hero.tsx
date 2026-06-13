@@ -35,7 +35,7 @@ export default function Hero() {
           <div className="hero__stat">
             <span className="hero__stat-prefix" aria-hidden="true" />
             <span className="hero__stat-value">+6 350</span>
-            <span className="hero__stat-label">candidatures soumises sans lever le petit doigt</span>
+            <span className="hero__stat-label">dossiers candidatés sans lever le petit doigt</span>
           </div>
           <div className="hero__stat-divider" aria-hidden="true" />
           <div className="hero__stat">

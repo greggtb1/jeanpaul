@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import BrandName from "@/components/BrandName";
+import DashboardOnboarding from "@/components/DashboardOnboarding";
 
 const NAV = [
   { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", exact: true },
@@ -93,6 +94,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         </aside>
         <div className="db-content">{children}</div>
       </div>
+      <DashboardOnboarding userId={uid} />
     </div>
   );
 }

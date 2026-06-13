@@ -423,6 +423,44 @@ def recent_generated_urls(user_id: str) -> List[str]:
     return []
 
 
+def mark_ready_without_cv(user_id: str, urls: list[str]) -> int:
+    """Marque des offres qualifiantes comme dossiers prêts sans générer CV/lettre."""
+    uid = _uid(user_id)
+    if not uid or not urls:
+        return 0
+    from datetime import datetime, timezone
+
+    n = 0
+    for url in urls:
+        if not url:
+            continue
+        try:
+            res = (
+                client()
+                .table("jobs")
+                .select("data,fit_score,cv_url")
+                .eq("user_id", uid)
+                .eq("url", url)
+                .maybe_single()
+                .execute()
+            )
+            row = res.data
+            if not row or row.get("cv_url"):
+                continue
+            data = dict(row.get("data") or {})
+            data["ready_without_cv"] = True
+            client().table("jobs").update(
+                {
+                    "data": data,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("user_id", uid).eq("url", url).execute()
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
 def _coerce_fit_score(row: Dict) -> Optional[int]:
     """fit_score colonne ou data._fit_score (int/float/str)."""
     for raw in (row.get("fit_score"), (row.get("data") or {}).get("_fit_score")):

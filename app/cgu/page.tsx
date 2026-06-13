@@ -15,7 +15,7 @@ export default function CguPage() {
         Les présentes CGU régissent l&apos;accès et l&apos;utilisation de JEAN PAUL, service
         d&apos;aide à la recherche d&apos;emploi : scan d&apos;offres (notamment LinkedIn),
         notation de compatibilité, génération de CV et lettres, assistance au remplissage de
-        formulaires de candidature.
+        formulaires de postulation.
       </p>
 
       <h2>Compte et éligibilité</h2>
@@ -34,7 +34,7 @@ export default function CguPage() {
 
       <h2>Utilisation du service</h2>
       <ul>
-        <li>Vous restez seul responsable des candidatures envoyées. JEAN PAUL prépare ; vous validez.</li>
+        <li>Vous restez seul responsable des dossiers candidatés. JEAN PAUL prépare ; vous validez.</li>
         <li>Pas d&apos;usage frauduleux, spam, ou contournement des plateformes tierces (LinkedIn, ATS).</li>
         <li>Les documents générés sont une aide : relisez-les avant envoi.</li>
         <li>Le service n&apos;est pas affilié à LinkedIn ni aux employeurs listés.</li>

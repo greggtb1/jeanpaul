@@ -155,9 +155,9 @@ export default function PipelineLog({
         ) : showBoot ? (
           <BootSequence active />
         ) : showWaiting ? (
-          <p className="plog__line plog__line--muted">Connexion au moteur…</p>
+          <p className="plog__line plog__line--muted">En attente du moteur Python…</p>
         ) : lines.length === 0 ? (
-          <p className="plog__line plog__line--muted">Connexion au moteur…</p>
+          <p className="plog__line plog__line--muted">En attente du moteur Python…</p>
         ) : (
           lines.map((line, i) => (
             <div key={`${i}-${line.slice(0, 24)}`} className={lineClass(line)}>

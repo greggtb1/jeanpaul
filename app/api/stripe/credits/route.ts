@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { CREDIT_PACKS, creditPackPriceCents, isCreditPackId } from "@/lib/plans";
 
-/** Crée une session Stripe Checkout pour un pack de candidatures. */
+/** Crée une session Stripe Checkout pour un pack de dossiers prêts. */
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();

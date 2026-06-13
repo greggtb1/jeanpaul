@@ -13,7 +13,7 @@ from job_language import detect_job_language, normalize_language
 console = Console()
 
 
-ANALYZE_PROMPT = """Tu es un expert RH. Analyse cette offre d'emploi et retourne un JSON avec exactement ces champs :
+ANALYZE_INSTRUCTIONS = """Tu es un expert RH. Analyse cette offre d'emploi et retourne un JSON avec exactement ces champs :
 
 {{
   "role_summary": "Résumé du poste en 2 phrases max",
@@ -30,16 +30,23 @@ ANALYZE_PROMPT = """Tu es un expert RH. Analyse cette offre d'emploi et retourne
   "fit_reasoning": "Pourquoi ce score, 1-2 phrases"
 }}
 
-PROFIL DU CANDIDAT :
-{candidate}
+IMPORTANT — Évaluation du fit :
+- Le candidat peut ne PAS avoir de CV. Le bloc PROFIL CANDIDAT (parcours, postes visés, lieux, niveau) suffit pour noter.
+- Attribue TOUJOURS un fit_score entier entre 1 et 10 selon la pertinence réelle.
+- Ne retourne jamais 0 ni un message du type « impossible d'évaluer » ou « profil manquant ».
+- Si le profil est partiel, fais la meilleure estimation possible à partir des infos disponibles."""
 
-OFFRE À ANALYSER :
-Titre : {title}
-Entreprise : {company}
-Description :
-{description}
+ANALYZE_JOB_SUFFIX = """
 
 Retourne UNIQUEMENT le JSON, sans markdown ni explication."""
+
+# Rétrocompat tests / imports éventuels
+ANALYZE_PROMPT = (
+    ANALYZE_INSTRUCTIONS
+    + "\n\nPROFIL DU CANDIDAT :\n{candidate}\n\nOFFRE À ANALYSER :\n"
+    + "Titre : {title}\nEntreprise : {company}\nDescription :\n{description}"
+    + ANALYZE_JOB_SUFFIX
+)
 
 # Fallback si aucun profil utilisateur (usage CLI historique)
 DEFAULT_CANDIDATE = """- Grégoire Linée, fondateur de Gare ta Bécane (€850k ARR, marketplace B2B2C de parking moto, 3 ans)
@@ -56,7 +63,7 @@ def load_candidate_profile() -> str:
     try:
         from user_profile import load_user_profile, candidate_block_for_letter
 
-        prof = load_user_profile()
+        prof = load_user_profile(force=True)
         if prof.get("_source") == "user":
             return candidate_block_for_letter(prof)
     except Exception:
@@ -70,6 +77,35 @@ class JobAnalyzer:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
         self.candidate = candidate_profile or load_candidate_profile()
+        # Instructions + profil : identiques sur tout un run → prompt caching Anthropic
+        self._cached_prefix = (
+            ANALYZE_INSTRUCTIONS
+            + "\n\nPROFIL DU CANDIDAT :\n"
+            + self.candidate
+            + "\n\nOFFRE À ANALYSER :"
+        )
+
+    def _call_model(self, job_text: str):
+        return self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": self._cached_prefix,
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {
+                            "type": "text",
+                            "text": job_text,
+                        },
+                    ],
+                }
+            ],
+        )
 
     def analyze(self, job: Dict) -> Dict:
         """Analyse une offre et retourne ses infos structurées."""
@@ -81,19 +117,15 @@ class JobAnalyzer:
             console.print(f"[yellow]  Pas de description pour {company} – {title}[/yellow]")
             return self._empty_analysis(job)
 
-        prompt = ANALYZE_PROMPT.format(
-            candidate=self.candidate,
-            title=title,
-            company=company,
-            description=description[:4000],  # limite pour éviter les tokens trop longs
+        job_text = (
+            f"Titre : {title}\n"
+            f"Entreprise : {company}\n"
+            f"Description :\n{description[:4000]}"
+            + ANALYZE_JOB_SUFFIX
         )
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            response = self._call_model(job_text)
             raw = response.content[0].text.strip()
 
             # Nettoie si markdown

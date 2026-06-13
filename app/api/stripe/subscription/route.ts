@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
+import { isPlanId, type PlanId } from "@/lib/plans";
 
 export type SubscriptionInfo = {
   status: string;
@@ -98,6 +99,18 @@ export async function GET() {
       // Paiement unique — cherche la dernière charge du customer
       info.mode = "one_time";
       try {
+        const customer = await stripe.customers.retrieve(profile.stripe_customer_id as string);
+        const stripePlanRaw = customer.metadata?.plan_id?.trim();
+        const targetPlan: PlanId = isPlanId(stripePlanRaw) ? stripePlanRaw : "test";
+
+        if (profile.plan_id !== targetPlan) {
+          await admin
+            .from("profiles")
+            .update({ plan_id: targetPlan, updated_at: new Date().toISOString() })
+            .eq("id", user.id);
+          info.planId = targetPlan;
+        }
+
         const charges = await stripe.charges.list({
           customer: profile.stripe_customer_id as string,
           limit: 1,

@@ -23,13 +23,22 @@ from store import (
     pipeline_register_pid, pipeline_is_cancelled, pipeline_clear_cancel,
     pipeline_cancel, pipeline_request_cancel,
     load_autoapply_selection, clear_autoapply_selection,
+    mark_ready_without_cv,
 )
 from user_profile import clear_profile_cache
 
 APPS_DIR = BASE / "applications"
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except Exception:
+        return default
+
+
 MIN_SCORE = 6
-HUNT_TARGET = 5  # arrêt dès N offres ≥ MIN_SCORE
+HUNT_TARGET = _env_int("JA_HUNT_TARGET", 15)  # arrêt dès N offres ≥ MIN_SCORE
+MAX_ANALYZED_POOR_FIT = 30  # plafond si objectif non atteint (fit faible)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -60,7 +69,7 @@ def _exit_if_cancelled(run_id: str, user_id: str, urls_before: set | None = None
             new_n = len(_job_urls(user_id) - urls_before)
             pipeline_cancel(
                 run_id,
-                f"\n🛑 Recherche arrêtée — {new_n} offre(s) récupérée(s) sur ce run.",
+                f"\n🛑 Recherche arrêtée, {new_n} offre(s) récupérée(s) sur ce run.",
             )
         else:
             pipeline_cancel(run_id)
@@ -173,6 +182,7 @@ def build_hunt_fill_args(user_id: str, target: int = HUNT_TARGET) -> list[str]:
         "hunt-fill",
         "--target", str(target),
         "--min-score", str(MIN_SCORE),
+        "--max-analyzed", str(MAX_ANALYZED_POOR_FIT),
         "--no-dashboard",
     ]
     try:
@@ -237,7 +247,7 @@ def log_poor_fit_warning(run_id: str, health: dict, scope: str = "cette recherch
     q = health.get("qualifying", 0)
     qual_txt = f"{q} ≥{MIN_SCORE}/10" if q else f"aucune ≥{MIN_SCORE}/10"
     pipeline_log(run_id, "")
-    pipeline_log(run_id, "⚠️ ALERTE FIT — décalage profil / recherche probable")
+    pipeline_log(run_id, "⚠️ ALERTE FIT : décalage profil / recherche probable")
     pipeline_log(
         run_id,
         f"   {health['analyzed']} offres ({scope}) · moyenne {health['avg']}/10 · {qual_txt}",
@@ -272,7 +282,7 @@ def track_search_criteria(user_id: str, run_id: str):
             pass
 
         if prev_h and prev_h != h:
-            pipeline_log(run_id, "📋 Critères de recherche mis à jour — les analyses existantes sont conservées")
+            pipeline_log(run_id, "📋 Critères de recherche mis à jour, les analyses existantes sont conservées")
 
         client().table("app_state").upsert(
             {"id": key, "data": {"hash": h}}, on_conflict="id"
@@ -297,6 +307,71 @@ def _urls_with_docs(user_id: str) -> set:
         return {r["url"] for r in (res.data or []) if r.get("url") and r.get("cv_url")}
     except Exception:
         return set()
+
+
+def _has_cv(user_id: str) -> bool:
+    try:
+        res = (
+            client().table("profiles")
+            .select("cv_url")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        return bool(((res.data or {}).get("cv_url") or "").strip())
+    except Exception:
+        return False
+
+
+def _qualifying_urls(user_id: str, urls_before: set | None = None, limit: int = HUNT_TARGET) -> list[str]:
+    out: list[str] = []
+    for j in load_jobs(user_id=user_id):
+        url = j.get("url")
+        if not url or (urls_before is not None and url in urls_before):
+            continue
+        s = j.get("_fit_score") if isinstance(j.get("_fit_score"), int) else j.get("fit_score")
+        if isinstance(s, int) and s >= MIN_SCORE:
+            out.append(url)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _run_generation_or_mark_ready(
+    user_id: str,
+    run_id: str,
+    urls_before: set | None,
+    docs_before: set,
+    progress_after: int = 92,
+) -> list[str]:
+    """Génère CV+lettres si CV présent, sinon marque les offres qualifiantes comme prêtes."""
+    if _has_cv(user_id):
+        pipeline_log(run_id, "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──")
+        rc = run_main(
+            ["apply", "--min-score", "6", "--max", str(HUNT_TARGET), "--no-dashboard"],
+            user_id,
+            run_id,
+        )
+        if rc == 130 and urls_before is not None:
+            _exit_if_cancelled(run_id, user_id, urls_before)
+        if rc != 0:
+            pipeline_log(run_id, "⚠ La génération a échoué. Les offres restent visibles sans documents.")
+            return []
+        pipeline_set_status(run_id, "running", progress=progress_after)
+        sync_documents(user_id, run_id)
+        return list(_urls_with_docs(user_id) - docs_before)
+
+    ready_urls = _qualifying_urls(user_id, urls_before)
+    pipeline_log(run_id, "\n── Étape 2 : Pas de CV, génération ignorée ──")
+    pipeline_log(
+        run_id,
+        f"✓ {len(ready_urls)} offre(s) repérée(s) comme dossiers prêts (score ≥ {MIN_SCORE}/10)",
+    )
+    if ready_urls:
+        n = mark_ready_without_cv(user_id, ready_urls)
+        pipeline_log(run_id, f"✓ {n} dossier(s) prêt(s) sans CV ni lettre (économie de tokens)")
+    pipeline_set_status(run_id, "running", progress=progress_after)
+    return ready_urls
 
 
 def sync_documents(user_id: str, run_id: str):
@@ -346,7 +421,7 @@ def run_analyze_pending(user_id: str, run_id: str):
     pipeline_set_status(run_id, "running", progress=8)
     pending = count_pending_analysis(user_id)
     pipeline_log(run_id, "📊 Reprise : analyse des offres en attente")
-    pipeline_log(run_id, f"   {pending} offre(s) sans score — pas de nouveau scraping LinkedIn\n")
+    pipeline_log(run_id, f"   {pending} offre(s) sans score, pas de nouveau scraping LinkedIn\n")
 
     if pending == 0:
         pipeline_log(run_id, "✓ Toutes vos offres sont déjà analysées.")
@@ -373,26 +448,15 @@ def run_analyze_pending(user_id: str, run_id: str):
     log_poor_fit_warning(run_id, fit_health, scope="vos offres")
 
     pipeline_set_status(run_id, "running", progress=65)
-    pipeline_log(run_id, "\n── Étape 3 : Génération CV + lettres (offres ≥ 6/10) ──")
-    rc = run_main(
-        ["apply", "--min-score", "6", "--max", str(HUNT_TARGET), "--no-dashboard"],
-        user_id, run_id,
+    generated_urls = _run_generation_or_mark_ready(
+        user_id, run_id, None, docs_before, progress_after=92
     )
-    if rc == 130:
-        _exit_if_cancelled(run_id, user_id)
-    if rc != 0:
-        pipeline_log(run_id, "⚠ La génération a échoué. Les offres restent visibles sans documents.")
-    else:
-        pipeline_set_status(run_id, "running", progress=92)
-        sync_documents(user_id, run_id)
-
-    generated_urls = list(_urls_with_docs(user_id) - docs_before)
     fit_health = compute_fit_health(user_id)
     log_poor_fit_warning(run_id, fit_health, scope="vos offres")
 
     pipeline_log(
         run_id,
-        f"\n📊 {analyzed} offre(s) analysée(s) · {len(generated_urls)} candidature(s) générée(s)",
+        f"\n📊 {analyzed} offre(s) analysée(s) · {len(generated_urls)} dossier(s) prêt(s)",
     )
     pipeline_log(run_id, "\n✅ Terminé. Rafraîchissez le dashboard pour voir les scores.")
     pipeline_finish(run_id, "done", {
@@ -401,6 +465,7 @@ def run_analyze_pending(user_id: str, run_id: str):
         "analyzed": analyzed,
         "generated_urls": generated_urls,
         "fit_health": fit_health,
+        "skip_docs": not _has_cv(user_id),
     })
 
 
@@ -508,36 +573,31 @@ def main():
     log_poor_fit_warning(run_id, fit_health)
 
     if qualifying >= HUNT_TARGET:
-        pipeline_log(run_id, f"✓ {qualifying} offre(s) ≥{MIN_SCORE}/10 — objectif atteint")
+        pipeline_log(run_id, f"✓ {qualifying} offre(s) ≥{MIN_SCORE}/10, objectif atteint")
     elif qualifying > 0:
         pipeline_log(
             run_id,
-            f"⚠ {qualifying}/{HUNT_TARGET} offres ≥{MIN_SCORE}/10 — requêtes épuisées",
+            f"⚠ {qualifying}/{HUNT_TARGET} offres ≥{MIN_SCORE}/10, requêtes épuisées",
         )
     else:
         pipeline_log(
             run_id,
-            f"⚠ Aucune offre ≥{MIN_SCORE}/10 — marché saturé ou critères très serrés",
+            f"⚠ Aucune offre ≥{MIN_SCORE}/10, marché saturé ou critères très serrés",
         )
 
     pipeline_set_status(run_id, "running", progress=65)
-    pipeline_log(run_id, "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──")
-    rc = run_main(
-        ["apply", "--min-score", "6", "--max", str(HUNT_TARGET), "--no-dashboard"],
-        opts.user_id, run_id,
+    generated_urls = _run_generation_or_mark_ready(
+        opts.user_id, run_id, urls_before, docs_before, progress_after=92
     )
-    if rc != 0:
-        pipeline_log(run_id, "⚠ La génération a échoué. Les offres restent visibles sans documents.")
-    else:
-        pipeline_set_status(run_id, "running", progress=92)
-        sync_documents(opts.user_id, run_id)
 
     new_urls = list(_job_urls(opts.user_id) - urls_before)
-    generated_urls = list(_urls_with_docs(opts.user_id) - docs_before)
     fit_health = compute_fit_health(opts.user_id, set(new_urls))
     log_poor_fit_warning(run_id, fit_health)
 
-    pipeline_log(run_id, f"\n📊 {len(new_urls)} nouvelle(s) offre(s) · {qualifying} ≥{MIN_SCORE}/10 · {len(generated_urls)} candidature(s) générée(s)")
+    pipeline_log(
+        run_id,
+        f"\n📊 {len(new_urls)} nouvelle(s) offre(s) · {qualifying} ≥{MIN_SCORE}/10 · {len(generated_urls)} dossier(s) prêt(s)",
+    )
     pipeline_log(run_id, "\n✅ Terminé. Rafraîchissez le dashboard pour voir les offres.")
     pipeline_finish(run_id, "done", {
         "mode": "full",
@@ -545,6 +605,7 @@ def main():
         "generated_urls": generated_urls,
         "qualifying_new": qualifying,
         "fit_health": fit_health,
+        "skip_docs": not _has_cv(opts.user_id),
     })
 
 

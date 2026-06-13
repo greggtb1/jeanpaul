@@ -23,60 +23,56 @@ import { parsePipelinePhase, isAutoapplyRun } from "@/lib/pipeline-phase";
 import LetterModal from "@/components/LetterModal";
 import AutoApplyTuto from "@/components/AutoApplyTuto";
 import FirstSearchDoneTuto, { hasSeenFirstSearchDoneTuto } from "@/components/FirstSearchDoneTuto";
-import DashboardOnboarding from "@/components/DashboardOnboarding";
 import DashboardGuide from "@/components/DashboardGuide";
+import NoCvCalibrationModal from "@/components/NoCvCalibrationModal";
+import { needsPreScanNoCvModal, calibrationPromptLabel } from "@/lib/no-cv-calibration";
+import { loadDraft } from "@/lib/onboarding-draft";
+import { buildOnboardingPrefsPatch } from "@/lib/sync-onboarding-prefs";
 import { parseApiJson } from "@/lib/parse-api-json";
+import { isJobReady, isJobReadyWithoutCv } from "@/lib/job-ready";
 
-const TABS = [
-  { id: "all", label: "Toutes" },
-  { id: "applied", label: "Candidatures envoyées" },
-  { id: "generated", label: "Candidatures à envoyer" },
-] as const;
+type TabId = "all" | "applied" | "generated";
 
-type TabId = (typeof TABS)[number]["id"];
-
-function TabFilterButton({ tab, onChange }: { tab: TabId; onChange: (id: TabId) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const current = TABS.find((t) => t.id === tab)!;
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+function StatFilterChips({
+  stats,
+  tab,
+  onChange,
+}: {
+  stats: { total: number; ready: number; applied: number };
+  tab: TabId;
+  onChange: (id: TabId) => void;
+}) {
+  const toggle = (id: TabId) => onChange(tab === id ? "all" : id);
 
   return (
-    <div className="db__filter-btn-wrap" ref={ref}>
+    <div className="db__stats-inline" role="group" aria-label="Filtrer les offres">
       <button
         type="button"
-        className={`db__filter-btn${tab !== "all" ? " db__filter-btn--active" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
+        className={`db__stat-chip db__stat-chip--btn${tab === "all" ? " is-active" : ""}`}
+        onClick={() => toggle("all")}
+        aria-pressed={tab === "all"}
       >
-        <span className="db__filter-btn-icon" aria-hidden="true">⊟</span>
-        <span>{tab === "all" ? "Filtrer" : current.label}</span>
-        <span className="db__filter-btn-chevron" aria-hidden="true" />
+        {stats.total} offres
       </button>
-      {open && (
-        <ul className="db__filter-dropdown" role="listbox">
-          {TABS.map((t) => (
-            <li
-              key={t.id}
-              role="option"
-              aria-selected={tab === t.id}
-              className={`db__filter-option${tab === t.id ? " db__filter-option--active" : ""}`}
-              onClick={() => { onChange(t.id); setOpen(false); }}
-            >
-              {tab === t.id && <span className="db__filter-check" aria-hidden="true">✓</span>}
-              {t.label}
-            </li>
-          ))}
-        </ul>
+      {stats.ready > 0 && (
+        <button
+          type="button"
+          className={`db__stat-chip db__stat-chip--btn db__stat-chip--coral${tab === "generated" ? " is-active" : ""}`}
+          onClick={() => toggle("generated")}
+          aria-pressed={tab === "generated"}
+        >
+          {stats.ready} dossier{stats.ready > 1 ? "s" : ""} prêt{stats.ready > 1 ? "s" : ""}
+        </button>
+      )}
+      {stats.applied > 0 && (
+        <button
+          type="button"
+          className={`db__stat-chip db__stat-chip--btn db__stat-chip--green${tab === "applied" ? " is-active" : ""}`}
+          onClick={() => toggle("applied")}
+          aria-pressed={tab === "applied"}
+        >
+          {stats.applied} candidaté{stats.applied > 1 ? "s" : ""}
+        </button>
       )}
     </div>
   );
@@ -138,6 +134,7 @@ function isAutoApplyEligible(job: Job): boolean {
 
 function isPriorityJob(job: Job): boolean {
   if (job.cv_url || job.letter_url || job.applied) return true;
+  if (isJobReadyWithoutCv(job)) return true;
   const s = getJobScore(job);
   if (s === null) return true;
   return s >= 6;
@@ -242,9 +239,11 @@ export default function Dashboard() {
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [showAutoTuto, setShowAutoTuto] = useState(false);
   const [showFirstDoneTuto, setShowFirstDoneTuto] = useState(false);
+  const [showNoCvCalib, setShowNoCvCalib] = useState(false);
   const [sideTab, setSideTab] = useState<"terminal" | "guide">("terminal");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevRunStatusRef = useRef<string | null>(null);
+  const pendingLaunchRef = useRef<{ mode: "full" | "analyze"; urls?: string[] } | null>(null);
 
   const freshUrls = useMemo(() => {
     const urls = lastSearch?.result?.new_urls;
@@ -263,7 +262,7 @@ export default function Dashboard() {
   const load = useCallback(async (id: string, silent = false, resort = false) => {
     if (!silent) setLoading(true);
     const scrollY = silent && !resort ? window.scrollY : null;
-    const [{ data: prof }, { data: js }] = await Promise.all([
+    const [{ data: profRaw }, { data: js }] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", id).maybeSingle(),
       supabase
         .from("jobs")
@@ -272,6 +271,18 @@ export default function Dashboard() {
         .eq("deleted", false)
         .order("created_at", { ascending: false }),
     ]);
+    let prof = profRaw;
+    const prefsPatch = buildOnboardingPrefsPatch(prof, loadDraft());
+    if (prefsPatch) {
+      const { data: synced } = await supabase
+        .from("profiles")
+        .update({ ...prefsPatch, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+      if (synced) prof = synced;
+      else if (prof) prof = { ...prof, ...prefsPatch };
+    }
     const { data: runs } = await supabase
       .from("pipeline_runs")
       .select("*")
@@ -354,6 +365,32 @@ export default function Dashboard() {
       setLaunching(false);
     }
   }, [fetchRun, router, uid, supabase]);
+
+  const onboardingDraft = useMemo(() => loadDraft(), [profile?.id]);
+
+  const requestPipelineLaunch = useCallback(
+    (mode: "full" | "analyze" = "full", urls?: string[]) => {
+      if (needsPreScanNoCvModal(profile)) {
+        pendingLaunchRef.current = { mode, urls };
+        setShowNoCvCalib(true);
+        return;
+      }
+      void startPipeline(mode, urls);
+    },
+    [profile, onboardingDraft, startPipeline]
+  );
+
+  const handleCalibrationComplete = useCallback(
+    (updated: Profile) => {
+      const pending = pendingLaunchRef.current;
+      pendingLaunchRef.current = null;
+      setProfile(updated);
+      setShowNoCvCalib(false);
+      window.dispatchEvent(new CustomEvent("ja:prefs-updated"));
+      if (pending) void startPipeline(pending.mode, pending.urls);
+    },
+    [startPipeline]
+  );
 
   const stopPipeline = useCallback(async () => {
     if (!run?.id) return;
@@ -450,15 +487,15 @@ export default function Dashboard() {
       );
       alert(
         nextApplied
-          ? "Impossible de marquer la candidature comme envoyée."
-          : "Impossible de décocher la candidature."
+          ? "Impossible de marquer le dossier comme candidaté."
+          : "Impossible de décocher le dossier candidaté."
       );
     }
   }, [uid, supabase]);
 
   const filtered = useMemo(() => {
     const list = jobs.filter((j) => {
-      if (tab === "generated") return !!j.cv_url && !j.applied;
+      if (tab === "generated") return isJobReady(j);
       if (tab === "applied") return !!j.applied;
       return true;
     });
@@ -502,7 +539,7 @@ export default function Dashboard() {
       : 0;
     return {
       total: jobs.length,
-      ready: jobs.filter((j) => j.cv_url).length,
+      ready: jobs.filter(isJobReady).length,
       applied: jobs.filter((j) => j.applied).length,
       avg,
     };
@@ -574,6 +611,11 @@ export default function Dashboard() {
               {!loading && (
                 <span
                   className={`db__quota-chip${quotaUsage.exhausted ? " db__quota-chip--full" : ""}`}
+                  title={
+                    quotaUsage.weeklyLimit
+                      ? `Plafond hebdo : ${quotaUsage.weeklyLimit} dossiers`
+                      : undefined
+                  }
                 >
                   {quotaUsage.used}/{quotaUsage.limit} {quotaUsage.label.toLowerCase()}
                   {quotaUsage.bonusCredits > 0 && ` · +${quotaUsage.bonusCredits} bonus`}
@@ -586,29 +628,39 @@ export default function Dashboard() {
         <div className={`db-page-split${showFirstSearch ? " db-page-split--first" : ""}`}>
           <div className="db-page-main">
         {showFirstSearch && (
-          <section className="db__hero-first" aria-labelledby="first-search-title">
-            <div className="db__hero-first-glow" aria-hidden="true" />
-            <span className="db__hero-first-badge">Première étape</span>
-            <div className="db__hero-first-icon" aria-hidden="true">🛰️</div>
-            <h2 id="first-search-title" className="db__hero-first-title">
-              Lancez votre première recherche
+          <section className="db-first" aria-labelledby="first-search-title">
+            <h2 id="first-search-title" className="db-first__title">
+              Votre premier scan
             </h2>
-            <p className="db__hero-first-lead">
-              JEAN PAUL va scanner LinkedIn selon votre profil, scorer chaque offre et préparer vos candidatures.
+            <p className="db-first__lead">
+              LinkedIn est parcouru selon votre profil. Jusqu&apos;à 15 bons matchs reçoivent une note, un CV et une lettre prêts à soumettre.
             </p>
-            <ul className="db__hero-first-steps">
-              <li>Scan LinkedIn selon vos critères</li>
-              <li>Note /10 pour chaque offre</li>
-              <li>CV + lettre générés automatiquement</li>
-            </ul>
-            <button
-              type="button"
-              className="btn btn--hero db__hero-first-cta"
-              disabled={launching}
-              onClick={() => uid && startPipeline()}
-            >
-              {launching ? "Lancement en cours…" : "Lancer la recherche"}
-            </button>
+            <div className="db-first__flow" aria-hidden="true">
+              <ol className="db-first__flow-steps">
+                <li className="db-first__flow-step is-active">Scan</li>
+                <li className="db-first__flow-step">Note /10</li>
+                <li className="db-first__flow-step">CV + lettre</li>
+              </ol>
+              <div className="db-first__flow-rail">
+                <span />
+              </div>
+            </div>
+            <div className="db-first__foot">
+              <button
+                type="button"
+                className="btn btn--accent db-first__cta"
+                disabled={launching}
+                onClick={() => uid && requestPipelineLaunch()}
+              >
+                {launching ? "Lancement…" : "Lancer la recherche"}
+              </button>
+              <p className="db-first__hint">
+                {needsPreScanNoCvModal(profile)
+                  ? calibrationPromptLabel(profile, onboardingDraft) ||
+                    "Déposez votre CV pour personnaliser vos dossiers à chaque offre."
+                  : "Suivez l\u2019avancement dans le terminal."}
+              </p>
+            </div>
           </section>
         )}
 
@@ -632,7 +684,7 @@ export default function Dashboard() {
               <AnalyzePendingCta
                 count={pendingAnalysis}
                 launching={launching}
-                onAnalyze={() => startPipeline("analyze")}
+                onAnalyze={() => requestPipelineLaunch("analyze")}
               />
             )}
             {pendingAnalysis > 0 && analyzeBlockReason && (
@@ -644,14 +696,14 @@ export default function Dashboard() {
             )}
             {generationBlocked && !scanBlockReason && analyzeBlockReason && !pendingAnalysis && (
               <QuotaBlockedNotice
-                title="Quota candidatures atteint"
+                title="Quota de dossiers atteint"
                 reason={analyzeBlockReason}
                 upgrade={analyzeUpgrade}
               />
             )}
             <DashboardActionsBar
               launching={launching}
-              onSearch={() => startPipeline()}
+              onSearch={() => requestPipelineLaunch()}
               scanDisabled={!!scanBlockReason}
               scanDisabledReason={scanBlockReason}
               scanUpgrade={scanUpgrade}
@@ -674,35 +726,15 @@ export default function Dashboard() {
               {selectMode ? "Offres éligibles" : "Vos offres"}
             </h2>
             {!selectMode && (
-              <div className="db__stats-inline">
-                <span className="db__stat-chip">{stats.total} offres</span>
-                {stats.ready > 0 && <span className="db__stat-chip">{stats.ready} à envoyer</span>}
-                {stats.applied > 0 && <span className="db__stat-chip db__stat-chip--green">{stats.applied} envoyée{stats.applied > 1 ? "s" : ""}</span>}
-              </div>
+              <StatFilterChips stats={stats} tab={tab} onChange={setTab} />
             )}
           </div>
-          {!selectMode && (
-          <TabFilterButton
-            tab={tab}
-            onChange={(id) => setTab(id)}
-          />
-          )}
         </div>
 
         {loading || authLoading ? (
           <div className="db__empty">Chargement…</div>
-        ) : filtered.length === 0 && pipelineActive ? null
-        : pipelineActive ? (
-          <JobList
-            jobs={filtered}
-            isFresh={isFresh}
-            onToggleApplied={toggleApplied}
-            pipelineActive={pipelineActive}
-            profile={profile}
-            selectMode={selectMode}
-            selectedUrls={selectedUrls}
-            onToggleSelect={toggleSelectUrl}
-          />
+        ) : pipelineActive && filtered.length === 0 ? (
+          <ScanJobsWaiting />
         ) : filtered.length === 0 ? (
           <div className="db__empty">
             <div className="db__empty-emoji">🛰️</div>
@@ -758,7 +790,18 @@ export default function Dashboard() {
       {showFirstDoneTuto && (
         <FirstSearchDoneTuto onClose={() => setShowFirstDoneTuto(false)} />
       )}
-      <DashboardOnboarding />
+      {showNoCvCalib && uid && (
+        <NoCvCalibrationModal
+          profile={profile}
+          userId={uid}
+          saving={launching}
+          onClose={() => {
+            pendingLaunchRef.current = null;
+            setShowNoCvCalib(false);
+          }}
+          onComplete={handleCalibrationComplete}
+        />
+      )}
     </>
   );
 }
@@ -821,9 +864,9 @@ function DashboardActionsBar({
           <Link
             href={scanUpgrade.href}
             className="db-big-btn db-big-btn--upgrade"
-            aria-label={`Obtenir plus de candidatures — passer au plan ${scanUpgrade.name}`}
+            aria-label={`Obtenir plus de dossiers, passer au plan ${scanUpgrade.name}`}
           >
-            Plus de candidatures
+            Plus de dossiers
           </Link>
         ) : (
           <button
@@ -871,7 +914,7 @@ function DashboardActionsBar({
         <p className="db-acts-apply-hint">
           {scanDisabledReason}{" "}
           <Link href={buyCreditsPath()} className="db-acts-upgrade-link">
-            Acheter des candidatures
+            Acheter des dossiers
           </Link>
         </p>
       )}
@@ -935,7 +978,7 @@ function AnalyzePendingCta({
           {count} offre{count > 1 ? "s" : ""} à analyser
         </h2>
         <p className="db-analyze-pending__text">
-          Reprenez là où vous vous êtes arrêté : scoring et candidatures, sans relancer LinkedIn.
+          Reprenez là où vous vous êtes arrêté : scoring et dossiers prêts à soumettre, sans relancer LinkedIn.
         </p>
       </div>
       <div className="db-analyze-pending__actions">
@@ -976,7 +1019,7 @@ function QuotaBlockedNotice({
           </Link>
         )}
         <Link href={buyCreditsPath()} className="db-quota-blocked__credits">
-          Acheter des candidatures
+          Acheter des dossiers
         </Link>
         {upgrade?.isMaxPlan && (
           <p className="db-quota-blocked__wait">Quota renouvelé chaque semaine.</p>
@@ -1049,6 +1092,15 @@ function useEnteringJobs(jobs: Job[]) {
   }, [jobs]);
 
   return entering;
+}
+
+function ScanJobsWaiting() {
+  return (
+    <div className="db__scan-waiting" role="status" aria-live="polite">
+      <span className="db__scan-waiting-spinner" aria-hidden="true" />
+      <p>Recherche d&apos;offres en cours…</p>
+    </div>
+  );
 }
 
 function JobList({
@@ -1223,6 +1275,7 @@ function JobRow({
   const fitTier = getFitTier(score);
   const fitReasoning = getJobFitReasoning(job);
   const canExpandDetail = !!fitReasoning && !analyzing;
+  const docsUnavailable = isJobReadyWithoutCv(job) && !job.cv_url;
 
   const [letterOpen, setLetterOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1417,6 +1470,22 @@ function JobRow({
         </>
       )}
       <div className="jr__actions" onClick={(e) => canExpandDetail && e.stopPropagation()}>
+        {!compact && docsUnavailable && (
+          <>
+            <span
+              className="jr__doc jr__doc--cv jr__doc--disabled"
+              title="Scan lancé sans CV : ajoutez un CV à votre profil pour générer ce document"
+            >
+              CV
+            </span>
+            <span
+              className="jr__doc jr__doc--letter jr__doc--disabled"
+              title="Scan lancé sans CV : ajoutez un CV à votre profil pour générer ce document"
+            >
+              Lettre
+            </span>
+          </>
+        )}
         {!compact && job.cv_url && (
           <button
             type="button"
@@ -1448,12 +1517,12 @@ function JobRow({
             {compact ? "Voir" : "voir l'offre"}
           </a>
         )}
-        {!compact && job.cv_url && onToggleApplied && (
+        {!compact && isJobReady(job) && onToggleApplied && (
           <button
             type="button"
             className={`jr__mark ${job.applied ? "jr__mark--done" : ""}`}
             onClick={handleToggleApplied}
-            title={job.applied ? "Marquer comme non envoyée" : "Marquer comme envoyée"}
+            title={job.applied ? "Marquer comme non candidaté" : "Marquer comme candidaté"}
             aria-pressed={!!job.applied}
           >
             ✓

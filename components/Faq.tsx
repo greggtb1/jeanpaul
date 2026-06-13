@@ -1,7 +1,7 @@
 const faqs = [
   {
     q: "Est-ce que je garde le contrôle ?",
-    a: "Oui, toujours. Rien n'est envoyé sans votre validation. Vous relisez chaque candidature, ajustez si besoin, puis vous validez.",
+    a: "Oui, toujours. Rien n'est envoyé sans votre validation. Vous relisez chaque dossier, ajustez si besoin, puis vous validez.",
   },
   {
     q: "Comment ça marche concrètement ?",
@@ -9,7 +9,7 @@ const faqs = [
   },
   {
     q: "Est-ce que c'est sécurisé ?",
-    a: "Vos données restent les vôtres. Elles servent uniquement à préparer vos candidatures, et rien n'est partagé sans votre accord.",
+    a: "Vos données restent les vôtres. Elles servent uniquement à préparer vos dossiers, et rien n'est partagé sans votre accord.",
   },
   {
     q: "Est-ce vraiment automatique ?",

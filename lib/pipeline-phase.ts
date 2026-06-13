@@ -71,7 +71,7 @@ export function getPipelineSteps(mode: PipelineRunMode = "full") {
 export function isAutoapplyRun(run: PipelineRun | null): boolean {
   const log = run?.log || "";
   if (run?.result?.mode === "autoapply") return true;
-  return /Auto-apply|auto-apply|main\.py auto-apply|onglet\(s\) prêt|Remplissage — \d+ onglet/i.test(
+  return /Auto-apply|auto-apply|main\.py auto-apply|onglet\(s\) prêt|Remplissage\s*[—:,]\s*\d+ onglet/i.test(
     log
   );
 }
@@ -92,7 +92,7 @@ function parseAutoapplyMetrics(log: string) {
   const totalMatch =
     log.match(/(\d+)\s+candidature\(s\)\s+à processer/i) ||
     log.match(/Auto-apply\s*:\s*(\d+)\s+candidature/i) ||
-    log.match(/Remplissage —\s*(\d+)\s+onglet/i) ||
+    log.match(/Remplissage\s*[—:,]\s*(\d+)\s+onglet/i) ||
     log.match(/(\d+)\s+offre\(s\)\s+sélectionnée\(s\)/i);
 
   const jobBox = [...log.matchAll(/[│|]\s*\((\d+)\/(\d+)\)/g)].pop();
@@ -154,6 +154,7 @@ export function parsePipelinePhase(
   const step2 = /──\s*Étape\s*2/i.test(log);
   const step3 = /──\s*Étape\s*3/i.test(log);
   const step2Generate = /──\s*Étape\s*2\s*:\s*Génération/i.test(log);
+  const step2SkipDocs = /Pas de CV, génération ignorée/i.test(log);
   const huntPipeline = /Recherche \+ analyse|Hunt-fill|cible\s*:\s*\d+\s+offres/i.test(log);
 
   let step: 0 | 1 | 2 | 3 = 0;
@@ -172,7 +173,7 @@ export function parsePipelinePhase(
     } else if (
       autoapplyCurrent > 0 ||
       formPage > 0 ||
-      /Formulaire prêt|Remplissage —|candidature\(s\) à processer/i.test(log)
+      /Formulaire prêt|Remplissage\s*[—:,]|candidature\(s\) à processer|Pas de CV, génération ignorée|dossier\(s\) prêt\(s\) sans CV/i.test(log)
     ) {
       step = 2;
     } else if (run?.status === "running" || run?.status === "pending") {
@@ -183,7 +184,7 @@ export function parsePipelinePhase(
     else if (step2) step = 1;
     else if (run?.status === "running" || run?.status === "pending") step = 1;
   } else if (huntPipeline) {
-    if (step2Generate || step3) step = 2;
+    if (step2Generate || step3 || step2SkipDocs) step = 2;
     else if (step1 || run?.status === "running" || run?.status === "pending") step = 1;
   } else if (step3) step = 3;
   else if (step2) step = 2;
@@ -258,7 +259,7 @@ export function parsePipelinePhase(
     else subPhase = "autoapply_boot";
   } else if (run?.status === "done") subPhase = "done";
   else if (syncing) subPhase = "sync";
-  else if (step === 2 && (step2Generate || step3 || mode === "full" || mode === "analyze"))
+  else if (step === 2 && (step2Generate || step3 || step2SkipDocs || mode === "full" || mode === "analyze"))
     subPhase = "generate";
   else if (step === 1 && huntFill && huntPipeline) subPhase = "hunt_fill";
   else if (step === 2) subPhase = huntFill ? "hunt_fill" : "analyze";
@@ -276,8 +277,8 @@ export function parsePipelinePhase(
   let subdetail = "";
 
   if (subPhase === "boot") {
-    stepLabel = "Connexion au moteur";
-    detail = "Préparation des requêtes LinkedIn";
+    stepLabel = "Démarrage";
+    detail = "Lancement du moteur Python";
   } else if (subPhase === "scrape_prepare") {
     stepLabel = "Scraping LinkedIn";
     detail = queriesTotal
@@ -306,7 +307,7 @@ export function parsePipelinePhase(
       ? `${qualifying}/${qualHuntDetail[2] || huntTarget} offres ≥6/10`
       : qualifying
         ? `${qualifying}/${huntTarget} offres ≥6/10`
-        : "Scrape + analyse au fil de l'eau";
+        : "Recherche intelligente en cours";
     subdetail = "Arrêt dès l'objectif atteint. Chaque offre est analysée.";
   } else if (subPhase === "analyze") {
     stepLabel = "Analyse JEAN PAUL";
@@ -319,15 +320,20 @@ export function parsePipelinePhase(
         : "Comparaison profil / offre"
       : "Démarrage de l'analyse…";
   } else if (subPhase === "generate") {
-    stepLabel = "Génération CV + lettres";
+    const skipDocs = /génération ignorée|Pas de CV, génération ignorée/i.test(log);
+    stepLabel = skipDocs ? "Dossiers repérés" : "Génération CV + lettres";
     detail = generated
-      ? `${generated}/${generateMax} candidature${generated > 1 ? "s" : ""}`
-      : "Offres ≥ 6/10 uniquement";
-    subdetail = /Lettre/i.test(lastLine)
-      ? "Lettre de motivation…"
-      : /CV/i.test(lastLine)
-        ? "Adaptation du CV…"
-        : "Rédaction des documents";
+      ? `${generated}/${generateMax} dossier${generated > 1 ? "s" : ""} prêt${generated > 1 ? "s" : ""}`
+      : skipDocs
+        ? "Offres ≥ 6/10 sans génération de documents"
+        : "Offres ≥ 6/10 uniquement";
+    subdetail = skipDocs
+      ? "Pas de CV au départ du scan"
+      : /Lettre/i.test(lastLine)
+        ? "Lettre de motivation…"
+        : /CV/i.test(lastLine)
+          ? "Adaptation du CV…"
+          : "Rédaction des documents";
   } else if (subPhase === "sync") {
     stepLabel = "Synchronisation";
     detail = "Envoi vers le dashboard";
@@ -341,7 +347,7 @@ export function parsePipelinePhase(
   } else if (subPhase === "autoapply_fill") {
     stepLabel = "Remplissage auto";
     detail = autoapplyTotal
-      ? `Candidature ${autoapplyCurrent || 1}/${autoapplyTotal}`
+      ? `Dossier ${autoapplyCurrent || 1}/${autoapplyTotal}`
       : "Pré-remplissage des formulaires";
     subdetail = formPage
       ? `Page formulaire ${formPage}`
@@ -366,7 +372,7 @@ export function parsePipelinePhase(
         ? `${offersNew} nouvelle${offersNew > 1 ? "s" : ""} offre${offersNew > 1 ? "s" : ""}`
         : "Recherche complète";
       subdetail = generated
-        ? `${generated} candidature${generated > 1 ? "s" : ""} générée${generated > 1 ? "s" : ""}`
+        ? `${generated} dossier${generated > 1 ? "s" : ""} prêt${generated > 1 ? "s" : ""}`
         : "";
     }
   }

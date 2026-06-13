@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { ensureGregPromoCode } from "@/lib/stripe-promo";
 import {
   getPlan,
+  isPlanId,
   isUpgradePlan,
   parseBillingInterval,
   parsePlanId,
@@ -115,7 +116,7 @@ export async function POST(req: Request) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    let planId = parsePlanId(null);
+    let planId: PlanId | null = null;
     let billing: BillingInterval = "weekly";
     let email = "";
     let fullName = "";
@@ -124,7 +125,11 @@ export async function POST(req: Request) {
 
     try {
       const body = await req.json();
-      planId = parsePlanId(body?.plan);
+      const rawPlan = typeof body?.plan === "string" ? body.plan.trim() : "";
+      if (!isPlanId(rawPlan)) {
+        return NextResponse.json({ error: "Formule invalide" }, { status: 400 });
+      }
+      planId = rawPlan;
       billing = parseBillingInterval(body?.billing);
       email = (body?.email ?? "").trim().toLowerCase();
       fullName = (body?.full_name ?? "").trim();
@@ -219,28 +224,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ url: session.url, plan: planId, billing });
     }
 
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "Email requis" }, { status: 400 });
-    }
-
     if (!draftId) {
       return NextResponse.json({ error: "draft_id requis" }, { status: 400 });
     }
 
-    const customer = await stripe.customers.create({
-      email,
-      name: fullName || undefined,
-      metadata: { plan_id: planId, draft_id: draftId, pending: "true" },
-    });
+    const guestCheckout: Stripe.Checkout.SessionCreateParams = {
+      customer_creation: "always",
+      metadata: { pending: "true" },
+    };
+    if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      guestCheckout.customer_email = email;
+      guestCheckout.metadata = { pending: "true", checkout_email: email };
+    }
 
     const session = await stripe.checkout.sessions.create(
-      checkoutSessionBase(planId, billing, origin, draftId, { upgrade: false }, {
-        customer: customer.id,
-        metadata: {
-          email,
-          pending: "true",
-        },
-      })
+      checkoutSessionBase(planId, billing, origin, draftId, { upgrade: false }, guestCheckout)
     );
 
     return NextResponse.json({ url: session.url, plan: planId, billing });

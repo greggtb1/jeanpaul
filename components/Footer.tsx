@@ -13,7 +13,7 @@ const columns = [
   {
     title: "Ressources",
     links: [
-      { label: "Guide candidature", href: "#fonctionnement" },
+      { label: "Guide dossiers", href: "#fonctionnement" },
       { label: "Support", href: "mailto:contact@jeanpaul.app" },
     ],
   },
@@ -31,7 +31,7 @@ export default function Footer() {
             <BrandName />
           </div>
           <p className="footer__tagline">
-            Vos candidatures, préparées pour vous. Vous validez, c&apos;est prêt.
+            Vos dossiers prêts, préparés pour vous. Vous validez, c&apos;est prêt.
           </p>
         </div>
 

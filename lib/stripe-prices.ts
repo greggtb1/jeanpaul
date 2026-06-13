@@ -2,6 +2,7 @@ import type { BillingInterval, PlanId } from "@/lib/plans";
 import {
   checkoutAmountCents,
   getPlan,
+  monthlyApplicationsQuota,
   parsePlanId,
   weeklyPriceCents,
   monthlyPriceCents,
@@ -50,7 +51,7 @@ export function buildCheckoutLineItem(
         unit_amount: oneTimePriceCents(plan),
         product_data: {
           name: `JEAN PAUL · ${plan.name}`,
-          description: `${plan.applicationsQuota} candidatures adaptées à votre profil`,
+          description: `1 recherche complète · jusqu'à ${plan.applicationsQuota} dossiers prêts à soumettre`,
           metadata: {
             plan_id: plan.id,
             applications_quota: String(plan.applicationsQuota),
@@ -76,7 +77,7 @@ export function buildCheckoutLineItem(
       },
       product_data: {
         name: `JEAN PAUL · ${plan.name}`,
-        description: `${plan.applicationsQuota} candidatures adaptées / semaine`,
+        description: `${monthlyApplicationsQuota(plan)} dossiers prêts à soumettre / mois`,
         metadata: {
           plan_id: plan.id,
           applications_per_week: String(plan.applicationsQuota),

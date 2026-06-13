@@ -13,7 +13,7 @@ export default function ConfidentialitePage() {
       <h2>Responsable du traitement</h2>
       <p>
         JEAN PAUL est un service en ligne d&apos;aide à la recherche d&apos;emploi et à la
-        préparation de candidatures. Pour toute question :{" "}
+        préparation de dossiers. Pour toute question :{" "}
         <a href="mailto:contact@jeanpaul.app">contact@jeanpaul.app</a>.
       </p>
 
@@ -22,7 +22,7 @@ export default function ConfidentialitePage() {
         <li>Identité et contact : nom, email, téléphone, ville (profil et CV).</li>
         <li>Données de recherche : postes visés, lieux, type de contrat, préférences remote.</li>
         <li>Documents : CV (PDF), lettre type, CV et lettres générés par offre.</li>
-        <li>Activité : offres analysées, scores, candidatures préparées ou envoyées.</li>
+        <li>Activité : offres analysées, scores, dossiers prêts ou candidatés.</li>
         <li>Paiement : identifiants Stripe (nous ne stockons pas vos coordonnées bancaires).</li>
         <li>Technique : logs de session, cookies d&apos;authentification Supabase.</li>
       </ul>
@@ -50,7 +50,7 @@ export default function ConfidentialitePage() {
       <h2>Durée de conservation</h2>
       <p>
         Données de compte : tant que le compte est actif, puis suppression sous 3 ans après
-        clôture sauf obligation légale. Documents de candidature : selon votre utilisation,
+        clôture sauf obligation légale. Documents (CV, lettres) : selon votre utilisation,
         supprimables depuis le dashboard ou sur demande.
       </p>
 

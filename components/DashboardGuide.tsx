@@ -38,8 +38,8 @@ const GUIDE = [
   {
     title: "Suivi",
     steps: [
-      { label: "Marquer envoyée", desc: "Cochez une fiche pour la marquer manuellement comme postulée." },
-      { label: "Filtrer", desc: "Utilisez le filtre en haut de liste pour voir les candidatures envoyées." },
+      { label: "Marquer candidaté", desc: "Cochez une fiche pour la marquer manuellement comme dossier candidaté." },
+      { label: "Filtrer", desc: "Cliquez sur les pastilles (prêts, candidatés…) pour filtrer la liste." },
       { label: "Boîte à idées", desc: "Une idée d'amélioration ? Soumettez-la dans l'onglet dédié et votez pour les autres." },
     ],
   },

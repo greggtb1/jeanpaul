@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { attachCheckoutToUser, getCheckoutSessionInfo } from "@/lib/stripe-session";
+import {
+  attachCheckoutToUser,
+  getCheckoutSessionInfo,
+  sessionBelongsToUser,
+} from "@/lib/stripe-session";
 import {
   draftToProfilePayload,
   normalizeDraft,
@@ -34,6 +38,11 @@ export async function POST(req: Request) {
 
   try {
     const stripeInfo = await getCheckoutSessionInfo(sessionId);
+
+    if (!sessionBelongsToUser(stripeInfo, user)) {
+      return NextResponse.json({ error: "Session invalide" }, { status: 403 });
+    }
+
     const draft = normalizeDraft(clientDraft, {
       email: user.email,
       full_name:
@@ -53,6 +62,7 @@ export async function POST(req: Request) {
     const admin = createAdminClient();
     const { error } = await admin.from("profiles").upsert({
       ...draftToProfilePayload(draft, user.id),
+      plan_id: info.planId,
       subscription_status: info.status ?? (info.active ? "active" : "none"),
       stripe_customer_id: info.customerId,
       stripe_subscription_id: info.subscriptionId,

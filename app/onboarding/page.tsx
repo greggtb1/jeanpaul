@@ -266,8 +266,24 @@ export default function Onboarding() {
     }
   }
 
-  const next = () => (step < STEPS.length - 1 ? setStep((s) => s + 1) : finish());
-  const back = () => setStep((s) => Math.max(0, s - 1));
+  const persistDraft = () => {
+    saveDraft({
+      ...form,
+      plan_id: planId,
+      email: user?.email?.trim() || form.email.trim(),
+      full_name: form.full_name.trim(),
+    });
+  };
+
+  const next = () => {
+    persistDraft();
+    if (step < STEPS.length - 1) setStep((s) => s + 1);
+    else finish();
+  };
+  const back = () => {
+    persistDraft();
+    setStep((s) => Math.max(0, s - 1));
+  };
   const busy = saving || uploading || parsingCv;
 
   return (
@@ -368,7 +384,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre CV"
               title="Déposez votre CV"
-              subtitle="PDF uniquement. Optionnel — vous pourrez l'ajouter plus tard."
+              subtitle="Optionnel. Vous pouvez démarrer sans CV, on vous posera 3 questions rapides avant le premier scan."
             >
               <CvDropzone
                 cvUrl={form.cv_url}
@@ -376,6 +392,24 @@ export default function Onboarding() {
                 uploading={uploading || parsingCv}
                 onFile={handleFile}
               />
+              <p className="ob__reassure">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="m9 12 2 2 4-4"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Votre CV reste privé. Il sert uniquement à préparer vos dossiers et n&apos;est jamais
+                partagé.
+              </p>
               {parsingCv && (
                 <p className="ob__hint">Analyse du CV en cours…</p>
               )}

@@ -16,7 +16,7 @@ const displayFont = Plus_Jakarta_Sans({
 });
 
 const siteTitle =
-  "JEAN PAUL | Candidatures auto : offres, CV et lettre sur mesure";
+  "JEAN PAUL | Dossiers prêts auto : offres, CV et lettre sur mesure";
 const siteDescription =
   "Trouvez les offres qui vous correspondent. JEAN PAUL génère un CV et une lettre par poste, remplit les formulaires. Vous relisez, vous validez.";
 
@@ -38,12 +38,12 @@ export const metadata: Metadata = {
   },
   description: siteDescription,
   keywords: [
-    "candidature automatique",
+    "dossiers prêts",
     "lettre de motivation",
     "CV personnalisé",
     "recherche d'emploi",
     "postuler LinkedIn",
-    "auto candidature",
+    "postulation automatique",
   ],
   openGraph: {
     type: "website",

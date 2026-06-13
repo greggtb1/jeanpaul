@@ -683,7 +683,8 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
               open_dashboard: bool = True,
               niche_queries: list = None,
               pme_mode: bool = False,
-              find_only: bool = False) -> int:
+              find_only: bool = False,
+              max_analyzed: int = 0) -> int:
     """
     Logique commune de chasse (LinkedIn ou Indeed).
     Pagine les tiers de requetes, filtre les offres deja vues,
@@ -736,9 +737,16 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
 
     generated = 0
     qualified = 0
+    analyzed_count = 0
 
     def hit_target() -> bool:
         return (qualified if find_only else generated) >= target
+
+    def analysis_cap_reached() -> bool:
+        return max_analyzed > 0 and analyzed_count >= max_analyzed and not hit_target()
+
+    def should_stop_hunt() -> bool:
+        return hit_target() or analysis_cap_reached()
 
     def on_qualifying(job, analysis, score):
         nonlocal generated, qualified
@@ -784,8 +792,8 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
 
     def process_one(job, tag: str = "") -> bool:
         """Analyse une offre et la sauvegarde. False = cible atteinte, on s'arrête."""
-        nonlocal jobs
-        if hit_target():
+        nonlocal jobs, analyzed_count
+        if should_stop_hunt():
             return False
         company = job.get("company", "?")
         title = job.get("title", "?")
@@ -796,6 +804,7 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
             time.sleep(1)
         console.print(f"     [dim]Analyse...[/dim]", end="")
         analysis = analyzer.analyze(job)
+        analyzed_count += 1
         score = analysis.get("fit_score", 0)
         color = "green" if score >= 7 else "yellow" if score >= 5 else "red"
         console.print(f" [{color}]{score}/10[/{color}]  {analysis.get('fit_reasoning', '')[:80]}")
@@ -807,7 +816,7 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
             j["_idx"] = i + 1
         save_jobs(jobs, JOBS_FILE)
         on_qualifying(job, analysis, score)
-        return not hit_target()
+        return not should_stop_hunt()
 
     # ── Quick pass : tier 1 filtré sur les 3 derniers jours ──────────────────
     # Si des offres fraiches existent, on les traite en priorité avant la
@@ -848,7 +857,7 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
         console.print(f"  [dim]Rien de frais -- passage a la routine normale[/dim]")
 
     # ── Niche pass : requetes de niche, toujours executees ───────────────────
-    if niche_queries and not hit_target():
+    if niche_queries and not should_stop_hunt():
         console.print(f"\n[bold magenta]-- Niche pass ({len(niche_queries)} requetes) --[/bold magenta]")
         niche_jobs: list = []
         for q in niche_queries:
@@ -889,13 +898,13 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
 
     # ── Routine normale : tiers complets avec pagination memorisee ────────────
     for tier_num, queries in enumerate(tiers, 1):
-        if hit_target():
+        if should_stop_hunt():
             break
 
         console.print(f"\n[bold]-- Tier {tier_num}/{len(tiers)} : {', '.join(queries[:3])}... --[/bold]")
 
         for q in queries:
-            if hit_target():
+            if should_stop_hunt():
                 break
             progress = qualified if find_only else generated
             remaining = max(0, target - progress)
@@ -935,7 +944,12 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
     label = f"offre(s) ≥{min_score}/10" if find_only else f"candidature(s) {platform_label} generee(s)"
     status = "OK" if result >= target else "partiel"
     console.print(f"\n[bold][{status}] {result}/{target} {label}[/bold]")
-    if result < target:
+    if analysis_cap_reached():
+        console.print(
+            f"[yellow]Plafond atteint : {max_analyzed} offres analysees sans assez de fit ≥{min_score}/10.[/yellow]"
+        )
+        console.print("[dim]Ajustez vos criteres de recherche dans le dashboard.[/dim]")
+    elif result < target:
         console.print("[dim]Tous les tiers de requetes ont ete epuises.[/dim]")
 
     if open_dashboard and not find_only:
@@ -958,10 +972,11 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
 @cli.command("hunt-fill")
 @click.option("--target", default=5, type=int, help="Nombre d'offres >= min-score a trouver")
 @click.option("--min-score", default=6, type=int)
+@click.option("--max-analyzed", default=0, type=int, help="Plafond d'analyses si objectif non atteint (0 = illimite)")
 @click.option("--location", "-l", default="Paris")
 @click.option("--query", "-q", multiple=True, help="Requetes prioritaires (profil utilisateur)")
 @click.option("--no-dashboard", is_flag=True)
-def hunt_fill(target, min_score, location, query, no_dashboard):
+def hunt_fill(target, min_score, max_analyzed, location, query, no_dashboard):
     """Scrape pagine + analyse jusqu'a N offres >= min_score (sans generer de CV)."""
     config = load_config(CONFIG_FILE)
     api_key = get_api_key(config)
@@ -1003,6 +1018,7 @@ def hunt_fill(target, min_score, location, query, no_dashboard):
         open_dashboard=not no_dashboard,
         niche_queries=niche_queries,
         find_only=True,
+        max_analyzed=max_analyzed,
     )
 
 
@@ -1755,7 +1771,7 @@ def auto_apply(min_score, max_apps, ids, no_dashboard, recent_only):
     # un onglet par offre. Le bug "mauvais onglet" est corrigé dans
     # _switch_to_latest_page via le snapshot pages_before passé à chaque
     # _click_apply_button → jamais de confusion entre onglets déjà remplis.
-    console.print(f"[bold]Remplissage — {len(candidates)} onglet(s) dans un seul Chromium[/bold]\n")
+    console.print(f"[bold]Remplissage : {len(candidates)} onglet(s) dans un seul Chromium[/bold]\n")
 
     filler = AutoFiller(headless=False)
 
@@ -1794,7 +1810,7 @@ def auto_apply(min_score, max_apps, ids, no_dashboard, recent_only):
                 if ok:
                     ready_progress = int(12 + i / len(candidates) * 75) if len(candidates) else 85
                     _pipeline_emit(f"✓ Onglet {i}/{len(candidates)} prêt", ready_progress)
-                    console.print(f"[bold green]   ✓ Onglet {i} prêt — clique « Envoyer la candidature »[/bold green]")
+                    console.print(f"[bold green]   ✓ Onglet {i} prêt, clique « Envoyer la candidature »[/bold green]")
                     success_count += 1
                 else:
                     console.print(f"[yellow]   ⚠ Offre {i} ignorée (compte requis / pas de form / skip)[/yellow]")
@@ -1837,7 +1853,7 @@ def auto_apply(min_score, max_apps, ids, no_dashboard, recent_only):
 
         # ── Garde le browser ouvert jusqu'à ce que tu aies tout soumis ───────
         if success_count > 0:
-            console.print(f"\n[bold yellow]⏳ Chromium reste ouvert — passe sur chaque onglet et clique Submit.[/bold yellow]")
+            console.print(f"\n[bold yellow]⏳ Chromium reste ouvert, passe sur chaque onglet et clique Submit.[/bold yellow]")
             if sys.stdin.isatty():
                 console.print(f"[bold yellow]   Quand tout est soumis, appuie sur Entrée ici pour fermer.[/bold yellow]")
                 try:

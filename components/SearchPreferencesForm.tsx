@@ -192,7 +192,7 @@ export default function SearchPreferencesForm() {
     <form className="pref-page" onSubmit={(e) => e.preventDefault()}>
       <section className="db-panel db-panel--cv">
         <h2 className="db-panel__title">Votre CV</h2>
-        <p className="db-muted">PDF pour adapter chaque candidature.</p>
+        <p className="db-muted">PDF pour adapter chaque dossier.</p>
         <CvDropzone
           cvUrl={form.cv_url}
           cvFilename={form.cv_filename}

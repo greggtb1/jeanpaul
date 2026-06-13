@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/useAuth";
 import {
   CREDIT_PACKS_LIST,
   MONTHLY_DISCOUNT_PERCENT,
+  applicationsQuotaLabel,
   displayPrice,
   formatPriceEur,
   getPlan,
@@ -28,61 +29,48 @@ import type { SubscriptionInfo } from "@/app/api/stripe/subscription/route";
 import { parseApiJson } from "@/lib/parse-api-json";
 
 function fmtDate(iso: string | null) {
-  if (!iso) return "Non renseigné";
+  if (!iso) return null;
   return new Intl.DateTimeFormat("fr-FR", {
     day: "numeric",
-    month: "long",
+    month: "short",
     year: "numeric",
   }).format(new Date(iso));
 }
 
 function fmtAmount(amount: number | null, currency: string | null) {
-  if (amount == null) return "Non renseigné";
+  if (amount == null) return null;
   const cur = (currency || "eur").toUpperCase();
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: cur }).format(
     amount / 100
   );
 }
 
-const STATUS_MAP: Record<string, { label: string; cls: string }> = {
-  active: { label: "Actif", cls: "fact-badge--green" },
-  trialing: { label: "Essai gratuit", cls: "fact-badge--blue" },
-  past_due: { label: "Paiement en retard", cls: "fact-badge--red" },
-  canceled: { label: "Résilié", cls: "fact-badge--gray" },
-  incomplete: { label: "Incomplet", cls: "fact-badge--gray" },
-  incomplete_expired: { label: "Expiré", cls: "fact-badge--gray" },
-  unpaid: { label: "Impayé", cls: "fact-badge--red" },
-  paused: { label: "En pause", cls: "fact-badge--gray" },
-  none: { label: "Accès activé", cls: "fact-badge--green" },
+const STATUS_LABEL: Record<string, string> = {
+  active: "Actif",
+  trialing: "Essai",
+  past_due: "En retard",
+  canceled: "Résilié",
+  none: "Actif",
 };
-
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_MAP[status] ?? { label: status, cls: "fact-badge--gray" };
-  return <span className={`fact-badge ${s.cls}`}>{s.label}</span>;
-}
 
 export default function FacturationPage() {
   const searchParams = useSearchParams();
-  const { uid, loading: authLoading } = useAuth();
+  const { uid } = useAuth();
   const supabase = createClient();
   const upgradeRef = useRef<HTMLElement>(null);
   const creditsRef = useRef<HTMLElement>(null);
 
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ offers: 0, ready: 0, searches: 0 });
   const [planId, setPlanId] = useState(parsePlanId(null));
   const [quotaUsage, setQuotaUsage] = useState<ReturnType<typeof getQuotaUsage> | null>(null);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
-  const [portalError, setPortalError] = useState("");
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [checkoutPackId, setCheckoutPackId] = useState<CreditPackId | null>(null);
-  const [checkoutError, setCheckoutError] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const showUpgrade = searchParams.get("upgrade") === "1";
   const showCredits = searchParams.get("credits") === "1";
-  const cancelled = searchParams.get("cancelled") === "1";
   const suggestedPlanId = parsePlanId(searchParams.get("plan"));
   const sessionId = searchParams.get("session_id");
   const creditsSessionId = searchParams.get("credits_session");
@@ -93,7 +81,7 @@ export default function FacturationPage() {
 
   const loadData = useCallback(async () => {
     if (!uid) return;
-    const [profileRes, jobsRes, runsRes, subRes] = await Promise.all([
+    const [profileRes, jobsRes, subRes] = await Promise.all([
       supabase
         .from("profiles")
         .select("plan_id, first_search_done, bonus_credits")
@@ -101,19 +89,16 @@ export default function FacturationPage() {
         .maybeSingle(),
       supabase
         .from("jobs")
-        .select("url,cv_url,updated_at", { count: "exact", head: false })
+        .select("url,cv_url,fit_score,data,updated_at")
         .eq("user_id", uid)
         .eq("deleted", false),
-      supabase
-        .from("pipeline_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", uid)
-        .eq("status", "done"),
       fetch("/api/stripe/subscription").then((r) => r.json()),
     ]);
-    setPlanId(parsePlanId(profileRes.data?.plan_id));
+    const subInfo = subRes as SubscriptionInfo;
+    const effectivePlanId = parsePlanId(subInfo.planId ?? profileRes.data?.plan_id);
+    setPlanId(effectivePlanId);
     const jobs = jobsRes.data || [];
-    const plan = getPlan(profileRes.data?.plan_id);
+    const plan = getPlan(effectivePlanId);
     setQuotaUsage(
       getQuotaUsage(plan, {
         generatedCount: countGeneratedJobs(jobs),
@@ -122,12 +107,7 @@ export default function FacturationPage() {
         bonusCredits: profileRes.data?.bonus_credits ?? 0,
       })
     );
-    setStats({
-      offers: jobs.length,
-      ready: jobs.filter((j) => j.cv_url).length,
-      searches: runsRes.count ?? 0,
-    });
-    setSub(subRes as SubscriptionInfo);
+    setSub(subInfo);
     setLoading(false);
   }, [uid, supabase]);
 
@@ -142,16 +122,16 @@ export default function FacturationPage() {
         const data = await parseApiJson<{ active?: boolean; error?: string }>(res);
         if (!res.ok) throw new Error(data.error || "Vérification échouée");
         if (data.active) {
-          setSuccessMsg("Paiement confirmé — votre plan a été mis à jour.");
+          setFeedback({ type: "ok", text: "Plan mis à jour." });
           await loadData();
         }
       })
-      .catch((e) => setCheckoutError((e as Error).message));
+      .catch((e) => setFeedback({ type: "err", text: (e as Error).message }));
   }, [sessionId, uid, loadData]);
 
   useEffect(() => {
     if (searchParams.get("upgraded") === "1" && !sessionId) {
-      setSuccessMsg("Votre plan a été mis à jour. Vous pouvez relancer des scans.");
+      setFeedback({ type: "ok", text: "Plan mis à jour." });
     }
   }, [searchParams, sessionId]);
 
@@ -162,34 +142,32 @@ export default function FacturationPage() {
         const data = await parseApiJson<{
           paid?: boolean;
           credits?: number;
-          balance?: number;
           error?: string;
         }>(res);
         if (!res.ok) throw new Error(data.error || "Vérification échouée");
         if (data.paid) {
-          setSuccessMsg(
-            `Paiement confirmé — ${data.credits} candidatures ajoutées à votre compte.`
-          );
+          setFeedback({
+            type: "ok",
+            text: `${data.credits} dossiers ajoutés.`,
+          });
           await loadData();
         }
       })
-      .catch((e) => setCheckoutError((e as Error).message));
+      .catch((e) => setFeedback({ type: "err", text: (e as Error).message }));
   }, [creditsSessionId, uid, loadData]);
 
   useEffect(() => {
     if (loading) return;
     const target = showCredits ? creditsRef.current : showUpgrade ? upgradeRef.current : null;
     if (!target) return;
-    const t = setTimeout(() => {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 120);
+    const t = setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
     return () => clearTimeout(t);
   }, [showUpgrade, showCredits, loading]);
 
   const upgradePlans = useMemo(() => getUpgradePlans(planId), [planId]);
 
   async function openPortal() {
-    setPortalError("");
+    setFeedback(null);
     setPortalLoading(true);
     try {
       const res = await fetch("/api/stripe/portal", { method: "POST" });
@@ -197,23 +175,19 @@ export default function FacturationPage() {
       if (!res.ok) throw new Error(data.error || "Erreur");
       window.location.href = data.url;
     } catch (e) {
-      setPortalError(e instanceof Error ? e.message : "Erreur");
+      setFeedback({ type: "err", text: (e as Error).message });
       setPortalLoading(false);
     }
   }
 
   async function startUpgrade(targetPlanId: PlanId) {
     setCheckoutPlanId(targetPlanId);
-    setCheckoutError("");
+    setFeedback(null);
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan: targetPlanId,
-          billing,
-          upgrade: true,
-        }),
+        body: JSON.stringify({ plan: targetPlanId, billing, upgrade: true }),
       });
       const data = await parseApiJson<{
         url?: string;
@@ -223,7 +197,7 @@ export default function FacturationPage() {
       if (!res.ok) throw new Error(data.error || "Impossible de lancer le paiement");
       if (data.url) {
         if (data.upgraded) {
-          setSuccessMsg("Votre plan a été mis à jour. Vous pouvez relancer des scans.");
+          setFeedback({ type: "ok", text: "Plan mis à jour." });
           setPlanId(targetPlanId);
           await loadData();
           setCheckoutPlanId(null);
@@ -234,14 +208,14 @@ export default function FacturationPage() {
         throw new Error("URL de paiement manquante");
       }
     } catch (e) {
-      setCheckoutError((e as Error).message);
+      setFeedback({ type: "err", text: (e as Error).message });
       setCheckoutPlanId(null);
     }
   }
 
   async function buyCredits(packId: CreditPackId) {
     setCheckoutPackId(packId);
-    setCheckoutError("");
+    setFeedback(null);
     try {
       const res = await fetch("/api/stripe/credits", {
         method: "POST",
@@ -253,137 +227,151 @@ export default function FacturationPage() {
       if (!data.url) throw new Error("URL de paiement manquante");
       window.location.href = data.url;
     } catch (e) {
-      setCheckoutError((e as Error).message);
+      setFeedback({ type: "err", text: (e as Error).message });
       setCheckoutPackId(null);
     }
   }
 
   const plan = getPlan(planId);
   const priceBilling =
-    sub?.mode === "subscription" && sub.amount != null && plan.priceWeeklyEur != null
-      ? Math.abs(sub.amount - monthlyPriceCents(plan.priceWeeklyEur)) <
-        Math.abs(sub.amount - weeklyPriceCents(plan))
-        ? "monthly"
-        : "weekly"
-      : parseBillingInterval(null);
-  const price = displayPrice(plan, priceBilling);
+    sub?.mode === "one_time"
+      ? "weekly"
+      : sub?.mode === "subscription" && sub.amount != null && plan.priceWeeklyEur != null
+        ? Math.abs(sub.amount - monthlyPriceCents(plan.priceWeeklyEur)) <
+          Math.abs(sub.amount - weeklyPriceCents(plan))
+          ? "monthly"
+          : "weekly"
+        : parseBillingInterval(null);
+  const price =
+    sub?.mode === "one_time"
+      ? displayPrice(getPlan("test"), "weekly")
+      : displayPrice(plan, priceBilling);
   const isPeriodic = sub?.mode === "subscription";
   const canManage = !!sub?.hasCustomer;
   const isCancelling = sub?.cancelAtPeriodEnd && !sub?.cancelAt;
-  const isCancelled = sub?.status === "canceled" || !!sub?.cancelAt;
+  const statusLabel = STATUS_LABEL[sub?.status || "active"] ?? sub?.status ?? "Actif";
+
+  const renewalLine = (() => {
+    if (loading || !sub) return null;
+    if (isPeriodic && sub.currentPeriodEnd && sub.status !== "canceled" && !sub.cancelAt) {
+      return isCancelling
+        ? `Jusqu'au ${fmtDate(sub.currentPeriodEnd)}`
+        : `Renouvellement ${fmtDate(sub.currentPeriodEnd)}`;
+    }
+    if (sub.cancelAt) return `Fin ${fmtDate(sub.cancelAt)}`;
+    if (!isPeriodic) return "Paiement unique";
+    return null;
+  })();
+
+  const quotaPct =
+    quotaUsage && quotaUsage.limit > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (quotaUsage.used / (quotaUsage.weeklyLimit ?? quotaUsage.limit)) * 100
+          )
+        )
+      : 0;
 
   return (
-    <main className="db__main db__main--narrow">
-      <div className="db-page-head">
+    <main className="db__main db__main--narrow fact-page">
+      <header className="fact-page__head">
         <h1>Facturation</h1>
-        <p>Votre abonnement et votre utilisation.</p>
-      </div>
+      </header>
 
-      {successMsg && (
-        <div className="fact-success" role="status">
-          {successMsg}{" "}
-          <a href="/dashboard" className="fact-success__link">
-            Retour au tableau de bord
-          </a>
-        </div>
+      {feedback && (
+        <p className={`fact-page__flash fact-page__flash--${feedback.type}`} role="status">
+          {feedback.text}
+        </p>
       )}
 
-      <section className="db-panel fact-plan">
-        <div className="fact-plan__top">
-          <div>
-            <div className="fact-plan__eyebrow">Plan actuel</div>
-            <h2 className="fact-plan__name">{plan.name}</h2>
-            <p className="db-muted">{plan.tagline}</p>
-          </div>
-          <div className="fact-plan__right">
-            {loading ? null : <StatusBadge status={sub?.status || "active"} />}
-            <div className="fact-plan__price">
-              {price.amount} €<span>{price.suffix ? ` ${price.suffix}` : ""}</span>
+      <section className="fact-sheet">
+        {loading ? (
+          <p className="fact-page__muted">Chargement…</p>
+        ) : (
+          <>
+            <div className="fact-sheet__hero">
+              <div>
+                <p className="fact-sheet__label">Votre formule</p>
+                <h2 className="fact-sheet__plan">{plan.name}</h2>
+                {renewalLine && <p className="fact-page__muted">{renewalLine}</p>}
+              </div>
+              <div className="fact-sheet__price-block">
+                <span className="fact-sheet__status">{statusLabel}</span>
+                <p className="fact-sheet__price">
+                  {price.amount} €{price.suffix && <span> {price.suffix}</span>}
+                </p>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {!loading && sub && (
-          <div className="fact-plan__meta">
-            {isPeriodic && sub.currentPeriodEnd && !isCancelled && (
-              <span className="fact-meta-item">
-                {isCancelling ? "⚠ Accès jusqu'au" : "Renouvellement le"}{" "}
-                <strong>{fmtDate(sub.currentPeriodEnd)}</strong>
-              </span>
+            {quotaUsage && (
+              <div className="fact-sheet__quota">
+                <div className="fact-sheet__quota-top">
+                  <span>{quotaUsage.label}</span>
+                  <span>
+                    {quotaUsage.used}/{quotaUsage.limit}
+                    {quotaUsage.bonusCredits > 0 && ` (+${quotaUsage.bonusCredits})`}
+                  </span>
+                </div>
+                <div className="fact-sheet__bar" aria-hidden="true">
+                  <span style={{ width: `${quotaPct}%` }} />
+                </div>
+              </div>
             )}
-            {isCancelled && sub.cancelAt && (
-              <span className="fact-meta-item fact-meta-item--warn">
-                Résiliation effective le <strong>{fmtDate(sub.cancelAt)}</strong>
-              </span>
-            )}
-            {!isPeriodic && (
-              <span className="fact-meta-item">Accès permanent · paiement unique</span>
-            )}
-          </div>
+
+            <div className="fact-sheet__foot">
+              {sub?.lastInvoiceDate && (
+                <p className="fact-page__muted">
+                  Dernier paiement · {fmtDate(sub.lastInvoiceDate)}
+                  {fmtAmount(sub.lastInvoiceAmount, sub.currency) &&
+                    ` · ${fmtAmount(sub.lastInvoiceAmount, sub.currency)}`}
+                </p>
+              )}
+              {canManage ? (
+                <button
+                  type="button"
+                  className="btn btn--outline btn--sm"
+                  onClick={openPortal}
+                  disabled={portalLoading}
+                >
+                  {portalLoading ? "Ouverture…" : "Factures & paiement"}
+                </button>
+              ) : (
+                <p className="fact-page__muted">
+                  <a href="mailto:hello@jeanpaul.app">hello@jeanpaul.app</a>
+                </p>
+              )}
+            </div>
+          </>
         )}
-
-        {portalError && <p className="fact-error">{portalError}</p>}
-
-        <div className="fact-plan__actions">
-          <button
-            type="button"
-            className="btn btn--outline btn--sm"
-            onClick={openPortal}
-            disabled={!canManage || portalLoading || loading}
-          >
-            {portalLoading ? "Ouverture…" : "Gérer l'abonnement"}
-          </button>
-          {!canManage && !loading && (
-            <p className="fact-hint">
-              Contactez <a href="mailto:hello@jeanpaul.app">hello@jeanpaul.app</a> pour toute
-              question de facturation.
-            </p>
-          )}
-        </div>
-
-        <p className="fact-portal-note">
-          Le portail Stripe vous permet de mettre à jour votre moyen de paiement, télécharger vos
-          factures ou résilier.
-        </p>
       </section>
 
       {upgradePlans.length > 0 && (
         <section
           ref={upgradeRef}
-          className={`db-panel fact-upgrade${showUpgrade ? " fact-upgrade--highlight" : ""}`}
-          aria-labelledby="fact-upgrade-title"
+          className={`fact-sheet${showUpgrade ? " fact-sheet--focus" : ""}`}
         >
-          <div className="fact-upgrade__head">
-            <div>
-              <p className="fact-upgrade__eyebrow">Changer de formule</p>
-              <h2 id="fact-upgrade-title" className="db-panel__title">
-                Plus de candidatures, chaque semaine
-              </h2>
-              <p className="fact-upgrade__lead">
-                Passez à une formule supérieure pour relancer des scans et obtenir plus de
-                candidatures prêtes à envoyer chaque semaine.
-              </p>
+          <div className="fact-sheet__section-head">
+            <h3>Changer de formule</h3>
+            <div className="fact-sheet__toggle" role="group" aria-label="Facturation">
+              <button
+                type="button"
+                className={billing === "weekly" ? "is-active" : ""}
+                onClick={() => setBilling("weekly")}
+              >
+                Semaine
+              </button>
+              <button
+                type="button"
+                className={billing === "monthly" ? "is-active" : ""}
+                onClick={() => setBilling("monthly")}
+              >
+                Mois −{MONTHLY_DISCOUNT_PERCENT}%
+              </button>
             </div>
           </div>
 
-          <div className="fact-upgrade__billing" role="group" aria-label="Facturation">
-            <button
-              type="button"
-              className={billing === "weekly" ? "is-active" : ""}
-              onClick={() => setBilling("weekly")}
-            >
-              Hebdomadaire
-            </button>
-            <button
-              type="button"
-              className={billing === "monthly" ? "is-active" : ""}
-              onClick={() => setBilling("monthly")}
-            >
-              Mensuel <span className="pricing__discount">−{MONTHLY_DISCOUNT_PERCENT} %</span>
-            </button>
-          </div>
-
-          <div className="fact-upgrade__grid">
+          <ul className="fact-plans">
             {upgradePlans.map((p) => {
               const pPrice = displayPrice(p, billing);
               const busy = checkoutPlanId !== null;
@@ -391,222 +379,75 @@ export default function FacturationPage() {
               const isSuggested = p.id === suggestedPlanId;
 
               return (
-                <article
-                  key={p.id}
-                  className={`pricing-card fact-upgrade__card${
-                    p.featured ? " pricing-card--featured" : ""
-                  }${isSuggested ? " fact-upgrade__card--suggested" : ""}`}
-                >
-                  {p.featured && (
-                    <span className="pricing-card__badge">Le plus populaire</span>
-                  )}
-                  {isSuggested && (
-                    <span className="fact-upgrade__suggested">Recommandé</span>
-                  )}
-
-                  <div className="pricing-card__head">
-                    <h3>{p.name}</h3>
-                    <p className="pricing-card__tagline">{p.tagline}</p>
+                <li key={p.id} className={`fact-plans__row${isSuggested ? " is-suggested" : ""}`}>
+                  <div className="fact-plans__info">
+                    <strong>{p.name}</strong>
+                    <span className="fact-page__muted">
+                      {applicationsQuotaLabel(p)}
+                    </span>
                   </div>
-
-                  <div className="pricing-card__price">
-                    <strong>{pPrice.amount} €</strong>
-                    <span>{pPrice.suffix}</span>
+                  <div className="fact-plans__side">
+                    <div className="fact-plans__price-wrap">
+                      <span className="fact-plans__price">
+                        {pPrice.amount} €<small>{pPrice.suffix}</small>
+                      </span>
+                      {pPrice.billingSavings && (
+                        <span className="fact-plans__billing-note">{pPrice.billingSavings}</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      disabled={busy || loading}
+                      onClick={() => startUpgrade(p.id)}
+                    >
+                      {isLoading ? "…" : "Choisir"}
+                    </button>
                   </div>
-                  {pPrice.billingSavings && (
-                    <p className="pricing-card__savings">{pPrice.billingSavings}</p>
-                  )}
-
-                  <button
-                    type="button"
-                    className="btn btn--outline pricing-card__cta"
-                    disabled={busy || loading}
-                    onClick={() => startUpgrade(p.id)}
-                  >
-                    {isLoading ? "Redirection…" : `Choisir ${p.name}`}
-                  </button>
-
-                  <ul className="pricing-card__features">
-                    {p.features.map((f) => (
-                      <li key={f}>{f}</li>
-                    ))}
-                  </ul>
-                </article>
+                </li>
               );
             })}
-          </div>
-
-          {cancelled && !showCredits && (
-            <p className="fact-error fact-upgrade__cancelled">
-              Paiement annulé. Vous pouvez réessayer quand vous voulez.
-            </p>
-          )}
-          {checkoutError && <p className="fact-error">{checkoutError}</p>}
-          <p className="fact-hint fact-upgrade__foot">
-            Paiement sécurisé par Stripe · changement effectif immédiatement après validation
-          </p>
+          </ul>
         </section>
       )}
 
       <section
         ref={creditsRef}
-        className={`db-panel db-panel--flat fact-credits${showCredits ? " fact-upgrade--highlight" : ""}`}
-        aria-labelledby="fact-credits-title"
+        className={`fact-sheet${showCredits ? " fact-sheet--focus" : ""}`}
       >
-        <div className="fact-credits__head">
+        <div className="fact-sheet__section-head">
           <div>
-            <p className="fact-credits__eyebrow">Sans changer de formule</p>
-            <h2 id="fact-credits-title" className="fact-credits__title">
-              Acheter des candidatures
-            </h2>
-            <p className="fact-credits__lead">
-              Candidatures supplémentaires, utilisables tout de suite, sans engagement.
-            </p>
+            <h3>Recherches en plus</h3>
+            {quotaUsage && quotaUsage.bonusCredits > 0 && (
+              <p className="fact-page__muted">
+                {quotaUsage.bonusCredits} bonus restant
+                {quotaUsage.bonusCredits > 1 ? "s" : ""}
+              </p>
+            )}
           </div>
-          {!loading && quotaUsage && quotaUsage.bonusCredits > 0 && (
-            <div className="fact-credits__balance">
-              <strong>{quotaUsage.bonusCredits}</strong> candidature
-              {quotaUsage.bonusCredits > 1 ? "s" : ""} bonus restante
-              {quotaUsage.bonusCredits > 1 ? "s" : ""}
-            </div>
-          )}
         </div>
 
-        <div className="fact-credits__grid">
+        <div className="fact-packs">
           {CREDIT_PACKS_LIST.map((pack) => {
             const busy = checkoutPackId !== null;
             const isLoading = checkoutPackId === pack.id;
             return (
-              <article
+              <button
                 key={pack.id}
-                className={`fact-credits__card${pack.featured ? " fact-credits__card--featured" : ""}`}
+                type="button"
+                className={`fact-packs__item${pack.featured ? " is-featured" : ""}`}
+                disabled={busy || loading}
+                onClick={() => buyCredits(pack.id)}
               >
-                {pack.featured && (
-                  <span className="fact-credits__badge">Le plus choisi</span>
-                )}
-                <div className="fact-credits__count">{pack.credits}</div>
-                <div className="fact-credits__label">candidatures</div>
-                <div className="fact-credits__hint">{pack.hint}</div>
-                <div className="fact-credits__price">{formatPriceEur(pack.priceEur)} €</div>
-                <button
-                  type="button"
-                  className="btn btn--outline btn--sm fact-credits__cta"
-                  disabled={busy || loading}
-                  onClick={() => buyCredits(pack.id)}
-                >
-                  {isLoading ? "Redirection…" : "Acheter"}
-                </button>
-              </article>
+                <span className="fact-packs__count">{pack.credits}</span>
+                <span className="fact-packs__label">dossiers</span>
+                <span className="fact-packs__hint">{pack.hint}</span>
+                <span className="fact-packs__price">{formatPriceEur(pack.priceEur)} €</span>
+                {isLoading && <span className="fact-packs__loading">…</span>}
+              </button>
             );
           })}
         </div>
-
-        {cancelled && showCredits && (
-          <p className="fact-error fact-upgrade__cancelled">
-            Paiement annulé. Vous pouvez réessayer quand vous voulez.
-          </p>
-        )}
-        <p className="fact-hint fact-upgrade__foot">
-          Paiement unique sécurisé par Stripe · crédits ajoutés immédiatement, sans expiration
-        </p>
-      </section>
-
-      <section className="db-panel db-panel--flat">
-        <h2 className="db-panel__title">Utilisation</h2>
-        {authLoading || loading ? (
-          <p className="db-muted">Chargement…</p>
-        ) : (
-          <>
-            {quotaUsage && (
-              <dl className="db-usage db-usage--quota">
-                <div>
-                  <dt>{quotaUsage.label}</dt>
-                  <dd>
-                    {quotaUsage.used}/{quotaUsage.limit}
-                    {quotaUsage.bonusCredits > 0 && (
-                      <span className="fact-quota-bonus">
-                        {" "}
-                        +{quotaUsage.bonusCredits} bonus
-                      </span>
-                    )}
-                    {quotaUsage.exhausted && (
-                      <span className="fact-quota-full"> · quota atteint</span>
-                    )}
-                  </dd>
-                </div>
-                {quotaUsage.searchesLimit != null && (
-                  <div>
-                    <dt>Recherches LinkedIn</dt>
-                    <dd>
-                      {quotaUsage.searchesUsed}/{quotaUsage.searchesLimit}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            )}
-            <dl className="db-usage">
-            <div>
-              <dt>Offres trouvées</dt>
-              <dd>{stats.offers}</dd>
-            </div>
-            <div>
-              <dt>Candidatures générées</dt>
-              <dd>{stats.ready}</dd>
-            </div>
-            <div>
-              <dt>Recherches lancées</dt>
-              <dd>{stats.searches}</dd>
-            </div>
-            </dl>
-          </>
-        )}
-      </section>
-
-      <section className="db-panel db-panel--flat">
-        <h2 className="db-panel__title">Dernier paiement</h2>
-        {loading ? (
-          <p className="db-muted">Chargement…</p>
-        ) : sub?.lastInvoiceDate ? (
-          <div className="fact-invoice">
-            <div className="fact-invoice__row">
-              <span className="fact-invoice__label">Date</span>
-              <span>{fmtDate(sub.lastInvoiceDate)}</span>
-            </div>
-            <div className="fact-invoice__row">
-              <span className="fact-invoice__label">Montant</span>
-              <span>{fmtAmount(sub.lastInvoiceAmount, sub.currency)}</span>
-            </div>
-            {sub.lastInvoicePdfUrl && (
-              <div className="fact-invoice__row">
-                <span className="fact-invoice__label">Reçu</span>
-                <a
-                  href={sub.lastInvoicePdfUrl}
-                  target="_blank"
-                  rel="noopener"
-                  className="fact-invoice__link"
-                >
-                  Télécharger
-                </a>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="db-muted">Aucun paiement trouvé.</p>
-        )}
-        {canManage && (
-          <p className="fact-hint" style={{ marginTop: 10 }}>
-            Toutes vos factures sont accessibles via{" "}
-            <button
-              type="button"
-              className="fact-link-btn"
-              onClick={openPortal}
-              disabled={portalLoading}
-            >
-              le portail Stripe
-            </button>
-            .
-          </p>
-        )}
       </section>
     </main>
   );

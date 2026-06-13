@@ -1,13 +1,18 @@
 const MAX_CHARS = 12_000;
 
 export async function extractPdfText(buf: Buffer): Promise<string> {
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buf });
   try {
-    const result = await parser.getText();
-    return result.text || "";
-  } finally {
-    await parser.destroy();
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: buf });
+    try {
+      const result = await parser.getText();
+      return result.text || "";
+    } finally {
+      await parser.destroy();
+    }
+  } catch (err) {
+    console.error("[pdf-text] PDFParse failed:", err);
+    throw err;
   }
 }
 

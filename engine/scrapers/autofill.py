@@ -5235,7 +5235,7 @@ Example output:
                 self._pause_for_review(page, all_filled, pages_recap)
             else:
                 console.print(
-                    f"  [green]✓ Formulaire prêt — clique « Envoyer la candidature » dans l'onglet[/green]"
+                    f"  [green]✓ Formulaire prêt, clique « Envoyer la candidature » dans l'onglet[/green]"
                 )
             _fill_success = True
             return True
