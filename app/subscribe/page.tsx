@@ -14,6 +14,7 @@ import {
 } from "@/lib/plans";
 import { getOrCreateDraftId, loadDraft, saveDraft } from "@/lib/onboarding-draft";
 import { parseApiJson } from "@/lib/parse-api-json";
+import { trackEvent } from "@/lib/umami";
 
 export default function SubscribePage() {
   const searchParams = useSearchParams();
@@ -33,6 +34,13 @@ export default function SubscribePage() {
     try {
       const plan = PLANS_LIST.find((p) => p.id === planId)!;
       const isSubscription = plan.kind === "subscription";
+      const selectedBilling = isSubscription ? billing : "one_time";
+
+      trackEvent("checkout_started", {
+        plan: planId,
+        billing: selectedBilling,
+        source: "subscribe_page",
+      });
 
       const current = saveDraft({
         ...(loadDraft() ?? {}),
@@ -53,9 +61,13 @@ export default function SubscribePage() {
       });
       const data = await parseApiJson<{ url?: string; error?: string }>(res);
       if (!res.ok) throw new Error(data.error || "Impossible de lancer le paiement");
-      if (data.url) window.location.href = data.url;
+      if (data.url) {
+        trackEvent("checkout_redirected", { plan: planId, billing: selectedBilling });
+        window.location.href = data.url;
+      }
       else throw new Error("URL de paiement manquante");
     } catch (e) {
+      trackEvent("checkout_error", { plan: planId });
       setError((e as Error).message);
       setLoadingPlanId(null);
     }
@@ -76,14 +88,20 @@ export default function SubscribePage() {
           <button
             type="button"
             className={billing === "weekly" ? "is-active" : ""}
-            onClick={() => setBilling("weekly")}
+            onClick={() => {
+              setBilling("weekly");
+              trackEvent("pricing_billing_toggle", { billing: "weekly", source: "subscribe" });
+            }}
           >
             Hebdomadaire
           </button>
           <button
             type="button"
             className={billing === "monthly" ? "is-active" : ""}
-            onClick={() => setBilling("monthly")}
+            onClick={() => {
+              setBilling("monthly");
+              trackEvent("pricing_billing_toggle", { billing: "monthly", source: "subscribe" });
+            }}
           >
             Mensuel <span className="pricing__discount">−{MONTHLY_DISCOUNT_PERCENT} %</span>
           </button>
@@ -128,7 +146,14 @@ export default function SubscribePage() {
                     type="button"
                     className="btn btn--outline pricing-card__cta"
                     disabled={busy}
-                    onClick={() => subscribe(plan.id)}
+                    onClick={() => {
+                      trackEvent("pricing_plan_click", {
+                        plan: plan.id,
+                        billing: plan.kind === "subscription" ? billing : "one_time",
+                        source: "subscribe_page",
+                      });
+                      subscribe(plan.id);
+                    }}
                   >
                     {loading ? "Redirection…" : `Choisir ${plan.name}`}
                   </button>

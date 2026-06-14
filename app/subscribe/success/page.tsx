@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { trackEvent } from "@/lib/umami";
 
 export default function SubscribeSuccessPage() {
   const router = useRouter();
@@ -19,12 +20,17 @@ export default function SubscribeSuccessPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Vérification échouée");
         if (data.active) {
+          trackEvent("payment_verified", { plan: data.plan_id ?? null });
           router.replace(`/signup?session_id=${encodeURIComponent(sessionId)}`);
         } else {
+          trackEvent("payment_pending");
           setError("Paiement en cours de validation. Réessayez dans quelques secondes.");
         }
       })
-      .catch((e) => setError((e as Error).message));
+      .catch((e) => {
+        trackEvent("payment_verify_error");
+        setError((e as Error).message);
+      });
   }, [sessionId, router]);
 
   return (

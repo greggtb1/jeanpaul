@@ -37,12 +37,55 @@ ANSWER_BANK_FILE = Path.home() / ".job-apply-browser" / "answer_bank.json"
 # Nom du fichier de cache des réponses dans chaque dossier de candidature
 APP_ANSWERS_FILE = "autofill_answers.json"
 
+
+def _resolve_chromium_executable() -> Optional[str]:
+    """Résout Chromium depuis le cache ms-playwright (obligatoire en PyInstaller)."""
+    import os
+    import glob
+
+    base = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if not base:
+        if sys.platform == "darwin":
+            base = str(Path.home() / "Library" / "Caches" / "ms-playwright")
+        elif sys.platform == "win32":
+            root = os.environ.get("LOCALAPPDATA") or str(Path.home())
+            base = str(Path(root) / "ms-playwright")
+        else:
+            base = str(Path.home() / ".cache" / "ms-playwright")
+
+    patterns = [
+        os.path.join(base, "chromium-*", "chrome-mac*", "*.app", "Contents", "MacOS", "*"),
+        os.path.join(base, "chromium-*", "chrome-linux", "chrome"),
+        os.path.join(base, "chromium-*", "chrome-win", "chrome.exe"),
+    ]
+    candidates: list[str] = []
+    for pat in patterns:
+        candidates.extend(glob.glob(pat))
+
+    def _rev(path: str) -> int:
+        for part in path.split(os.sep):
+            if part.startswith("chromium-"):
+                try:
+                    return int(part.split("-", 1)[1])
+                except ValueError:
+                    return 0
+        return 0
+
+    for c in sorted(candidates, key=_rev, reverse=True):
+        name = os.path.basename(c)
+        if name.endswith(".dSYM") or " Helper" in name or name.endswith("Crashpad Handler"):
+            continue
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
 # ── Données du candidat (remplies par sync_candidate_from_profile) ───────────
 CANDIDATE: Dict[str, Any] = {
     "first_name": "",
     "last_name": "",
     "full_name": "",
     "email": "",
+    "password": "",
     "phone": "",
     "phone_intl": "",
     "phone_national": "",
@@ -90,16 +133,20 @@ CANDIDATE: Dict[str, Any] = {
 
 
 def _urls_from_cv_text(cv_text: str) -> Dict[str, str]:
-    """Extrait LinkedIn / site web depuis le texte du CV uploadé."""
-    out = {"linkedin": "", "website": ""}
+    """Extrait LinkedIn / GitHub / site web depuis le texte du CV uploadé."""
+    out = {"linkedin": "", "github": "", "website": ""}
     if not cv_text:
         return out
     m = re.search(r"https?://(?:www\.)?linkedin\.com/in/[\w\-%/]+", cv_text, re.I)
     if m:
         out["linkedin"] = m.group(0).rstrip("/.,;)")
+    gm = re.search(r"https?://(?:www\.)?github\.com/[\w\-./]+", cv_text, re.I)
+    if gm:
+        out["github"] = gm.group(0).rstrip("/.,;)")
     for m in re.finditer(r"https?://[^\s\)\]>\"']+", cv_text):
         u = m.group(0).rstrip(".,;)")
-        if "linkedin.com" not in u.lower():
+        low = u.lower()
+        if "linkedin.com" not in low and "github.com" not in low:
             out["website"] = u
             break
     if not out["website"]:
@@ -151,6 +198,41 @@ def _name_from_email_local(email: str) -> str:
     return " ".join(w[0].upper() + w[1:].lower() for w in words[:3])
 
 
+def _account_password_for(email: str) -> str:
+    """Mot de passe stable (par compte) pour les ATS qui exigent une inscription.
+
+    Certains ATS (Teamtailor…) imposent la création d'un compte pour postuler.
+    On dérive un mot de passe robuste et déterministe depuis l'email, afin que
+    l'utilisateur retrouve toujours le même identifiant.
+    Contraintes courantes : >= 8 caractères, majuscule, minuscule, chiffre, symbole.
+    """
+    import hashlib
+
+    seed = (email or "jeanpaul").strip().lower()
+    digest = hashlib.sha256(f"jeanpaul-apply::{seed}".encode("utf-8")).hexdigest()
+    # 8 caractères alphanumériques issus du hash + un préfixe garantissant la complexité.
+    body = digest[:8]
+    return f"Jp!{body}{digest[8:10].upper()}9"
+
+
+def _capitalize_person_name(name: str) -> str:
+    """Normalise un nom extrait en MAJUSCULES vers 'Prenom Nom'."""
+    value = re.sub(r"\s+", " ", (name or "").strip())
+    if not value:
+        return ""
+
+    def cap_piece(piece: str) -> str:
+        return piece[:1].upper() + piece[1:].lower() if piece else piece
+
+    words = []
+    for word in value.split(" "):
+        # Garde les noms composés lisibles : Jean-Paul, O'Connor.
+        word = "-".join(cap_piece(p) for p in word.split("-"))
+        word = "'".join(cap_piece(p) for p in word.split("'"))
+        words.append(word)
+    return " ".join(words)
+
+
 def sync_candidate_from_profile() -> None:
     """Charge email/tél/nom depuis le profil Supabase (JA_USER_ID) dans CANDIDATE.
 
@@ -171,7 +253,9 @@ def sync_candidate_from_profile() -> None:
         account_phone = (prof.get("_account_phone") or "").strip()
 
         email = (prof.get("email") or "").strip() or account_email
-        name = (prof.get("name") or "").strip() or account_name or _name_from_email_local(email)
+        name = _capitalize_person_name(
+            (prof.get("name") or "").strip() or account_name or _name_from_email_local(email)
+        )
         phone_raw = (prof.get("phone") or "").strip() or account_phone
 
         if not name:
@@ -189,6 +273,7 @@ def sync_candidate_from_profile() -> None:
             "last_name": parts[1] if len(parts) > 1 else "",
             "full_name": name,
             "email": email,
+            "password": _account_password_for(email),
             "location": location,
             **phone_bits,
         }
@@ -202,6 +287,8 @@ def sync_candidate_from_profile() -> None:
         cv_urls = _urls_from_cv_text(prof.get("cv_text") or "")
         if cv_urls["linkedin"]:
             updates["linkedin"] = cv_urls["linkedin"]
+        if cv_urls.get("github"):
+            updates["github"] = cv_urls["github"]
         if cv_urls["website"] and not updates.get("website"):
             updates["website"] = cv_urls["website"]
         sm = prof.get("salary_min")
@@ -415,9 +502,13 @@ _IDENTITY_FIELD_RULES: List[Tuple[str, List[str]]] = [
     ("email", [r"e-?mail", r"courriel", r"adresse\s*mail"]),
     ("phone", [r"phone", r"t[eé]l[eé]phone", r"\bmobile\b", r"\btel\b", r"cell"]),
     ("linkedin", [r"linkedin"]),
-    ("website", [r"website", r"portfolio", r"personal\s*site", r"\bsite\b", r"github"]),
+    ("github", [r"github"]),
+    ("website", [r"website", r"portfolio", r"personal\s*site", r"\bsite\b"]),
     ("city", [r"^city$", r"^ville$", r"localit", r"^town$"]),
-    ("location", [r"^location$", r"^lieu$", r"where.*live", r"city.*state"]),
+    ("location", [
+        r"^location$", r"current\s*location", r"^lieu$", r"localisation",
+        r"where.*(live|based)", r"city.*state", r"city.*country",
+    ]),
     ("address", [r"^address$", r"^adresse$", r"street"]),
     ("postcode", [r"post\s*code", r"zip\s*code", r"code\s*postal"]),
     ("country", [r"^country$", r"^pays$"]),
@@ -442,6 +533,13 @@ def _candidate_value_for_field(field: dict) -> Optional[str]:
         "cover letter", "lettre", "motivation", "message", "why", "pourquoi",
     )):
         return "__COVER_LETTER__"
+
+    # Mot de passe (ATS qui imposent la création d'un compte : Teamtailor…)
+    if ftype == "password" or any(
+        k in blob for k in ("mot de passe", "password", "passwort", "contraseña")
+    ):
+        v = (CANDIDATE.get("password") or "").strip()
+        return v or None
 
     # Heuristiques sur name/id (Ashby: _systemfield_email, etc.)
     id_blob = f"{name} {fid}".lower()
@@ -488,13 +586,23 @@ def _apply_profile_rules(fields: List[dict]) -> Dict[str, str]:
     radio_by_name: Dict[str, List[dict]] = {}
 
     # 1. Identité (prénom, email, tel…) — ne dépend pas de Claude
+    used_link_urls: set = set()  # évite de répéter la même URL sur plusieurs champs liens
     for f in fields:
         key = _field_key(f)
         if not key or key in mapping:
             continue
         val = _candidate_value_for_field(f)
-        if val:
-            mapping[key] = val
+        if not val:
+            continue
+        # Déduplication des champs "liens" (website / portfolio / github / twitter…) :
+        # ne pas coller 3 fois la même URL perso.
+        blob = f"{f.get('label','')} {f.get('placeholder','')} {f.get('name','')} {f.get('id','')}".lower()
+        is_link_field = bool(re.search(r"url|website|site|portfolio|github|twitter|link", blob))
+        if is_link_field and str(val).startswith("http"):
+            if val in used_link_urls:
+                continue
+            used_link_urls.add(val)
+        mapping[key] = val
 
     for f in fields:
         key = _field_key(f)
@@ -583,19 +691,27 @@ def detect_ats_page(page) -> str:
 
 
 # ATS où le formulaire est typiquement déjà sur la page (pas de clic d'entrée)
-ATS_INLINE_FORM = {"greenhouse", "lever", "ashby", "smartrecruiters", "taleo", "workday", "icims"}
+# Note : Ashby est retiré — les pages Ashby nécessitent de cliquer "Apply" pour
+# naviguer vers /application. On le gère dans APPLY_BUTTON_SELECTORS["ashby"].
+ATS_INLINE_FORM = {"greenhouse", "lever", "smartrecruiters", "taleo", "workday", "icims"}
+
+# ATS où la candidature passe par la création d'un compte (email + mot de passe).
+# On ne skippe pas ces pages : on remplit le formulaire avec un mot de passe généré.
+ATS_APPLY_WITH_ACCOUNT = {"teamtailor"}
 
 # LinkedIn : sélecteurs séparés Easy Apply vs Postuler externe
 LINKEDIN_APPLY_SELECTORS_EASY = [
-    "button.jobs-apply-button:has-text('Candidature simplifiée')",
-    "button.jobs-apply-button:has-text('Candidature simplifié')",
-    "button.jobs-apply-button:has-text('Postuler facilement')",
-    "button.jobs-apply-button:has-text('Easy Apply')",
+    # aria-label en PRIORITÉ — plus stable que les classes CSS qui changent souvent
     "button[aria-label*='Candidature simplifiée' i]",
     "button[aria-label*='Candidature simplifi' i]",
     "button[aria-label*='Simplified application' i]",
     "button[aria-label*='Postuler facilement' i]",
     "button[aria-label*='Easy Apply' i]",
+    # Classes CSS (fallback — LinkedIn les change régulièrement)
+    "button.jobs-apply-button:has-text('Candidature simplifiée')",
+    "button.jobs-apply-button:has-text('Candidature simplifié')",
+    "button.jobs-apply-button:has-text('Postuler facilement')",
+    "button.jobs-apply-button:has-text('Easy Apply')",
     "button.jobs-apply-button:not(.jobs-apply-button--external)",
     "a.jobs-apply-button:not(.jobs-apply-button--external)",
 ]
@@ -619,6 +735,24 @@ LINKEDIN_APPLY_SELECTORS_EXTERNAL = [
 
 APPLY_BUTTON_SELECTORS = {
     "linkedin": LINKEDIN_APPLY_SELECTORS_EASY + LINKEDIN_APPLY_SELECTORS_EXTERNAL,
+    "ashby": [
+        # Ashby : le bouton Apply navigue vers /application (pas inline)
+        "[data-testid='btn-submit-app']",
+        "[class*='ashby-job-posting-apply-button']",
+        "a[href*='/application']",
+        "button:has-text('Apply for this job')",
+        "a:has-text('Apply for this job')",
+        "button:has-text('Apply for this position')",
+        "a:has-text('Apply for this position')",
+        "button:has-text('Apply')",
+        "a:has-text('Apply')",
+        "button:has-text('Postuler à ce poste')",
+        "a:has-text('Postuler à ce poste')",
+        "button:has-text('Postuler')",
+        "a:has-text('Postuler')",
+        "button:has-text('Candidater')",
+        "a:has-text('Candidater')",
+    ],
     "wttj": [
         # Candidature spontanée en priorité
         "a:has-text('Postuler spontanément')",
@@ -1637,10 +1771,17 @@ class AutoFiller:
             except Exception:
                 pass
 
+        chromium_exec = _resolve_chromium_executable()
+        if chromium_exec:
+            console.print(f"  [dim]Chromium : {chromium_exec}[/dim]")
+        elif getattr(sys, "frozen", False):
+            console.print("  [red]Chromium introuvable dans le cache ms-playwright[/red]")
+
         def _launch():
-            return self._pw_ctx.chromium.launch_persistent_context(
+            kwargs = dict(
                 user_data_dir=str(profile),
                 headless=self.headless,
+                channel=None,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-session-restore",
@@ -1651,6 +1792,9 @@ class AutoFiller:
                 ],
                 slow_mo=60,
             )
+            if chromium_exec:
+                kwargs["executable_path"] = chromium_exec
+            return self._pw_ctx.chromium.launch_persistent_context(**kwargs)
 
         try:
             self._browser = _launch()
@@ -1797,7 +1941,8 @@ class AutoFiller:
         )
         try:
             for txt in DISMISS_TEXTS:
-                # Boutons explicites dans des dialogs
+                # Boutons explicites dans des dialogs — MAIS seulement si la dialog
+                # n'est PAS la modale principale (= pas de champs de formulaire dedans)
                 for sel in [
                     f"[role='dialog'] button:has-text('{txt}')",
                     f"[role='dialog'] a:has-text('{txt}')",
@@ -1805,26 +1950,44 @@ class AutoFiller:
                 ]:
                     try:
                         btn = page.locator(sel).first
-                        if btn.count() and btn.is_visible(timeout=200):
-                            btn.click(timeout=1500)
-                            time.sleep(0.4)
-                            console.print(f"  [dim]✓ Popup fermée ('{txt}')[/dim]")
-                            return True
+                        if not (btn.count() and btn.is_visible(timeout=200)):
+                            continue
+                        # Ne pas fermer une dialog qui contient des champs de formulaire
+                        # (= c'est la vraie modale Easy Apply / le vrai formulaire)
+                        parent_dialog = page.locator("[role='dialog'], [aria-modal='true']").first
+                        try:
+                            n_inputs = parent_dialog.locator("input, textarea, select").count()
+                            if n_inputs >= 1:
+                                continue  # c'est le vrai formulaire, on ne le ferme pas
+                        except Exception:
+                            pass
+                        btn.click(timeout=1500)
+                        time.sleep(0.4)
+                        console.print(f"  [dim]✓ Popup fermée ('{txt}')[/dim]")
+                        return True
                     except Exception:
                         continue
-            # Aussi : bouton "X" / close en haut à droite des dialogs
+            # Bouton "X" / close : UNIQUEMENT pour les dialogs sans champs de formulaire
+            # (évite de fermer la modale Easy Apply de LinkedIn par erreur)
             for sel in [
-                "[role='dialog'] [aria-label*='close' i]",
-                "[role='dialog'] [aria-label*='fermer' i]",
                 "[role='dialog'] button.close",
             ]:
                 try:
                     btn = page.locator(sel).first
-                    if btn.count() and btn.is_visible(timeout=200):
-                        btn.click(timeout=1500)
-                        time.sleep(0.4)
-                        console.print(f"  [dim]✓ Popup fermée (X)[/dim]")
-                        return True
+                    if not (btn.count() and btn.is_visible(timeout=200)):
+                        continue
+                    # Vérifie que la dialog parente n'a PAS de champs (sinon = Easy Apply)
+                    parent_dialog = btn.locator("xpath=ancestor::*[@role='dialog' or @aria-modal='true'][1]").first
+                    try:
+                        n_inputs = parent_dialog.locator("input, textarea, select").count()
+                        if n_inputs >= 1:
+                            continue
+                    except Exception:
+                        pass
+                    btn.click(timeout=1500)
+                    time.sleep(0.4)
+                    console.print(f"  [dim]✓ Popup fermée (X)[/dim]")
+                    return True
                 except Exception:
                     continue
         except Exception:
@@ -2096,11 +2259,13 @@ class AutoFiller:
                 return turl
         if page.url != url_before:
             return page.url
-        try:
-            if page.locator('[role="dialog"]').first.is_visible(timeout=600):
-                return page.url
-        except Exception:
-            pass
+        # Vérifie plusieurs sélecteurs de modale (LinkedIn change souvent)
+        for _msel in ('[role="dialog"]', '[aria-modal="true"]', '.jobs-easy-apply-modal', '.artdeco-modal'):
+            try:
+                if page.locator(_msel).first.is_visible(timeout=400):
+                    return page.url
+            except Exception:
+                pass
         return page.url
 
     def _count_usable_fields(self, fields: List[dict]) -> int:
@@ -2114,6 +2279,8 @@ class AutoFiller:
     def _probe_form_fields(self, page, scope) -> Tuple[Any, List[dict], Any, int]:
         """
         Cherche les champs utiles dans scope puis dans toutes les iframes.
+        Si scope est une dialog avec 0 champs (React Portal pattern — LinkedIn place
+        parfois les <input> hors du nœud dialog dans le DOM), tente la page entière.
         Retourne (fill_scope, fields, used_frame, usable_count).
         """
         fields = self._extract_fields(scope)
@@ -2124,6 +2291,19 @@ class AutoFiller:
         best_fields = fields
         best_scope = fill_scope
         best_frame = None
+
+        # React Portal : si la dialog est vide, essaie la page entière avant les iframes
+        if best_count < 2 and scope is not page:
+            try:
+                page_fields = self._extract_fields(page)
+                page_count = self._count_usable_fields(page_fields)
+                if page_count > best_count:
+                    console.print(f"  [dim]→ Dialog vide ({best_count} champ(s)), React Portal → page entière ({page_count})[/dim]")
+                    best_count = page_count
+                    best_fields = page_fields
+                    best_scope = page
+            except Exception:
+                pass
 
         for fr in self._get_form_frames(page):
             if fr == page.main_frame:
@@ -2296,13 +2476,24 @@ class AutoFiller:
           - une Locator si une dialog modale est présente (LinkedIn Easy Apply)
           - le main frame de la page sinon
         Et label décrit le scope.
+        Note : LinkedIn change fréquemment la structure de sa modale — on essaie
+        plusieurs sélecteurs pour rester robuste.
         """
-        try:
-            dialog = page.locator('[role="dialog"]').first
-            if dialog.count() > 0 and dialog.is_visible(timeout=400):
-                return dialog, "dialog"
-        except Exception:
-            pass
+        # Sélecteurs de modale, du plus spécifique au plus générique
+        _dialog_sels = [
+            '[role="dialog"]',
+            '[aria-modal="true"]',
+            '.jobs-easy-apply-modal',
+            '.artdeco-modal',
+            '[data-test-modal]',
+        ]
+        for _dsel in _dialog_sels:
+            try:
+                dialog = page.locator(_dsel).first
+                if dialog.count() > 0 and dialog.is_visible(timeout=400):
+                    return dialog, "dialog"
+            except Exception:
+                pass
         return page, "page"
 
     def _get_form_frames(self, page) -> List:
@@ -3324,7 +3515,7 @@ class AutoFiller:
     ) -> Tuple[bool, str]:
         """Clic Postuler / Easy Apply dans la top card (texte nested dans spans)."""
         search_root = self._linkedin_apply_scope(page)
-        roots = [search_root, page.locator('[role="dialog"]').first, page]
+        roots = [search_root, page.locator('[role="dialog"], [aria-modal="true"], .jobs-easy-apply-modal').first, page]
         prefer_external = self._linkedin_apply_preference(page) == "external"
 
         def _after_click(url_before: str) -> Tuple[bool, str]:
@@ -3338,11 +3529,12 @@ class AutoFiller:
                 switched = self._switch_to_latest_page(page, pages_before=pages_before)
                 if switched.url != page.url or "linkedin.com" not in switched.url:
                     return True, switched.url
-            try:
-                if page.locator('[role="dialog"]').first.is_visible(timeout=600):
-                    return True, page.url
-            except Exception:
-                pass
+            for _ms2 in ('[role="dialog"]', '[aria-modal="true"]', '.jobs-easy-apply-modal', '.artdeco-modal'):
+                try:
+                    if page.locator(_ms2).first.is_visible(timeout=400):
+                        return True, page.url
+                except Exception:
+                    pass
             return True, page.url
 
         for root in roots:
@@ -3399,20 +3591,25 @@ class AutoFiller:
         """
         url_at_click = page.url
         deadline = time.time() + max_wait_s
+        _modal_sels_poll = [
+            '[role="dialog"]', '[aria-modal="true"]',
+            '.jobs-easy-apply-modal', '.artdeco-modal',
+        ]
         while time.time() < deadline:
             page = self._switch_to_latest_page(page, pages_before=pages_before)
             if "linkedin.com" not in page.url:
                 self._wait_settled(page, 2000, fast=True)
                 self._dismiss_cookies(page)
                 return page
-            try:
-                if page.locator('[role="dialog"]').first.is_visible(timeout=300):
-                    self._dismiss_linkedin_save_draft_dialog(page)
-                    if cv_path:
-                        self._linkedin_easy_apply_progress(page, cv_path)
-                    return page
-            except Exception:
-                pass
+            for _msel in _modal_sels_poll:
+                try:
+                    if page.locator(_msel).first.is_visible(timeout=300):
+                        self._dismiss_linkedin_save_draft_dialog(page)
+                        if cv_path:
+                            self._linkedin_easy_apply_progress(page, cv_path)
+                        return page
+                except Exception:
+                    pass
             # Navigation same-tab vers ATS (rare mais possible)
             if page.url != url_at_click and "linkedin.com" not in page.url:
                 self._wait_settled(page, 2000, fast=True)
@@ -3515,12 +3712,13 @@ class AutoFiller:
                     )
                     if resolved != url_before or popup_url[0] or page_tracker.new_pages:
                         return True, resolved
-                    try:
-                        if page.locator('[role="dialog"]').first.is_visible(timeout=600):
-                            console.print(f"  [dim]✓ Modale détectée après clic[/dim]")
-                            return True, page.url
-                    except Exception:
-                        pass
+                    for _ms in ('[role="dialog"]', '[aria-modal="true"]', '.jobs-easy-apply-modal', '.artdeco-modal'):
+                        try:
+                            if page.locator(_ms).first.is_visible(timeout=400):
+                                console.print(f"  [dim]✓ Modale détectée après clic ({_ms})[/dim]")
+                                return True, page.url
+                        except Exception:
+                            pass
                     return True, page.url
                 except Exception:
                     return None
@@ -3968,6 +4166,11 @@ class AutoFiller:
                 continue
             # Skip questions company-specific
             lbl_lower = lbl.lower()
+            # Ne jamais mémoriser un mot de passe dans le bank partagé
+            if "password" in lbl_lower or "mot de passe" in lbl_lower or (
+                CANDIDATE.get("password") and v == CANDIDATE.get("password")
+            ):
+                continue
             if skip_company and company_lower in lbl_lower:
                 continue
             # Skip réponses très longues (probablement contextuelles à l'offre)
@@ -4126,7 +4329,8 @@ MAPPING RULES:
 - Checkbox (type=checkbox): return the key with value "Yes" to check. RGPD/consent/terms checkboxes: always "Yes". Skip optional marketing opt-ins.
 - "How did you hear about us" as TEXT input: use how_did_you_hear from profile (usually "LinkedIn")
 - Salary / Compensation: use salary_expectation / salary_min from CANDIDATE PROFILE
-- Location / City / Country: use location, city, country, address, postcode from CANDIDATE PROFILE
+- Location / City / Current location / Country: use location, city, country, address, postcode from CANDIDATE PROFILE. If empty in the profile, use "Paris" for city/location.
+- Links: LinkedIn field -> linkedin; GitHub field -> github ONLY (leave EMPTY if github is empty, never put the website/portfolio URL in a GitHub field); Twitter/X field -> leave empty unless a twitter URL exists; Portfolio / Personal website / Other website -> website. NEVER repeat the same URL across several link fields: use each URL at most once.
 - Availability / start date: use availability / earliest_start_date from profile
 - Years of experience: use years_of_experience from profile
 - English / French level / proficiency in English or French: pick the closest SELECT option to english_level_en / french_level_en (e.g. "Professional working proficiency", "Native or bilingual proficiency"). NEVER leave "None" or "Select an option".
@@ -4742,7 +4946,15 @@ Example output:
                 page, ats = self._ensure_application_form_ready(page, ats)
 
             # ── Détection page "Créer un compte" → skip ───────────────────────
+            # Certains ATS (Teamtailor…) imposent une inscription POUR postuler :
+            # on remplit le formulaire (email + mot de passe généré) au lieu de skipper.
             needs_account = self._is_account_creation_page(page)
+            if needs_account and ats in ATS_APPLY_WITH_ACCOUNT:
+                console.print(
+                    f"  [dim]Compte requis ({needs_account}) sur {ats} — on remplit "
+                    f"(email + mot de passe auto).[/dim]"
+                )
+                needs_account = None
             if needs_account:
                 console.print(f"\n  [bold red]⛔ Création de compte requise ({needs_account}) — skipped.[/bold red]")
                 console.print(f"  [yellow]→ Cette offre nécessite un compte sur leur plateforme.")
@@ -4789,12 +5001,6 @@ Example output:
                     self._linkedin_easy_apply_progress(page, cv_path)
                     scope, scope_label = self._get_form_scope(page)
 
-                if self._is_on_submit_page(scope) or self._is_on_submit_page(page):
-                    lbl = self._submit_stop_message(scope) or self._submit_stop_message(page)
-                    console.print(f"\n  [bold green]✅ « {lbl} » visible — arrêt avant soumission.[/bold green]")
-                    pages_recap.append({"step": indicator, "filled": []})
-                    break
-
                 # Extraction (page + iframes — meilleure frame retenue)
                 fill_scope, fields, used_frame, useful_count = self._probe_form_fields(page, scope)
                 if useful_count > 0 and used_frame is not None:
@@ -4814,6 +5020,11 @@ Example output:
                 if junk_count:
                     msg += f" [dim](+ {junk_count} ignoré(s))[/dim]"
                 console.print(msg)
+                if usable and (self._is_on_submit_page(scope) or self._is_on_submit_page(page)):
+                    lbl = self._submit_stop_message(scope) or self._submit_stop_message(page)
+                    console.print(
+                        f"  [dim]« {lbl} » est déjà visible, mais les champs vides passent d'abord.[/dim]"
+                    )
 
                 # Si très peu de champs et qu'on n'a pas encore retenté un clic Apply,
                 # essaie de cliquer Apply pour révéler le formulaire (ATS externes).

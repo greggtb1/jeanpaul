@@ -84,3 +84,65 @@ export async function uploadPendingCvForUser(
   await clearPendingCv();
   return { url: signedData.signedUrl, filename: file.name, path };
 }
+
+function filenameFromStorageObject(name: string, fallback?: string): string {
+  const stripped = name.replace(/^\d+_/, "");
+  if (stripped.toLowerCase().endsWith(".pdf")) return stripped;
+  return fallback || stripped || "CV.pdf";
+}
+
+/** Retrouve un CV déjà uploadé dans le bucket (après signup ou session perdue). */
+export async function recoverCvFromStorage(
+  userId: string,
+  preferredFilename?: string
+): Promise<{ url: string; filename: string; path: string } | null> {
+  const { createClient } = await import("@/lib/supabase/client");
+  const supabase = createClient();
+  const { data: files, error } = await supabase.storage.from("cvs").list(userId, {
+    limit: 20,
+    sortBy: { column: "created_at", order: "desc" },
+  });
+  if (error || !files?.length) return null;
+
+  const objects = files.filter((f) => f.name && /\.pdf$/i.test(f.name));
+  if (!objects.length) return null;
+
+  const preferred = preferredFilename?.trim().toLowerCase();
+  const picked =
+    (preferred
+      ? objects.find((f) => f.name.toLowerCase().includes(preferred.replace(/[^\w.\-]/g, "_").toLowerCase()))
+      : null) || objects[0];
+
+  if (!picked?.name) return null;
+
+  const path = `${userId}/${picked.name}`;
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from("cvs")
+    .createSignedUrl(path, 60 * 60 * 24 * 365);
+  if (signedError || !signedData?.signedUrl) return null;
+
+  return {
+    url: signedData.signedUrl,
+    filename: filenameFromStorageObject(picked.name, preferredFilename),
+    path,
+  };
+}
+
+export async function resolveProfileCv(
+  userId: string,
+  opts?: { cvUrl?: string | null; cvFilename?: string | null }
+): Promise<{ url: string; filename: string } | null> {
+  const currentUrl = opts?.cvUrl?.trim();
+  const filename = opts?.cvFilename?.trim() || "CV.pdf";
+  if (currentUrl && currentUrl !== "local") {
+    return { url: currentUrl, filename };
+  }
+
+  const pending = await uploadPendingCvForUser(userId);
+  if (pending) return { url: pending.url, filename: pending.filename };
+
+  const recovered = await recoverCvFromStorage(userId, opts?.cvFilename || undefined);
+  if (recovered) return { url: recovered.url, filename: recovered.filename };
+
+  return null;
+}

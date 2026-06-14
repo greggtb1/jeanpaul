@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 from supabase import create_client, Client
+from supabase.lib.client_options import SyncClientOptions
 
 _client: Optional[Client] = None
 _active_user_id: Optional[str] = None
@@ -43,13 +44,33 @@ def client() -> Client:
             or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
             or ""
         )
-        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or ""
-        if not url or not key:
-            raise RuntimeError(
-                "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY manquants "
-                "(.env.local côté Next ou engine/.env)"
+        user_token = os.environ.get("JA_SUPABASE_ACCESS_TOKEN", "").strip()
+        anon_key = (
+            os.environ.get("SUPABASE_ANON_KEY")
+            or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+            or ""
+        ).strip()
+        service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or ""
+
+        if user_token and anon_key:
+            if not url:
+                raise RuntimeError("SUPABASE_URL manquant pour l'agent desktop")
+            _client = create_client(
+                url,
+                anon_key,
+                options=SyncClientOptions(
+                    headers={"Authorization": f"Bearer {user_token}"},
+                    auto_refresh_token=False,
+                    persist_session=False,
+                ),
             )
-        _client = create_client(url, key)
+        elif url and service_key:
+            _client = create_client(url, service_key)
+        else:
+            raise RuntimeError(
+                "SUPABASE_URL et clé manquants "
+                "(service role côté serveur ou JWT user + anon key côté agent)"
+            )
     return _client
 
 
@@ -728,7 +749,8 @@ def ensure_local_docs(
         cv_path = cv_files[0]
     elif job_row.get("cv_url"):
         try:
-            cv_path = app_dir / "CV_auto.pdf"
+            from user_profile import cv_filename_for
+            cv_path = app_dir / cv_filename_for(company)
             cv_path.write_bytes(_download_bytes(job_row["cv_url"]))
         except Exception:
             cv_path = Path("")

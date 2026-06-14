@@ -191,6 +191,18 @@ class _Handler(BaseHTTPRequestHandler):
             _run_cli([["dashboard", "--no-open"]], "Régénération dashboard")
             self._json({"started": True}); return
 
+        if path == "/quick-apply":
+            data = self._read_body()
+            url = (data.get("url") or "").strip()
+            if not url:
+                self.send_response(400); self._cors(); self.end_headers()
+                self.wfile.write(b"url manquante"); return
+            args = ["quick-apply", "--url", url]
+            if data.get("auto_submit"):
+                args.append("--auto-submit")
+            _run_cli([args], f"Quick-apply {url[:60]}")
+            self._json({"started": True}); return
+
         if path == "/blacklist":
             data = self._read_body()
             url = (data.get("url") or "").strip()

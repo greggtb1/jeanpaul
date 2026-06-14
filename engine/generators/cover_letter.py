@@ -5,6 +5,7 @@ et la sauvegarde en TXT (texte brut, prêt à copier-coller).
 
 import anthropic
 import os
+import random
 from pathlib import Path
 from typing import Dict, Optional
 from rich.console import Console
@@ -32,14 +33,16 @@ Ce qu'ils cherchent :
 
 LANGUE OBLIGATOIRE : {letter_language} — toute la lettre doit être rédigée dans cette langue (celle de l'offre).
 
+{variation_block}
+
 RÈGLES :
 - {no_dash_rule}
 - {length_rule}
 - Pas de formule d'appel ni de signature
 - Pas de "Je reste à votre disposition"
-- Ouvrir sur une observation concrète liée à CETTE offre
 - Mentionner uniquement des éléments présents dans le CV du candidat
 - Le ton demandé et la lettre de référence (si fournie) priment sur le style par défaut
+- N'utilise PAS une ouverture passe-partout : suis l'angle d'attaque indiqué ci-dessus
 
 Retourne UNIQUEMENT le corps de la lettre."""
 
@@ -74,6 +77,69 @@ def _letter_reference_block(profile: Dict, letter_language: str) -> str:
     )
 
 
+_OPENINGS_FR = [
+    "Ouvre sur un résultat ou un chiffre concret de ton parcours, amené comme une anecdote, jamais comme un CV.",
+    "Ouvre sur une observation précise et personnelle concernant l'entreprise, son produit ou son marché.",
+    "Ouvre sur la tension ou le problème réel que ce poste doit résoudre, vu de l'intérieur.",
+    "Ouvre sur une conviction que tu as forgée sur le terrain, puis relie-la directement à ce poste.",
+    "Ouvre par une question directe et sincère sur le rôle, l'équipe ou un choix de l'entreprise.",
+    "Ouvre sur un parallèle entre une situation précise que tu as vécue et ce que ce poste implique.",
+    "Ouvre sur ce qui t'a fait t'arrêter sur cette offre en particulier, sans flatterie.",
+]
+_CLOSINGS_FR = [
+    "Termine par une question ouverte qui invite à échanger.",
+    "Termine par une phrase courte et factuelle sur ta disponibilité, sans formule toute faite.",
+    "Termine sur une note de curiosité réelle (ce que tu aimerais creuser avec eux).",
+    "Termine par une proposition concrète (un échange, un point précis à aborder ensemble).",
+]
+_RHYTHMS_FR = [
+    "Structure : 3 paragraphes courts et nerveux.",
+    "Structure : 2 paragraphes denses suivis d'une phrase d'ouverture isolée.",
+    "Structure : un paragraphe d'accroche, un paragraphe de fond, une clôture brève.",
+]
+
+_OPENINGS_EN = [
+    "Open on a concrete result or number from your track record, told like an anecdote, never like a resume.",
+    "Open on a precise, personal observation about the company, its product or its market.",
+    "Open on the real tension or problem this role has to solve, seen from the inside.",
+    "Open on a conviction you built on the ground, then tie it directly to this role.",
+    "Open with a direct, genuine question about the role, the team or a company choice.",
+    "Open on a parallel between a specific situation you lived through and what this role involves.",
+    "Open on what made you stop on this posting specifically, no flattery.",
+]
+_CLOSINGS_EN = [
+    "Close with an open question that invites a conversation.",
+    "Close with a short, factual line about your availability, no boilerplate.",
+    "Close on a note of real curiosity (what you'd like to dig into with them).",
+    "Close with a concrete suggestion (a chat, a specific point to cover together).",
+]
+_RHYTHMS_EN = [
+    "Structure: 3 short, punchy paragraphs.",
+    "Structure: 2 dense paragraphs followed by a single standalone opening line.",
+    "Structure: one hook paragraph, one substance paragraph, a brief close.",
+]
+
+
+def _variation_directive(lang_code: str) -> str:
+    """Choisit un angle d'attaque, un rythme et une clôture au hasard pour éviter
+    que toutes les lettres se ressemblent."""
+    if lang_code == "en":
+        opening = random.choice(_OPENINGS_EN)
+        rhythm = random.choice(_RHYTHMS_EN)
+        closing = random.choice(_CLOSINGS_EN)
+        return (
+            "ANGLE FOR THIS LETTER (make it different from a generic cover letter):\n"
+            f"- {opening}\n- {rhythm}\n- {closing}"
+        )
+    opening = random.choice(_OPENINGS_FR)
+    rhythm = random.choice(_RHYTHMS_FR)
+    closing = random.choice(_CLOSINGS_FR)
+    return (
+        "ANGLE D'ATTAQUE POUR CETTE LETTRE (la rendre différente d'une lettre type) :\n"
+        f"- {opening}\n- {rhythm}\n- {closing}"
+    )
+
+
 def _length_rule(tone: str, lang: str) -> str:
     if tone == "concis":
         if lang == "en":
@@ -103,6 +169,8 @@ What it's really about: {role_summary}
 Key things they need: {responsibilities}
 
 WRITE IN: {letter_language}
+
+{variation_block}
 
 ---
 
@@ -154,6 +222,8 @@ Ce que le rôle implique vraiment : {role_summary}
 Ce qu'ils cherchent : {responsibilities}
 
 LANGUE : {letter_language}
+
+{variation_block}
 
 ---
 
@@ -214,6 +284,7 @@ class CoverLetterGenerator:
         tone_block = tone_block_for_letter(tone, lang_code)
         if not ref_block:
             tone_block = f"{tone_block}\n{_NO_REFERENCE_TONE_ONLY}"
+        variation_block = _variation_directive(lang_code)
 
         if self.profile.get("_source") == "user":
             prompt = COVER_LETTER_USER.format(
@@ -221,6 +292,7 @@ class CoverLetterGenerator:
                 candidate_block=candidate_block_for_letter(self.profile),
                 tone_block=tone_block,
                 letter_reference_block=ref_block,
+                variation_block=variation_block,
                 title=job.get("title", ""),
                 company=job.get("company", ""),
                 company_description=analysis.get("company_description", ""),
@@ -245,12 +317,14 @@ class CoverLetterGenerator:
                 why_interesting=analysis.get("why_interesting", ""),
                 language=lang_code,
                 letter_language=letter_language,
+                variation_block=variation_block,
             )
 
         try:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=1024,
+                temperature=1.0,
                 messages=[{"role": "user", "content": prompt}],
             )
             return _clean_letter(response.content[0].text.strip())

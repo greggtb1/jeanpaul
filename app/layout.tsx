@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({
@@ -59,6 +60,12 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -67,6 +74,12 @@ export default function RootLayout({
   return (
     <html lang="fr" suppressHydrationWarning>
       <body className={`${inter.className} ${displayFont.variable}`} suppressHydrationWarning>
+        <Script
+          defer
+          src="https://cloud.umami.is/script.js"
+          data-website-id="7f67339f-f236-4e56-8cac-0c4216486e16"
+          strategy="afterInteractive"
+        />
         {children}
       </body>
     </html>

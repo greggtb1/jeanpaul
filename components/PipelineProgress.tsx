@@ -114,6 +114,19 @@ function resolveStages(
   return { stages: FULL_STAGES, activeId: active };
 }
 
+function InlineLoader({ label }: { label: string }) {
+  return (
+    <span className="db-run__inline-loader" aria-label={`${label} en cours`}>
+      <span className="db-run__inline-loader-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="db-run__inline-loader-text">en cours</span>
+    </span>
+  );
+}
+
 function AutoApplyValidateCallout({ count }: { count: number }) {
   return (
     <div className="db-auto-validate db-auto-validate--lite" role="status" aria-live="polite">
@@ -148,6 +161,7 @@ export default function PipelineProgress({
   const analyzeOnly = /Reprise\s*:\s*analyse|sans scraping/i.test(run?.log || "");
   const statusLabel = getStatusLabel(phase, autoapply, analyzeOnly);
   const stageTrack = resolveStages(phase, autoapply, analyzeOnly);
+  const showInlineLoader = !["done", "autoapply_ready"].includes(phase.subPhase);
 
   const stopButton = onStop ? (
     <button
@@ -166,6 +180,7 @@ export default function PipelineProgress({
         <div className="db-run__head">
           <span className="db-run__pulse" aria-hidden="true" />
           <span className="db-run__status">{statusLabel}</span>
+          {showInlineLoader && <InlineLoader label={statusLabel} />}
           {stopButton}
         </div>
         <div className="db-run__metric">
@@ -190,6 +205,7 @@ export default function PipelineProgress({
       <div className="db-run__head">
         <span className="db-run__pulse" aria-hidden="true" />
         <span className="db-run__status">{statusLabel}</span>
+        {showInlineLoader && <InlineLoader label={statusLabel} />}
         {stopButton}
       </div>
 

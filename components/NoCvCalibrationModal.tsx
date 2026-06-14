@@ -5,12 +5,13 @@ import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase";
 import { PrefField, CvDropzone } from "@/components/ProfilePreferencesFields";
 import { loadDraft } from "@/lib/onboarding-draft";
+import { uploadPendingCvForUser, resolveProfileCv } from "@/lib/onboarding-cv";
 import {
   SENIORITY_LEVELS,
   calibrationIsValid,
   formatProfileSummary,
   getCalibrationSteps,
-  hasUploadedCv,
+  hasCvOnFile,
   needsNoCvScanCalibration,
   profileToCalibrationDefaults,
   type NoCvCalibrationData,
@@ -53,20 +54,48 @@ export default function NoCvCalibrationModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const hasCv = !!(cvUrl?.trim() || cvFilename);
+  const hasCv =
+    !!(cvUrl?.trim() && cvUrl !== "local") || !!cvFilename?.trim();
 
   useEffect(() => {
     setForm(profileToCalibrationDefaults(profile, draft));
     setCvUrl(profile?.cv_url ?? "");
     setCvFilename(profile?.cv_filename ?? "");
-    setPhase(hasUploadedCv(profile) ? "questions" : "cv_pitch");
-  }, [
-    profile?.id,
-    profile?.cv_url,
-    profile?.cv_filename,
-    profile?.summary,
-    draft,
-  ]);
+    setPhase("cv_pitch");
+  }, [profile?.id, profile?.cv_url, profile?.cv_filename, profile?.summary, draft]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function syncPendingCv() {
+      if (cvUrl?.trim() && cvUrl !== "local") return;
+      try {
+        const resolved = await resolveProfileCv(userId, {
+          cvUrl,
+          cvFilename,
+        });
+        if (!resolved || cancelled) return;
+        const { error: upsertErr } = await supabase
+          .from("profiles")
+          .update({
+            cv_url: resolved.url,
+            cv_filename: resolved.filename,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", userId);
+        if (upsertErr) throw upsertErr;
+        if (!cancelled) {
+          setCvUrl(resolved.url);
+          setCvFilename(resolved.filename);
+        }
+      } catch {
+        /* L'utilisateur peut redéposer le fichier si besoin. */
+      }
+    }
+    void syncPendingCv();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, cvUrl, cvFilename]);
 
   const canSubmitQuestions = phase === "questions" && calibrationIsValid(form);
   const busy = submitting || saving || uploadingCv;
@@ -75,12 +104,14 @@ export default function NoCvCalibrationModal({
     setForm((f) => ({ ...f, ...patch }));
 
   async function persistCv(fileUrl: string, filename: string) {
-    const { error: upsertErr } = await supabase.from("profiles").upsert({
-      id: userId,
-      cv_url: fileUrl,
-      cv_filename: filename,
-      updated_at: new Date().toISOString(),
-    });
+    const { error: upsertErr } = await supabase
+      .from("profiles")
+      .update({
+        cv_url: fileUrl,
+        cv_filename: filename,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
     if (upsertErr) throw upsertErr;
   }
 
@@ -114,27 +145,31 @@ export default function NoCvCalibrationModal({
     }
   }
 
-  async function finishWithProfile(patch: Partial<Profile>) {
+  async function finishWithCv() {
+    if (!hasCv) return;
     setSubmitting(true);
     setError(null);
     try {
+      const resolved = await resolveProfileCv(userId, {
+        cvUrl,
+        cvFilename,
+      });
+      if (!resolved) {
+        throw new Error(
+          "Le fichier n'est plus sur cet appareil. Redéposez votre CV ci-dessus pour continuer."
+        );
+      }
+      await persistCv(resolved.url, resolved.filename);
       onComplete({
         ...(profile ?? { id: userId }),
-        ...patch,
+        cv_url: resolved.url,
+        cv_filename: resolved.filename,
       });
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
-  }
-
-  async function finishWithCv() {
-    if (!hasCv || !cvUrl) return;
-    await finishWithProfile({
-      cv_url: cvUrl,
-      cv_filename: cvFilename || "CV.pdf",
-    });
   }
 
   async function finishWithQuestions() {
@@ -172,6 +207,18 @@ export default function NoCvCalibrationModal({
     }
   }
 
+  async function finishWithoutCv() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      onComplete(profile ?? { id: userId });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function handleSkipWithoutCv() {
     setError(null);
     const freshDraft = loadDraft();
@@ -179,7 +226,7 @@ export default function NoCvCalibrationModal({
       setPhase("questions");
       return;
     }
-    void finishWithProfile({});
+    void finishWithoutCv();
   }
 
   async function handleLaunchScan() {
@@ -220,13 +267,14 @@ export default function NoCvCalibrationModal({
               Personnalisez vos dossiers
             </h2>
             <p className="ncv-calib__lead">
-              Déposez votre CV pour qu&apos;on l&apos;adapte à chaque offre. À la fin du scan, vos
-              dossiers seront prêts avec CV et lettre personnalisés.
+              {hasCvOnFile(profile) || hasCv
+                ? "Votre CV sera utilisé pour adapter chaque dossier à chaque offre."
+                : "Déposez votre CV pour qu'on l'adapte à chaque offre. À la fin du scan, vos dossiers seront prêts avec CV et lettre personnalisés."}
             </p>
 
             <div className="ncv-calib__fields">
               <CvDropzone
-                cvUrl={cvUrl}
+                cvUrl={cvUrl && cvUrl !== "local" ? cvUrl : ""}
                 cvFilename={cvFilename}
                 uploading={uploadingCv}
                 onFile={handleCvFile}

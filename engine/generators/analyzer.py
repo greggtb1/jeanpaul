@@ -34,7 +34,11 @@ IMPORTANT — Évaluation du fit :
 - Le candidat peut ne PAS avoir de CV. Le bloc PROFIL CANDIDAT (parcours, postes visés, lieux, niveau) suffit pour noter.
 - Attribue TOUJOURS un fit_score entier entre 1 et 10 selon la pertinence réelle.
 - Ne retourne jamais 0 ni un message du type « impossible d'évaluer » ou « profil manquant ».
-- Si le profil est partiel, fais la meilleure estimation possible à partir des infos disponibles."""
+- Si le profil est partiel, fais la meilleure estimation possible à partir des infos disponibles.
+
+IMPORTANT — Ton des champs why_interesting et fit_reasoning :
+- Si le PROFIL CANDIDAT indique un nom réel (champ « Nom » différent de « Candidat »), tu peux l'utiliser.
+- Sinon, adresse-toi DIRECTEMENT au candidat à la 2e personne : « Tu as… », « Ton profil… », « Ton expérience… ». N'invente JAMAIS de prénom ni de nom."""
 
 ANALYZE_JOB_SUFFIX = """
 

@@ -5,7 +5,7 @@ import {
   normalizeDraft,
   type OnboardingDraft,
 } from "@/lib/onboarding-draft";
-import { clearPendingCv, uploadPendingCvForUser } from "@/lib/onboarding-cv";
+import { uploadPendingCvForUser } from "@/lib/onboarding-cv";
 type ActivateOptions = {
   onStep?: (message: string) => void;
 };
@@ -19,26 +19,21 @@ function buildDraftForActivate(userEmail: string): OnboardingDraft {
   });
 }
 
-async function syncPendingCvInBackground(userId: string) {
-  try {
-    const cv = await uploadPendingCvForUser(userId);
-    if (!cv) return;
+async function syncPendingCv(userId: string) {
+  const cv = await uploadPendingCvForUser(userId);
+  if (!cv) return;
 
-    const supabase = createClient();
-    await supabase
-      .from("profiles")
-      .update({
-        cv_url: cv.url,
-        cv_filename: cv.filename,
-        cv_path: cv.path,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", userId);
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      cv_url: cv.url,
+      cv_filename: cv.filename,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
 
-    await clearPendingCv();
-  } catch {
-    /* le dashboard pourra réimporter si besoin */
-  }
+  if (error) throw error;
 }
 
 export async function activateAccount(sessionId: string, options?: ActivateOptions) {
@@ -52,7 +47,7 @@ export async function activateAccount(sessionId: string, options?: ActivateOptio
 
   onStep?.("Création de votre espace…");
 
-    const draft = buildDraftForActivate(user.email);
+  const draft = buildDraftForActivate(user.email);
 
   onStep?.("Connexion à votre abonnement…");
 
@@ -82,6 +77,6 @@ export async function activateAccount(sessionId: string, options?: ActivateOptio
     (prof?.target_roles?.length ?? 0) > 0 || (prof?.target_locations?.length ?? 0) > 0;
   if (prefsSaved) clearDraft();
 
-  onStep?.("Import de votre CV en arrière-plan…");
-  void syncPendingCvInBackground(user.id);
+  onStep?.("Import de votre CV…");
+  await syncPendingCv(user.id);
 }

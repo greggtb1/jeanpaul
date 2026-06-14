@@ -85,11 +85,18 @@ function BootSequence({ active }: { active: boolean }) {
 
 export default function PipelineLog({
   run,
+  variant = "default",
 }: {
   run: PipelineRun | null;
+  variant?: "default" | "mini";
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
-  const lines = useMemo(() => (run?.log ? run.log.split("\n").filter(Boolean) : []), [run?.log]);
+  const isMini = variant === "mini";
+  const allLines = useMemo(() => (run?.log ? run.log.split("\n").filter(Boolean) : []), [run?.log]);
+  const lines = useMemo(
+    () => (isMini ? allLines.slice(-4) : allLines),
+    [allLines, isMini]
+  );
 
   const idle = !run;
   const running = run?.status === "running" || run?.status === "pending";
@@ -118,14 +125,14 @@ export default function PipelineLog({
   }, [lines.length, run?.log, showBoot, showIdle]);
 
   return (
-    <div className={`plog ${idle ? "plog--idle" : ""}`}>
+    <div className={`plog ${idle ? "plog--idle" : ""}${isMini ? " plog--mini" : ""}`}>
       <div className="plog__header">
         <div className="plog__dots" aria-hidden="true">
           <span />
           <span />
           <span />
         </div>
-        <span className="plog__title">JEAN PAUL · terminal</span>
+        <span className="plog__title">{isMini ? "Terminal" : "JEAN PAUL · terminal"}</span>
         <span className={`plog__badge ${idle ? "plog__badge--idle" : running ? "plog__badge--run" : done ? "plog__badge--ok" : cancelled ? "plog__badge--idle" : failed ? "plog__badge--err" : ""}`}>
           {(idle || running) && <span className={`plog__pulse ${idle ? "plog__pulse--idle" : ""}`} />}
           {idle ? "Standby" : running ? "En cours" : done ? "Terminé" : cancelled ? "Arrêté" : failed ? "Erreur" : run!.status}
@@ -145,15 +152,23 @@ export default function PipelineLog({
 
         {showIdle ? (
           <div className="plog__idle">
-            {IDLE_LINES.map((line) => (
-              <div key={line.text} className={`plog__line ${line.cls}`}>
-                {line.text}
-              </div>
-            ))}
+            {isMini ? (
+              <div className="plog__line plog__line--muted">Prêt — lancez un scan pour démarrer.</div>
+            ) : (
+              IDLE_LINES.map((line) => (
+                <div key={line.text} className={`plog__line ${line.cls}`}>
+                  {line.text}
+                </div>
+              ))
+            )}
             <div className="plog__cursor plog__cursor--idle" aria-hidden="true" />
           </div>
         ) : showBoot ? (
-          <BootSequence active />
+          isMini ? (
+            <p className="plog__line plog__line--muted">Démarrage du moteur…</p>
+          ) : (
+            <BootSequence active />
+          )
         ) : showWaiting ? (
           <p className="plog__line plog__line--muted">En attente du moteur Python…</p>
         ) : lines.length === 0 ? (

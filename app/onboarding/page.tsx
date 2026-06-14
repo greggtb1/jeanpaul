@@ -28,6 +28,7 @@ import {
   TagInput,
   CvDropzone,
 } from "@/components/ProfilePreferencesFields";
+import { trackEvent } from "@/lib/umami";
 
 type Form = Omit<OnboardingDraft, "draft_id" | "plan_id">;
 
@@ -70,6 +71,16 @@ export default function Onboarding() {
   const [saving, setSaving] = useState(false);
   const [alreadyPaid, setAlreadyPaid] = useState(false);
   const parsedCvKey = useRef("");
+
+  useEffect(() => {
+    trackEvent("onboarding_step_view", {
+      step: step + 1,
+      step_name: STEPS[step],
+      plan: planId,
+      already_paid: alreadyPaid,
+    });
+  }, [step, planId, alreadyPaid]);
+
   useEffect(() => {
     const draft = loadDraft();
     if (draft) {
@@ -196,11 +207,17 @@ export default function Onboarding() {
       const { savePendingCv } = await import("@/lib/onboarding-cv");
       await savePendingCv(file);
       set({ cv_url: "local", cv_filename: file.name, cv_path: "" });
+      trackEvent("onboarding_cv_uploaded", {
+        step: step + 1,
+        file_type: file.type || "application/pdf",
+      });
 
       try {
         await applyCvIdentityFromFile(file);
+        trackEvent("onboarding_cv_parsed", { result: "success" });
       } catch {
         /* extraction optionnelle */
+        trackEvent("onboarding_cv_parsed", { result: "fallback" });
         parsedCvKey.current = `${file.name}|local`;
         setForm((f) => ({
           ...f,
@@ -216,6 +233,7 @@ export default function Onboarding() {
         }));
       }
     } catch (e) {
+      trackEvent("onboarding_cv_upload_error");
       alert("Enregistrement échoué : " + (e as Error).message);
     } finally {
       setUploading(false);
@@ -230,6 +248,11 @@ export default function Onboarding() {
       const fullName = form.full_name.trim();
 
       if (alreadyPaid && uid) {
+        trackEvent("onboarding_complete_attempt", {
+          plan: planId,
+          already_paid: true,
+          has_cv: !!form.cv_filename,
+        });
         const res = await fetch("/api/onboarding/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -249,18 +272,34 @@ export default function Onboarding() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Sauvegarde échouée");
+        trackEvent("onboarding_completed", {
+          plan: planId,
+          already_paid: true,
+          has_cv: !!form.cv_filename,
+        });
         router.push("/dashboard");
         return;
       }
 
+      trackEvent("onboarding_complete_attempt", {
+        plan: planId,
+        already_paid: false,
+        has_cv: !!form.cv_filename,
+      });
       saveDraft({
         ...form,
         plan_id: planId,
         email,
         full_name: fullName,
       });
+      trackEvent("onboarding_completed", {
+        plan: planId,
+        already_paid: false,
+        has_cv: !!form.cv_filename,
+      });
       router.push(`/subscribe${planQuery(planId)}`);
     } catch (e) {
+      trackEvent("onboarding_complete_error", { step: step + 1 });
       alert("Erreur : " + (e as Error).message);
       setSaving(false);
     }
@@ -276,11 +315,22 @@ export default function Onboarding() {
   };
 
   const next = () => {
+    trackEvent("onboarding_step_next", {
+      step: step + 1,
+      step_name: STEPS[step],
+      plan: planId,
+      has_cv: !!form.cv_filename,
+    });
     persistDraft();
     if (step < STEPS.length - 1) setStep((s) => s + 1);
     else finish();
   };
   const back = () => {
+    trackEvent("onboarding_step_back", {
+      step: step + 1,
+      step_name: STEPS[step],
+      plan: planId,
+    });
     persistDraft();
     setStep((s) => Math.max(0, s - 1));
   };

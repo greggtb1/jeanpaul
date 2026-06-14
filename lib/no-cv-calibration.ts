@@ -25,7 +25,12 @@ export type CalibrationDraft = {
 };
 
 export function hasUploadedCv(profile: Profile | null | undefined): boolean {
-  return !!profile?.cv_url?.trim();
+  const url = profile?.cv_url?.trim();
+  return !!(url && url !== "local");
+}
+
+export function hasCvOnFile(profile: Profile | null | undefined): boolean {
+  return hasUploadedCv(profile) || !!profile?.cv_filename?.trim();
 }
 
 export function parseSummaryToCalibration(
@@ -99,8 +104,8 @@ export function hasAboutYouProfile(profile: Profile | null | undefined): boolean
   return experience.length >= 20;
 }
 
-export function needsPreScanNoCvModal(profile: Profile | null | undefined): boolean {
-  return !hasUploadedCv(profile);
+export function needsPreScanNoCvModal(_profile: Profile | null | undefined): boolean {
+  return true;
 }
 
 /** Questions sans CV : uniquement le profil perso si pas encore renseigné. */

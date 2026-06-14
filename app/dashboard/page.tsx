@@ -22,16 +22,81 @@ import PipelineProgress from "@/components/PipelineProgress";
 import { parsePipelinePhase, isAutoapplyRun } from "@/lib/pipeline-phase";
 import LetterModal from "@/components/LetterModal";
 import AutoApplyTuto from "@/components/AutoApplyTuto";
+import AgentLaunchBanner from "@/components/AgentLaunchBanner";
+import { openAgentDeepLink } from "@/lib/agent-client";
 import FirstSearchDoneTuto, { hasSeenFirstSearchDoneTuto } from "@/components/FirstSearchDoneTuto";
 import DashboardGuide from "@/components/DashboardGuide";
 import NoCvCalibrationModal from "@/components/NoCvCalibrationModal";
-import { needsPreScanNoCvModal, calibrationPromptLabel } from "@/lib/no-cv-calibration";
+
+function useMobileLayout(maxWidth = 900) {
+  const [mobile, setMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const update = () => setMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [maxWidth]);
+
+  return mobile;
+}
+import { needsPreScanNoCvModal, calibrationPromptLabel, hasUploadedCv } from "@/lib/no-cv-calibration";
 import { loadDraft } from "@/lib/onboarding-draft";
+import { resolveProfileCv } from "@/lib/onboarding-cv";
 import { buildOnboardingPrefsPatch } from "@/lib/sync-onboarding-prefs";
 import { parseApiJson } from "@/lib/parse-api-json";
 import { isJobReady, isJobReadyWithoutCv } from "@/lib/job-ready";
+import { trackEvent } from "@/lib/umami";
 
 type TabId = "all" | "applied" | "generated";
+
+/** Compteur qui s'incrémente en douceur quand la valeur change. */
+function AnimatedCount({ value }: { value: number }) {
+  const [display, setDisplay] = useState(value);
+  const [bump, setBump] = useState(false);
+  const fromRef = useRef(value);
+  const firstRef = useRef(true);
+
+  useEffect(() => {
+    if (firstRef.current) {
+      firstRef.current = false;
+      fromRef.current = value;
+      setDisplay(value);
+      return;
+    }
+    const from = fromRef.current;
+    const to = value;
+    if (from === to) return;
+    fromRef.current = to;
+
+    let raf = 0;
+    let bumpTimer: ReturnType<typeof setTimeout> | undefined;
+    if (to > from) {
+      setBump(true);
+      bumpTimer = setTimeout(() => setBump(false), 360);
+    }
+
+    const duration = 520;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplay(Math.round(from + (to - from) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      if (bumpTimer) clearTimeout(bumpTimer);
+    };
+  }, [value]);
+
+  return (
+    <span className={`db__stat-count${bump ? " is-bump" : ""}`}>{display}</span>
+  );
+}
 
 function StatFilterChips({
   stats,
@@ -52,7 +117,8 @@ function StatFilterChips({
         onClick={() => toggle("all")}
         aria-pressed={tab === "all"}
       >
-        {stats.total} offres
+        <AnimatedCount value={stats.total} />
+        <span className="db__stat-label-text">offres</span>
       </button>
       {stats.ready > 0 && (
         <button
@@ -61,7 +127,8 @@ function StatFilterChips({
           onClick={() => toggle("generated")}
           aria-pressed={tab === "generated"}
         >
-          {stats.ready} dossier{stats.ready > 1 ? "s" : ""} prêt{stats.ready > 1 ? "s" : ""}
+          <AnimatedCount value={stats.ready} />
+          <span className="db__stat-label-text">dossier{stats.ready > 1 ? "s" : ""} prêt{stats.ready > 1 ? "s" : ""}</span>
         </button>
       )}
       {stats.applied > 0 && (
@@ -71,7 +138,8 @@ function StatFilterChips({
           onClick={() => toggle("applied")}
           aria-pressed={tab === "applied"}
         >
-          {stats.applied} candidaté{stats.applied > 1 ? "s" : ""}
+          <AnimatedCount value={stats.applied} />
+          <span className="db__stat-label-text">candidaté{stats.applied > 1 ? "s" : ""}</span>
         </button>
       )}
     </div>
@@ -226,6 +294,7 @@ function isPoorFitHealth(health: FitHealth): boolean {
 export default function Dashboard() {
   const router = useRouter();
   const { uid, loading: authLoading } = useAuth();
+  const isMobile = useMobileLayout();
   const supabase = createClient();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -235,12 +304,15 @@ export default function Dashboard() {
   const [lastSearch, setLastSearch] = useState<PipelineRun | null>(null);
   const [launching, setLaunching] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [showAutoTuto, setShowAutoTuto] = useState(false);
+  const [agentDeepLink, setAgentDeepLink] = useState<string | null>(null);
+  const [agentAwaiting, setAgentAwaiting] = useState(false);
   const [showFirstDoneTuto, setShowFirstDoneTuto] = useState(false);
   const [showNoCvCalib, setShowNoCvCalib] = useState(false);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [sideTab, setSideTab] = useState<"terminal" | "guide">("terminal");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevRunStatusRef = useRef<string | null>(null);
   const pendingLaunchRef = useRef<{ mode: "full" | "analyze"; urls?: string[] } | null>(null);
@@ -272,6 +344,29 @@ export default function Dashboard() {
         .order("created_at", { ascending: false }),
     ]);
     let prof = profRaw;
+    if (prof && !hasUploadedCv(prof)) {
+      try {
+        const cv = await resolveProfileCv(id, {
+          cvUrl: prof.cv_url,
+          cvFilename: prof.cv_filename,
+        });
+        if (cv) {
+          const { data: cvSynced } = await supabase
+            .from("profiles")
+            .update({
+              cv_url: cv.url,
+              cv_filename: cv.filename,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", id)
+            .select("*")
+            .maybeSingle();
+          if (cvSynced) prof = cvSynced;
+        }
+      } catch {
+        /* La modale CV prendra le relais si l'import local échoue. */
+      }
+    }
     const prefsPatch = buildOnboardingPrefsPatch(prof, loadDraft());
     if (prefsPatch) {
       const { data: synced } = await supabase
@@ -328,6 +423,13 @@ export default function Dashboard() {
     urls?: string[]
   ) => {
     setLaunching(true);
+    trackEvent("pipeline_start_clicked", {
+      mode,
+      selected_urls: urls?.length ?? 0,
+      first_search_done: !!profile?.first_search_done,
+      has_cv: hasUploadedCv(profile),
+      plan: profile?.plan_id ?? null,
+    });
     try {
       const res = await fetch("/api/pipeline", {
         method: "POST",
@@ -342,29 +444,72 @@ export default function Dashboard() {
         error?: string;
         alreadyRunning?: boolean;
         quotaExceeded?: boolean;
+        executor?: string;
+        deepLink?: string;
       }>(res);
       if (!res.ok || data.error) {
         if (data.quotaExceeded) {
+          trackEvent("pipeline_quota_exceeded", { mode, plan: profile?.plan_id ?? null });
           router.push(upgradeSubscribePath());
           return;
         }
         throw new Error(data.error || `Erreur ${res.status}`);
       }
+      trackEvent("pipeline_started", {
+        mode,
+        already_running: !!data.alreadyRunning,
+        first_search_done: !!profile?.first_search_done,
+      });
       if (mode === "autoapply") {
-        setSelectMode(false);
-        setSelectedUrls(new Set());
         setShowAutoTuto(false);
+        if (data.executor === "desktop" && data.deepLink) {
+          setAgentDeepLink(data.deepLink);
+          setAgentAwaiting(true);
+          openAgentDeepLink(data.deepLink);
+        }
       }
       if (mode === "full" && !data.alreadyRunning) {
         setProfile((p) => (p ? { ...p, first_search_done: true } : p));
       }
       await fetchRun();
     } catch (e) {
+      trackEvent("pipeline_start_error", { mode });
       alert((e as Error).message);
     } finally {
       setLaunching(false);
     }
-  }, [fetchRun, router, uid, supabase]);
+  }, [fetchRun, router, profile?.first_search_done, profile?.cv_url, profile?.plan_id]);
+
+  const retryAgentDeepLink = useCallback(() => {
+    if (agentDeepLink) openAgentDeepLink(agentDeepLink);
+  }, [agentDeepLink]);
+
+  useEffect(() => {
+    if (!agentAwaiting || !run) return;
+    const log = run.log || "";
+    const agentConnected =
+      run.status === "running" ||
+      log.includes("[agent]") ||
+      log.includes("Auto-apply") ||
+      log.includes("Chromium");
+    if (agentConnected) {
+      setAgentAwaiting(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      if (run.status === "pending" && !log.trim()) {
+        setAgentAwaiting(true);
+      }
+    }, 30_000);
+    return () => window.clearTimeout(t);
+  }, [agentAwaiting, run?.status, run?.log, run]);
+
+  useEffect(() => {
+    if (run?.status === "done" || run?.status === "failed" || run?.status === "cancelled") {
+      setAgentDeepLink(null);
+      setAgentAwaiting(false);
+    }
+  }, [run?.status]);
 
   const onboardingDraft = useMemo(() => loadDraft(), [profile?.id]);
 
@@ -392,8 +537,9 @@ export default function Dashboard() {
     [startPipeline]
   );
 
-  const stopPipeline = useCallback(async () => {
+  const stopPipeline = useCallback(async (finalizeFound = false) => {
     if (!run?.id) return;
+    setShowStopConfirm(false);
     setStopping(true);
     const prevRun = run;
     setRun({
@@ -412,13 +558,25 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || `Impossible d'arrêter (${res.status})`);
       await fetchRun();
       if (uid) await load(uid, true);
+      if (finalizeFound) {
+        await startPipeline("analyze");
+      }
     } catch (e) {
       setRun(prevRun);
       alert((e as Error).message);
     } finally {
       setStopping(false);
     }
-  }, [fetchRun, load, run, uid]);
+  }, [fetchRun, load, run, startPipeline, uid]);
+
+  const requestStopPipeline = useCallback(() => {
+    if (!run) return;
+    if (isAutoapplyRun(run)) {
+      void stopPipeline(false);
+      return;
+    }
+    setShowStopConfirm(true);
+  }, [run, stopPipeline]);
 
   useEffect(() => {
     if (!uid) return;
@@ -503,12 +661,29 @@ export default function Dashboard() {
   }, [jobs, tab]);
 
   const autoApplyEligible = useMemo(() => jobs.filter(isAutoApplyEligible), [jobs]);
+  const eligibleUrls = useMemo(() => autoApplyEligible.map((j) => j.url), [autoApplyEligible]);
+  const selectedEligibleUrls = useMemo(
+    () => eligibleUrls.filter((url) => selectedUrls.has(url)),
+    [eligibleUrls, selectedUrls]
+  );
+
+  useEffect(() => {
+    setSelectedUrls((prev) => {
+      const eligible = new Set(eligibleUrls);
+      const next = new Set([...prev].filter((url) => eligible.has(url)));
+      return next.size === prev.size ? prev : next;
+    });
+    if (selectMode && eligibleUrls.length === 0) {
+      setSelectMode(false);
+    }
+  }, [eligibleUrls, selectMode]);
 
   const enterSelectMode = useCallback(() => {
-    setTab("generated");
+    if (eligibleUrls.length === 0) return;
+    setSelectedUrls(new Set(eligibleUrls));
     setSelectMode(true);
-    setSelectedUrls(new Set(autoApplyEligible.map((j) => j.url)));
-  }, [autoApplyEligible]);
+    setTab("generated");
+  }, [eligibleUrls]);
 
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);
@@ -524,10 +699,20 @@ export default function Dashboard() {
     });
   }, []);
 
+  const selectAllEligible = useCallback(() => {
+    setSelectedUrls(new Set(eligibleUrls));
+  }, [eligibleUrls]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedUrls(new Set());
+  }, []);
+
   const launchAutoApply = useCallback(() => {
-    if (!uid || selectedUrls.size === 0) return;
-    startPipeline("autoapply", Array.from(selectedUrls));
-  }, [uid, selectedUrls, startPipeline]);
+    const urls = selectMode ? selectedEligibleUrls : eligibleUrls;
+    if (!uid || urls.length === 0) return;
+    startPipeline("autoapply", urls);
+    exitSelectMode();
+  }, [uid, selectMode, selectedEligibleUrls, eligibleUrls, startPipeline, exitSelectMode]);
 
   const firstName = profile?.full_name?.split(" ")[0] || "vous";
   const pipelineActive = run?.status === "running" || run?.status === "pending";
@@ -625,8 +810,10 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className={`db-page-split${showFirstSearch ? " db-page-split--first" : ""}`}>
-          <div className="db-page-main">
+        <div
+          className={`db-page-split${showFirstSearch ? " db-page-split--first" : ""}${isMobile ? " db-page-split--mobile" : ""}`}
+        >
+          <div className={`db-page-main${selectMode ? " db-page-main--selecting" : ""}`}>
         {showFirstSearch && (
           <section className="db-first" aria-labelledby="first-search-title">
             <h2 id="first-search-title" className="db-first__title">
@@ -664,10 +851,23 @@ export default function Dashboard() {
           </section>
         )}
 
+        {showFirstSearch && isMobile && (
+          <div className="db-terminal-mini" aria-label="Terminal compact">
+            <PipelineLog run={run} variant="mini" />
+          </div>
+        )}
+
         {!showFirstSearch && (
           <>
         {showPoorFitAlert && fitHealth && (
           <PoorFitAlert health={fitHealth} roles={profile?.target_roles} />
+        )}
+
+        {agentDeepLink && (
+          <AgentLaunchBanner
+            onRetry={retryAgentDeepLink}
+            awaitingAgent={agentAwaiting}
+          />
         )}
 
         {pipelineActive ? (
@@ -675,7 +875,8 @@ export default function Dashboard() {
             run={run}
             jobsFound={jobs.length}
             targetRoles={profile?.target_roles}
-            onStop={stopPipeline}
+            compact={isMobile}
+            onStop={requestStopPipeline}
             stopping={stopping}
           />
         ) : (
@@ -709,25 +910,39 @@ export default function Dashboard() {
               scanUpgrade={scanUpgrade}
               applyCount={autoApplyEligible.length}
               totalJobs={jobs.length}
-              selectMode={selectMode}
-              selectedCount={selectedUrls.size}
+              desktopOnly={isMobile}
               onStartApply={enterSelectMode}
-              onCancelApply={exitSelectMode}
-              onSelectAll={() => setSelectedUrls(new Set(autoApplyEligible.map((j) => j.url)))}
-              onDeselectAll={() => setSelectedUrls(new Set())}
-              onLaunchApply={() => setShowAutoTuto(true)}
             />
           </>
         )}
 
+        {isMobile && (
+          <div className="db-terminal-mini db-terminal-mini--inline" aria-label="Terminal compact">
+            <PipelineLog run={run} variant="mini" />
+          </div>
+        )}
+
+        {selectMode && (
+          <div className="db-select-banner">
+            <div className="db-select-banner__body">
+              <p className="db-select-banner__title">Choisissez les offres à postuler</p>
+              <p className="db-select-banner__hint">
+                Seules les offres non postulées avec CV + lettre et score ≥ 6 sont sélectionnables.
+              </p>
+            </div>
+            <div className="db-select-banner__aside">
+              <span className="db-select-banner__count">{selectedEligibleUrls.length}</span>
+              <button type="button" className="db-select-banner__quit" onClick={exitSelectMode}>
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className={`db__jobs-head${selectMode ? " db__jobs-head--selecting" : ""}`}>
           <div className="db__jobs-head-left">
-            <h2 className="db__jobs-title">
-              {selectMode ? "Offres éligibles" : "Vos offres"}
-            </h2>
-            {!selectMode && (
-              <StatFilterChips stats={stats} tab={tab} onChange={setTab} />
-            )}
+            <h2 className="db__jobs-title">Vos offres</h2>
+            <StatFilterChips stats={stats} tab={tab} onChange={setTab} />
           </div>
         </div>
 
@@ -752,6 +967,34 @@ export default function Dashboard() {
             selectedUrls={selectedUrls}
             onToggleSelect={toggleSelectUrl}
           />
+        )}
+
+        {selectMode && (
+          <div className="db-auto-bar db-auto-bar--select">
+            <div className="db-auto-bar__summary">
+              <span className="db-auto-bar__count">{selectedEligibleUrls.length}</span>
+              <span className="db-auto-bar__label">
+                offre{selectedEligibleUrls.length > 1 ? "s" : ""} sélectionnée{selectedEligibleUrls.length > 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="db-auto-bar__actions">
+              <button type="button" className="db-auto-bar__toggle" onClick={selectAllEligible}>
+                Tout sélectionner
+              </button>
+              <button type="button" className="db-auto-bar__toggle" onClick={clearSelection}>
+                Tout retirer
+              </button>
+              <button
+                type="button"
+                className="db-big-btn db-big-btn--apply db-auto-bar__launch"
+                disabled={selectedEligibleUrls.length === 0 || launching}
+                onClick={() => setShowAutoTuto(true)}
+              >
+                <span>{launching ? "Lancement…" : "Lancer Postuler"}</span>
+                <span className="db-big-btn__beta">beta</span>
+              </button>
+            </div>
+          </div>
         )}
 
           </>
@@ -802,7 +1045,75 @@ export default function Dashboard() {
           onComplete={handleCalibrationComplete}
         />
       )}
+      {showStopConfirm && (
+        <StopSearchConfirmModal
+          stopping={stopping}
+          onClose={() => setShowStopConfirm(false)}
+          onStopNow={() => stopPipeline(false)}
+          onFinalize={() => stopPipeline(true)}
+        />
+      )}
     </>
+  );
+}
+
+function StopSearchConfirmModal({
+  stopping,
+  onClose,
+  onStopNow,
+  onFinalize,
+}: {
+  stopping: boolean;
+  onClose: () => void;
+  onStopNow: () => void;
+  onFinalize: () => void;
+}) {
+  return (
+    <div className="stop-modal__overlay" role="presentation" onClick={onClose}>
+      <div
+        className="stop-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stop-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="stop-modal__close"
+          aria-label="Fermer"
+          onClick={onClose}
+          disabled={stopping}
+        >
+          ×
+        </button>
+        <p className="stop-modal__eyebrow">Recherche en cours</p>
+        <h2 id="stop-modal-title" className="stop-modal__title">
+          Que fait-on des offres déjà trouvées ?
+        </h2>
+        <p className="stop-modal__text">
+          Vous pouvez arrêter net, ou générer les CV et lettres pour les offres déjà
+          trouvées qui matchent bien (6/10 ou plus).
+        </p>
+        <div className="stop-modal__actions">
+          <button
+            type="button"
+            className="stop-modal__primary"
+            onClick={onFinalize}
+            disabled={stopping}
+          >
+            {stopping ? "Arrêt…" : "Générer les dossiers trouvés"}
+          </button>
+          <button
+            type="button"
+            className="stop-modal__secondary"
+            onClick={onStopNow}
+            disabled={stopping}
+          >
+            Stopper tout
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -823,13 +1134,8 @@ function DashboardActionsBar({
   scanUpgrade,
   applyCount,
   totalJobs = 0,
-  selectMode,
-  selectedCount = 0,
+  desktopOnly = false,
   onStartApply,
-  onCancelApply,
-  onSelectAll,
-  onDeselectAll,
-  onLaunchApply,
 }: {
   launching: boolean;
   onSearch: () => void;
@@ -838,24 +1144,20 @@ function DashboardActionsBar({
   scanUpgrade?: UpgradeOffer | null;
   applyCount?: number;
   totalJobs?: number;
-  selectMode?: boolean;
-  selectedCount?: number;
+  desktopOnly?: boolean;
   onStartApply?: () => void;
-  onCancelApply?: () => void;
-  onSelectAll?: () => void;
-  onDeselectAll?: () => void;
-  onLaunchApply?: () => void;
 }) {
   const total = applyCount ?? 0;
-  const allSelected = total > 0 && selectedCount === total;
-  const canApply = total > 0;
+  const canApply = total > 0 && !desktopOnly;
 
   // Message expliquant pourquoi l'auto-apply n'est pas disponible
-  const applyBlockReason = !canApply
-    ? totalJobs === 0
+  const applyBlockReason = desktopOnly
+    ? "Postuler est disponible uniquement sur ordinateur."
+    : !canApply
+      ? totalJobs === 0
       ? "Lancez d'abord une recherche pour obtenir des offres."
       : "Aucune offre avec CV + lettre générés (score ≥ 6). Lancez une recherche."
-    : null;
+      : null;
 
   return (
     <div className="db-acts-wrap">
@@ -872,7 +1174,7 @@ function DashboardActionsBar({
           <button
             type="button"
             className="db-big-btn"
-            disabled={launching || selectMode || scanDisabled}
+            disabled={launching || scanDisabled}
             onClick={onSearch}
             title={scanDisabledReason ?? undefined}
           >
@@ -880,37 +1182,23 @@ function DashboardActionsBar({
           </button>
         )}
 
-        <div className={`db-big-btn-group${selectMode ? " db-big-btn-group--active" : ""}`}>
-          <button
-            type="button"
-            className="db-big-btn db-big-btn--apply"
-            disabled={selectMode || !canApply}
-            onClick={canApply ? onStartApply : undefined}
-            title={applyBlockReason ?? undefined}
-          >
-            Postuler
-            <span className="db-big-btn__beta">(beta)</span>
-            {canApply ? ` (${total})` : ""}
-          </button>
-          {selectMode && onCancelApply && (
-            <button
-              type="button"
-              className="db-big-btn-stop"
-              onClick={onCancelApply}
-              aria-label="Annuler la sélection"
-              title="Annuler"
-            >
-              ×
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          className="db-big-btn db-big-btn--apply"
+          disabled={!canApply}
+          onClick={canApply ? onStartApply : undefined}
+          title={applyBlockReason ?? undefined}
+        >
+          <span>Postuler</span>
+          <span className="db-big-btn__beta">beta</span>
+        </button>
       </div>
 
-      {!canApply && applyBlockReason && !selectMode && (
+      {!canApply && applyBlockReason && (
         <p className="db-acts-apply-hint">{applyBlockReason}</p>
       )}
 
-      {scanDisabled && scanDisabledReason && (!scanUpgrade || scanUpgrade.isMaxPlan) && !selectMode && (
+      {scanDisabled && scanDisabledReason && (!scanUpgrade || scanUpgrade.isMaxPlan) && (
         <p className="db-acts-apply-hint">
           {scanDisabledReason}{" "}
           <Link href={buyCreditsPath()} className="db-acts-upgrade-link">
@@ -919,42 +1207,11 @@ function DashboardActionsBar({
         </p>
       )}
 
-      {selectMode && total > 0 && (
-        <div className="db-acts-select" role="toolbar" aria-label="Sélection des offres">
-          <span className="db-acts-select__count">
-            {selectedCount} sur {total} sélectionnée{selectedCount > 1 ? "s" : ""}
-          </span>
-          <div className="db-acts-select__actions">
-            <button
-              type="button"
-              className="db-acts-select__toggle"
-              onClick={allSelected ? onDeselectAll : onSelectAll}
-            >
-              {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
-            </button>
-            <button
-              type="button"
-              className="db-big-btn db-acts-select__launch"
-              disabled={selectedCount === 0}
-              onClick={onLaunchApply}
-            >
-              Envoyer sur LinkedIn
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!selectMode && (
-        <a href="/dashboard/preferences" className="db-acts-config">
-          Modifier les critères de recherche
-        </a>
-      )}
+      <a href="/dashboard/preferences" className="db-acts-config">
+        Modifier les critères de recherche
+      </a>
     </div>
   );
-}
-
-function ReadyToApplyCta({ count, onStart }: { count: number; onStart: () => void }) {
-  return null;
 }
 
 
@@ -1041,7 +1298,11 @@ function PoorFitAlert({
   return (
     <div className="db__fit-alert" role="alert">
       <div className="db__fit-alert-icon" aria-hidden="true">
-        ⚠️
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 9v4" />
+          <path d="M12 17h.01" />
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        </svg>
       </div>
       <div className="db__fit-alert-body">
         <p className="db__fit-alert-title">Décalage profil / recherche détecté</p>

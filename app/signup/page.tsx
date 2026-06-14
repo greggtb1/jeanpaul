@@ -8,6 +8,7 @@ import BrandName from "@/components/BrandName";
 import AuthProvisioning from "@/components/AuthProvisioning";
 import { activateAccount } from "@/lib/activate-account";
 import { loadDraft } from "@/lib/onboarding-draft";
+import { trackEvent } from "@/lib/umami";
 
 const MIN_PASSWORD = 6;
 
@@ -111,14 +112,17 @@ export default function SignupPage() {
 
     const registerData = await registerRes.json().catch(() => ({}));
     if (!registerRes.ok) {
+      trackEvent("signup_error", { stage: "register" });
       setError(registerData.error || "Impossible de créer le compte");
       setLoading(false);
       return;
     }
+    trackEvent("signup_account_created");
 
     const supabase = createClient();
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError) {
+      trackEvent("signup_error", { stage: "signin" });
       setError(authError.message);
       setLoading(false);
       return;
@@ -127,9 +131,11 @@ export default function SignupPage() {
     try {
       setProvisioningStep("Création de votre espace…");
       await activateAccount(sessionId, { onStep: setProvisioningStep });
+      trackEvent("signup_activation_completed");
       setProvisioningStep("Ouverture de votre espace…");
       router.replace("/dashboard");
     } catch (err) {
+      trackEvent("signup_error", { stage: "activate" });
       setError((err as Error).message);
       setLoading(false);
       setProvisioningStep("");
@@ -165,16 +171,6 @@ export default function SignupPage() {
           Paiement confirmé. Choisissez un mot de passe pour accéder à votre espace.
         </p>
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="auth-field">
-            <span>Nom complet</span>
-            <input
-              type="text"
-              required
-              autoComplete="name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          </label>
           <label className="auth-field">
             <span>Email</span>
             <input

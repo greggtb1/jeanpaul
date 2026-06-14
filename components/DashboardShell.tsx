@@ -9,11 +9,11 @@ import BrandName from "@/components/BrandName";
 import DashboardOnboarding from "@/components/DashboardOnboarding";
 
 const NAV = [
-  { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", exact: true },
-  { href: "/dashboard/compte", label: "Mon compte", mobileLabel: "Compte" },
-  { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture" },
-  { href: "/dashboard/preferences", label: "Critères de recherche", mobileLabel: "Critères" },
-  { href: "/dashboard/idees", label: "Boîte à idées", mobileLabel: "Idées" },
+  { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", mobileIcon: "⌂", exact: true },
+  { href: "/dashboard/compte", label: "Mon compte", mobileLabel: "Compte", mobileIcon: "◎" },
+  { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture", mobileIcon: "€" },
+  { href: "/dashboard/preferences", label: "Critères de recherche", mobileLabel: "Critères", mobileIcon: "⚙" },
+  { href: "/dashboard/idees", label: "Boîte à idées", mobileLabel: "Idées", mobileIcon: "✦" },
 ];
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -54,18 +54,21 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         <header className="db-topbar">
           <Link href="/" className="db__brand db__brand--mobile">
             <span className="brand__logo brand__logo--img brand__logo--side">
-              <img src="/logo.png" alt="" width={156} height={156} />
+              <img src="/logo.png" alt="" width={32} height={32} />
             </span>
             <BrandName />
           </Link>
-          <button type="button" className="db-topbar__logout" onClick={logout}>
-            Déconnexion
+          <button type="button" className="db-topbar__logout" onClick={logout} aria-label="Déconnexion">
+            <span className="db-topbar__logout-icon" aria-hidden="true">
+              ⎋
+            </span>
+            <span className="db-topbar__logout-text">Sortir</span>
           </button>
         </header>
         <aside className="db-side">
           <Link href="/" className="db__brand db__brand--side">
             <span className="brand__logo brand__logo--img brand__logo--side">
-              <img src="/logo.png" alt="" width={156} height={156} />
+              <img src="/logo.png" alt="" width={30} height={30} />
             </span>
             <BrandName />
           </Link>
@@ -80,6 +83,9 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                   href={item.href}
                   className={`db-nav__link ${active ? "is-active" : ""}`}
                 >
+                  <span className="db-nav__icon" aria-hidden="true">
+                    {item.mobileIcon}
+                  </span>
                   <span className="db-nav__label db-nav__label--full">{item.label}</span>
                   <span className="db-nav__label db-nav__label--short">{item.mobileLabel}</span>
                 </Link>

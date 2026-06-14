@@ -201,6 +201,18 @@ def _extract_pdf_text(url: str) -> str:
     return _pdf_bytes_to_text(data)
 
 
+def _extract_pdf_text_from_storage_path(path: str) -> str:
+    if not path:
+        return ""
+    try:
+        from store import client
+
+        data = client().storage.from_("cvs").download(path)
+    except Exception:
+        data = None
+    return _pdf_bytes_to_text(data) if data else ""
+
+
 def _empty_user_structured() -> Dict[str, Any]:
     return {
         "experience": [],
@@ -386,8 +398,11 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
         return _cache
 
     cv_url = (p.get("cv_url") or "").strip()
+    cv_path = (p.get("cv_path") or "").strip()
     cv_filename = (p.get("cv_filename") or "").strip()
     cv_text = _extract_pdf_text(cv_url) if cv_url else ""
+    if not cv_text and cv_path:
+        cv_text = _extract_pdf_text_from_storage_path(cv_path)
     cv_identity = (
         _parse_identity_from_cv_text(cv_text, cv_filename) if cv_text.strip() else {}
     )

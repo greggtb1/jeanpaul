@@ -1883,6 +1883,192 @@ def auto_apply(min_score, max_apps, ids, no_dashboard, recent_only):
 
 
 # ============================================================================
+# QUICK-APPLY : postuler depuis une URL directement
+# ============================================================================
+
+def _scrape_job_from_url(url: str) -> dict:
+    """
+    Scrape titre, entreprise et description depuis une URL d'offre.
+    Supporte LinkedIn, WTTJ, et la plupart des ATS génériques.
+    """
+    import requests
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return {"title": "", "company": "", "description": "", "error": "beautifulsoup4 manquant"}
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    }
+    result = {"title": "", "company": "", "description": "", "error": ""}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=20)
+        soup = BeautifulSoup(resp.text, "lxml")
+
+        if "linkedin.com" in url:
+            title_el = soup.select_one(
+                "h1.top-card-layout__title, h1.topcard__title, h2.top-card-layout__title, h1"
+            )
+            company_el = soup.select_one(
+                "a.topcard__org-name-link, span.topcard__org-name, "
+                "a.top-card-layout__card-name-link, [class*='company-name']"
+            )
+            desc_el = soup.select_one(
+                ".show-more-less-html__markup, .description__text, [class*='description']"
+            )
+            result["title"]       = title_el.get_text(strip=True) if title_el else ""
+            result["company"]     = company_el.get_text(strip=True) if company_el else ""
+            result["description"] = desc_el.get_text(separator="\n", strip=True) if desc_el else ""
+            if not result["title"] and soup.title:
+                result["title"] = soup.title.get_text().split(" at ")[0].split(" | ")[0].strip()
+            if not result["company"] and soup.title:
+                parts = soup.title.get_text().split(" at ")
+                if len(parts) > 1:
+                    result["company"] = parts[-1].split("|")[0].strip()
+
+        elif "welcometothejungle.com" in url:
+            title_el   = soup.select_one("h1")
+            company_el = soup.select_one("h2, [class*='company-name'], [data-testid='company-name']")
+            desc_el    = soup.select_one("article, [data-testid='job-description'], main")
+            result["title"]       = title_el.get_text(strip=True) if title_el else ""
+            result["company"]     = company_el.get_text(strip=True) if company_el else ""
+            result["description"] = desc_el.get_text(separator="\n", strip=True)[:6000] if desc_el else ""
+            if not result["company"] and soup.title:
+                pt = soup.title.get_text()
+                result["company"] = pt.split("|")[-1].strip() if "|" in pt else ""
+
+        else:
+            title_el = soup.select_one("h1")
+            result["title"] = title_el.get_text(strip=True) if title_el else (
+                soup.title.get_text().split("|")[0].strip() if soup.title else ""
+            )
+            if soup.title and "|" in soup.title.get_text():
+                result["company"] = soup.title.get_text().split("|")[-1].strip()
+            for sel in ["article", "main", "#content", ".job-description",
+                        "[class*='description']", "[class*='content']", "body"]:
+                el = soup.select_one(sel)
+                if el and len(el.get_text()) > 200:
+                    result["description"] = el.get_text(separator="\n", strip=True)[:6000]
+                    break
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+@cli.command("quick-apply")
+@click.option("--url", required=True, help="URL de l'offre (LinkedIn, WTTJ, ATS...)")
+@click.option("--auto-submit", is_flag=True, default=False,
+              help="Soumet automatiquement sans pause (défaut: non)")
+def quick_apply(url, auto_submit):
+    """
+    Postuler depuis une URL directement — sans générer de CV ni lettre.
+    Ouvre le formulaire, le remplit avec l'IA, et s'arrête pour que tu valides.
+    La session LinkedIn est conservée entre les runs (profil persistant).
+    """
+    config     = load_config(CONFIG_FILE)
+    api_key    = get_api_key(config)
+    output_dir = BASE_DIR / config.get("application", {}).get("output_dir", "applications")
+
+    ats = detect_ats(url)
+    console.print(f"\n[bold cyan]🔗 Quick-apply — {ats.upper()}[/bold cyan]")
+    console.print(f"[dim]{url[:90]}[/dim]\n")
+
+    # ── 1. Scrape offre ──────────────────────────────────────────────────────
+    console.print("[dim]  Récupération de l'offre...[/dim]", end="")
+    scraped = _scrape_job_from_url(url)
+    if scraped.get("error") and not scraped.get("title"):
+        console.print(f" [yellow]⚠ {scraped['error'][:80]}[/yellow]")
+
+    title   = scraped.get("title", "").strip()
+    company = scraped.get("company", "").strip()
+    desc    = scraped.get("description", "").strip()
+
+    if not title:
+        title   = click.prompt("  Titre du poste").strip()
+    if not company:
+        company = click.prompt("  Nom de l'entreprise").strip()
+
+    console.print(f" [green]✓[/green] [bold]{company}[/bold] — {title[:60]}")
+
+    job = {
+        "title":       title,
+        "company":     company,
+        "url":         url,
+        "description": desc,
+        "platform":    ats,
+        "source":      ats,
+    }
+
+    # ── 2. Sauvegarde minimale + dossier ─────────────────────────────────────
+    jobs      = load_jobs(JOBS_FILE)
+    job["_fit_score"] = 0
+    jobs_dedup = [j for j in jobs if job_key(j) != job_key(job)]
+    jobs_dedup.append(job)
+    for i, j in enumerate(jobs_dedup):
+        j["_idx"] = i + 1
+    save_jobs(jobs_dedup, JOBS_FILE)
+
+    idx     = job.get("_idx", len(jobs_dedup))
+    app_dir = make_app_dir(output_dir, idx, company, title)
+
+    (app_dir / "job_info.json").write_text(json.dumps({
+        "job": {k: v for k, v in job.items() if not k.startswith("_")},
+        "fit_score": 0,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # ── 3. PDF vide (placeholder — pas de vrai CV généré) ────────────────────
+    company_slug = re.sub(r"[^A-Za-z0-9_-]", "", company.replace(" ", "_"))[:20] or "Entreprise"
+    cv_path = app_dir / f"{company_slug}.pdf"
+    _pdf_bytes = (
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n"
+        b"xref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n"
+        b"0000000052 00000 n\n0000000101 00000 n\n"
+        b"trailer<</Size 4/Root 1 0 R>>\nstartxref\n173\n%%EOF"
+    )
+    cv_path.write_bytes(_pdf_bytes)
+    console.print(f"  [dim]📄 PDF placeholder : {cv_path.name}[/dim]")
+
+    # Lettre = texte minimal (pas générée)
+    letter_text = "exemple exemple"
+
+    # ── 4. Auto-apply ────────────────────────────────────────────────────────
+    console.print(f"\n[bold]  Ouverture du formulaire...[/bold]")
+    console.print(f"  [dim]auto_submit={'oui' if auto_submit else 'non — tu cliques Submit'}[/dim]\n")
+
+    filler = AutoFiller(headless=False)
+    try:
+        ok = filler.smart_fill(
+            job, cv_path, letter_text,
+            api_key=api_key, model=AUTOFILL_MODEL,
+            app_dir=app_dir,
+            auto_submit=auto_submit,
+            pause=not auto_submit,
+        )
+    finally:
+        filler._close()
+
+    # Dashboard
+    try:
+        jobs_data = load_jobs(JOBS_FILE)
+        generate_dashboard(jobs_data, output_dir, BASE_DIR / "dashboard.html")
+    except Exception:
+        pass
+
+    status = "[green]✅ OK[/green]" if ok else "[yellow]⚠ Partiel[/yellow]"
+    console.print(f"\n{status}  {company} — {title[:50]}")
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 

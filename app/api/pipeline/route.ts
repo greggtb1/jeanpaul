@@ -8,6 +8,7 @@ import { engineUnavailableMessage, resolveEnginePaths } from "@/lib/engine-path"
 import { stopPipelineRun } from "@/lib/pipeline-stop";
 import { reconcileStalePipelineRun, trimPipelineLog } from "@/lib/pipeline-reconcile";
 import { assertPipelineQuota } from "@/lib/plan-quota";
+import { createAgentLaunchToken } from "@/lib/agent-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -165,6 +166,39 @@ export async function POST(req: NextRequest) {
     }
 
     await supabase.from("app_state").delete().eq("id", `pipeline_cancel:${runId}`);
+
+    if (mode === "autoapply") {
+      try {
+        const { deepLink } = await createAgentLaunchToken(admin, userId, runId, urls);
+        await admin
+          .from("pipeline_runs")
+          .update({
+            status: "pending",
+            progress: 0,
+            log: "[api] En attente de l'agent desktop…\n",
+          })
+          .eq("id", runId);
+
+        return NextResponse.json({
+          runId,
+          started: true,
+          executor: "desktop",
+          deepLink,
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Impossible de créer le lien agent.";
+        await admin
+          .from("pipeline_runs")
+          .update({
+            status: "failed",
+            log: `${message}\n`,
+            finished_at: new Date().toISOString(),
+            result: { error: "agent_launch_failed" },
+          })
+          .eq("id", runId);
+        return NextResponse.json({ error: message }, { status: 500 });
+      }
+    }
 
     const engine = resolveEnginePaths();
 

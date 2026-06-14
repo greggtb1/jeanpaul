@@ -1,0 +1,1 @@
+{"com.jeanpaul.agent":{"identifier":"com.jeanpaul.agent","description":"","local":true,"windows":["main"],"permissions":["core:default","deep-link:default",{"identifier":"shell:allow-spawn","allow":[{"args":true,"name":"jeanpaul-engine","sidecar":true}]},{"identifier":"shell:allow-execute","allow":[{"args":true,"name":"jeanpaul-engine","sidecar":true}]}]}}

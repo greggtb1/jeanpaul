@@ -7,6 +7,8 @@ Usage:
   python run_for_user.py --user-id <uuid> --run-id <uuid>
 """
 import argparse
+import contextlib
+import io
 import os
 import re
 import signal
@@ -14,8 +16,26 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASE = Path(__file__).parent
+BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 sys.path.insert(0, str(BASE))
+
+
+def _ensure_playwright_browsers_path() -> None:
+    """En mode PyInstaller, force un cache navigateur stable (pas _MEIPASS)."""
+    if not getattr(sys, "frozen", False):
+        return
+    if sys.platform == "darwin":
+        path = Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        path = Path(base) / "ms-playwright"
+    else:
+        path = Path.home() / ".cache" / "ms-playwright"
+    path.mkdir(parents=True, exist_ok=True)
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(path)
+
+
+_ensure_playwright_browsers_path()
 
 from store import (
     set_user, pipeline_log, pipeline_set_status, pipeline_finish,
@@ -103,7 +123,11 @@ def run_main(args: list[str], user_id: str, run_id: str) -> int:
     if pipeline_is_cancelled(run_id):
         return 130
     pipeline_log(run_id, f"$ main.py {' '.join(args)}")
-    env = {**os.environ, "JA_USER_ID": user_id}
+    os.environ["JA_USER_ID"] = user_id
+
+    if getattr(sys, "frozen", False):
+        return _run_main_inprocess(args, user_id, run_id)
+
     proc = subprocess.Popen(
         [sys.executable, "-u", str(BASE / "main.py"), *args],
         cwd=str(BASE),
@@ -111,7 +135,7 @@ def run_main(args: list[str], user_id: str, run_id: str) -> int:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        env=env,
+        env={**os.environ, "JA_USER_ID": user_id},
     )
     _active_proc = proc
     try:
@@ -131,6 +155,58 @@ def run_main(args: list[str], user_id: str, run_id: str) -> int:
         return proc.returncode
     finally:
         _active_proc = None
+
+
+class _LogCapture(io.TextIOBase):
+    """Redirige stdout/stderr vers pipeline_log (mode PyInstaller)."""
+
+    def __init__(self, run_id: str):
+        self._run_id = run_id
+        self._buf = ""
+
+    def write(self, s: str) -> int:
+        if not s:
+            return 0
+        self._buf += s
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            text = clean(line)
+            if text.strip():
+                pipeline_log(self._run_id, text)
+        return len(s)
+
+    def flush(self) -> None:
+        if self._buf.strip():
+            pipeline_log(self._run_id, clean(self._buf))
+            self._buf = ""
+
+
+def _run_main_inprocess(args: list[str], user_id: str, run_id: str) -> int:
+    import main as main_module
+
+    old_argv = sys.argv[:]
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(BASE)
+        sys.argv = ["main.py", *args]
+        cap = _LogCapture(run_id)
+        with contextlib.redirect_stdout(cap), contextlib.redirect_stderr(cap):
+            try:
+                main_module.cli.main(args=args, standalone_mode=False, prog_name="main.py")
+                cap.flush()
+                return 0
+            except SystemExit as e:
+                cap.flush()
+                code = e.code
+                if code is None:
+                    return 0
+                return int(code) if isinstance(code, int) else 1
+    finally:
+        sys.argv = old_argv
+        try:
+            os.chdir(old_cwd)
+        except OSError:
+            pass
 
 
 def build_scrape_args(user_id: str) -> list[str]:
@@ -384,8 +460,46 @@ def sync_documents(user_id: str, run_id: str):
         pipeline_log(run_id, f"⚠ Upload documents : {str(e)[:120]}")
 
 
+def test_chromium_launch(run_id: str) -> None:
+    """Ouvre Chromium 3s pour valider le chemin (mode debug agent)."""
+    import time
+    from scrapers.autofill import _resolve_chromium_executable
+
+    exe = _resolve_chromium_executable()
+    pipeline_log(run_id, f"frozen={getattr(sys, 'frozen', False)}")
+    pipeline_log(run_id, f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')}")
+    pipeline_log(run_id, f"Chromium résolu : {exe or 'AUCUN'}")
+
+    if not exe or not Path(exe).exists():
+        pipeline_log(run_id, "❌ Chromium introuvable. Lancez : playwright install chromium")
+        pipeline_finish(run_id, "failed", {"step": "chromium-test"})
+        sys.exit(1)
+
+    from playwright.sync_api import sync_playwright
+    pipeline_log(run_id, "🪄 Ouverture de Chromium…")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, executable_path=exe)
+        page = browser.new_page()
+        page.goto("about:blank")
+        pipeline_log(run_id, "✓ Chromium ouvert avec succès")
+        time.sleep(3)
+        browser.close()
+    pipeline_log(run_id, "✅ Test Chromium OK")
+    pipeline_finish(run_id, "done", {"mode": "test-chromium"})
+
+
 def ensure_chromium(run_id: str) -> bool:
     """Vérifie que Chromium Playwright est installé, sinon le télécharge."""
+    try:
+        from scrapers.autofill import _resolve_chromium_executable
+        exe = _resolve_chromium_executable()
+        if exe and Path(exe).exists():
+            pipeline_log(run_id, f"✓ Chromium trouvé : {Path(exe).name}")
+            return True
+        if exe:
+            pipeline_log(run_id, f"⚠ Chemin Chromium invalide : {exe[:120]}")
+    except Exception as e:
+        pipeline_log(run_id, f"⚠ Résolution Chromium : {str(e)[:80]}")
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -395,14 +509,25 @@ def ensure_chromium(run_id: str) -> bool:
         pass
 
     pipeline_log(run_id, "📥 Première utilisation : téléchargement du navigateur Chromium (~1 min)…")
-    proc = subprocess.run(
-        [sys.executable, "-m", "playwright", "install", "chromium"],
-        capture_output=True, text=True,
-    )
+    env = os.environ.copy()
+    if getattr(sys, "frozen", False):
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+        node, cli = compute_driver_executable()
+        cmd = [node, cli, "install", "chromium"]
+        env = get_driver_env()
+        # Installe dans le même cache que celui utilisé au lancement.
+        browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+        if browsers_path:
+            env["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
+    else:
+        cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if proc.returncode == 0:
         pipeline_log(run_id, "✓ Chromium installé. Il s'ouvrira automatiquement à chaque auto-apply.")
         return True
-    pipeline_log(run_id, f"❌ Installation Chromium échouée : {(proc.stderr or '')[:150]}")
+    err = (proc.stderr or proc.stdout or "")[:200]
+    pipeline_log(run_id, f"❌ Installation Chromium échouée : {err}")
     return False
 
 
@@ -516,7 +641,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--user-id", required=True)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--mode", default="full", choices=["full", "autoapply", "analyze"])
+    parser.add_argument("--mode", default="full", choices=["full", "autoapply", "analyze", "test-chromium"])
     opts = parser.parse_args()
 
     run_id = opts.run_id
@@ -526,6 +651,10 @@ def main():
     clear_profile_cache()
     pipeline_clear_cancel(run_id)
     pipeline_register_pid(run_id, os.getpid())
+
+    if opts.mode == "test-chromium":
+        test_chromium_launch(run_id)
+        return
 
     if opts.mode == "autoapply":
         run_autoapply(opts.user_id, run_id)

@@ -15,6 +15,7 @@ export type Profile = {
   remote_pref?: string[] | null;
   cv_url?: string | null;
   cv_filename?: string | null;
+  cv_path?: string | null;
   summary?: string | null;
   letter_tone?: string | null;
   letter_sample?: string | null;

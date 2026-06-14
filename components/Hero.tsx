@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import ProductMockup from "./ProductMockup";
+import { trackEvent } from "@/lib/umami";
 
 export default function Hero() {
   return (
@@ -17,7 +20,11 @@ export default function Hero() {
         </p>
 
         <div className="hero__cta">
-          <Link href="/onboarding" className="btn btn--outline">
+          <Link
+            href="/onboarding"
+            className="btn btn--outline"
+            onClick={() => trackEvent("landing_cta_click", { source: "hero" })}
+          >
             Démarrer
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path

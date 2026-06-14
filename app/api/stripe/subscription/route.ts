@@ -100,7 +100,7 @@ export async function GET() {
       info.mode = "one_time";
       try {
         const customer = await stripe.customers.retrieve(profile.stripe_customer_id as string);
-        const stripePlanRaw = customer.metadata?.plan_id?.trim();
+        const stripePlanRaw = "deleted" in customer ? undefined : customer.metadata?.plan_id?.trim();
         const targetPlan: PlanId = isPlanId(stripePlanRaw) ? stripePlanRaw : "test";
 
         if (profile.plan_id !== targetPlan) {

@@ -10,6 +10,7 @@ import {
   type BillingInterval,
   type PlanId,
 } from "@/lib/plans";
+import { trackEvent } from "@/lib/umami";
 
 export default function Pricing() {
   const [billing, setBilling] = useState<BillingInterval>("weekly");
@@ -29,14 +30,20 @@ export default function Pricing() {
           <button
             type="button"
             className={billing === "weekly" ? "is-active" : ""}
-            onClick={() => setBilling("weekly")}
+            onClick={() => {
+              setBilling("weekly");
+              trackEvent("pricing_billing_toggle", { billing: "weekly", source: "landing" });
+            }}
           >
             Hebdomadaire
           </button>
           <button
             type="button"
             className={billing === "monthly" ? "is-active" : ""}
-            onClick={() => setBilling("monthly")}
+            onClick={() => {
+              setBilling("monthly");
+              trackEvent("pricing_billing_toggle", { billing: "monthly", source: "landing" });
+            }}
           >
             Mensuel <span className="pricing__discount">−{MONTHLY_DISCOUNT_PERCENT} %</span>
           </button>
@@ -74,6 +81,13 @@ export default function Pricing() {
                   <Link
                     href={`/onboarding${planQuery(plan.id as PlanId, plan.kind === "subscription" ? billing : undefined)}`}
                     className={`btn pricing-card__cta${plan.featured ? " btn--accent" : " btn--outline"}`}
+                    onClick={() =>
+                      trackEvent("pricing_plan_click", {
+                        plan: plan.id,
+                        billing: plan.kind === "subscription" ? billing : "one_time",
+                        source: "landing_pricing",
+                      })
+                    }
                   >
                     Choisir {plan.name}
                   </Link>

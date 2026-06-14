@@ -46,3 +46,8 @@ engine/venv/
 *.pyc
 engine/applications/
 engine/*.backup.json
+
+# Binaires agent desktop (ne pas committer)
+public/downloads/agent/*.dmg
+public/downloads/agent/*.exe
+desktop/src-tauri/bin/jeanpaul-engine*

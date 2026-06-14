@@ -96,3 +96,39 @@ rm -rf venv
 ```
 
 Puis refaire §3 + Restart 1×.
+
+---
+
+## 7. Agent desktop (auto-apply)
+
+L'auto-apply ne tourne **plus sur le serveur** Hostinger (pas d'écran). Il passe par l'agent Tauri installé chez l'utilisateur.
+
+### Variables `.env` serveur (en plus des existantes)
+
+```
+SUPABASE_JWT_SECRET=...     # Supabase → Settings → API → JWT Secret
+AGENT_JWT_SECRET=...         # optionnel (sinon réutilise SUPABASE_JWT_SECRET)
+ANTHROPIC_API_KEY=...        # déjà requis pour le moteur
+NEXT_PUBLIC_AGENT_RELEASE_URL=https://jeanpauljob.com/downloads/agent
+```
+
+### Migration Supabase
+
+Appliquer `supabase/migrations/20260613120000_pipeline_runs_update_policy.sql` (policy UPDATE sur `pipeline_runs` pour les logs agent).
+
+### Build agent (Mac + Windows)
+
+```bash
+cd desktop
+npm install
+bash scripts/build-sidecar.sh
+VITE_API_ORIGIN=https://jeanpauljob.com npm run tauri:build
+```
+
+CI : tag `agent-v*` → workflow `.github/workflows/agent-desktop.yml`.
+
+### Test prod
+
+1. Déployer le web (§1–4)
+2. Installer l'agent depuis `/download`
+3. Dashboard → sélectionner offres → Postuler → deep link `jeanpaul://` → Chromium local
