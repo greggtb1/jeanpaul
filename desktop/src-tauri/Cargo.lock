@@ -143,6 +143,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "blowmyjob-agent"
+version = "1.0.7"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-shell",
+ "tokio",
+]
+
+[[package]]
 name = "brotli"
 version = "8.0.3"
 source = "git+https://github.com/dropbox/rust-brotli?branch=master#9cbed81a1a098fcd4ffcf956429dce6154415970"
@@ -1626,20 +1640,6 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
-]
-
-[[package]]
-name = "jeanpaul-agent"
-version = "1.0.7"
-dependencies = [
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-shell",
- "tokio",
 ]
 
 [[package]]

@@ -1,5 +1,7 @@
 import type Stripe from "stripe";
 import { getStripe, isCheckoutSessionActive } from "@/lib/stripe";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { recordReferralFromCheckoutSession } from "@/lib/referral-conversions";
 import {
   isPlanId,
   oneTimePriceCents,
@@ -188,12 +190,25 @@ export async function attachCheckoutToUser(
   }
 
   if (info.subscriptionId) {
+    const sub = await stripe.subscriptions.retrieve(info.subscriptionId);
     tasks.push(
-      stripe.subscriptions.update(info.subscriptionId, { metadata })
+      stripe.subscriptions.update(info.subscriptionId, {
+        metadata: {
+          ...(sub.metadata ?? {}),
+          ...metadata,
+        },
+      })
     );
   }
 
   await Promise.all(tasks);
+
+  const admin = createAdminClient();
+  try {
+    await recordReferralFromCheckoutSession(admin, session);
+  } catch (e) {
+    console.error("[stripe-session] referral", e);
+  }
 
   return info;
 }

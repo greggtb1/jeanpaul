@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Éval Auto-Apply — BLOW MY JOB</title>
+<style>
+  :root {
+    --blue: #0040f0; --ink: #0b1020; --navy: #1a2238;
+    --ok: #16a34a; --warn: #d97706; --ko: #dc2626;
+    --bg: #f6f7fb; --card: #fff; --line: #e6e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--ink);
+  }
+  header {
+    background: #fff; border-bottom: 2px solid var(--ink);
+    padding: 16px 24px; display: flex; align-items: center; gap: 12px;
+  }
+  header .logo { display: inline-flex; gap: 3px; }
+  header .logo i { width: 6px; height: 22px; border-radius: 3px; display: block; }
+  header .logo i:nth-child(1){ background: var(--blue); }
+  header .logo i:nth-child(2){ background: #ff7a59; }
+  header .logo i:nth-child(3){ background: #ffd23f; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: -0.02em; }
+  header h1 b { color: var(--blue); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  .card {
+    background: var(--card); border: 2px solid var(--ink); border-radius: 16px;
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 20px; margin-bottom: 20px;
+  }
+  label { font-weight: 700; display: block; margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 130px; border: 2px solid var(--line); border-radius: 12px;
+    padding: 12px; font-size: 14px; font-family: ui-monospace, Menlo, monospace; resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--blue); }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; margin-top: 14px; }
+  .row > div { flex: 1; min-width: 220px; }
+  input[type=text] { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 10px; font-size: 14px; }
+  button {
+    background: var(--blue); color: #fff; border: 2px solid var(--ink); border-radius: 12px;
+    padding: 12px 22px; font-size: 15px; font-weight: 800; cursor: pointer;
+    box-shadow: 3px 3px 0 0 var(--ink); transition: transform .12s, box-shadow .12s;
+  }
+  button:hover:not(:disabled) { transform: translate(2px,2px); box-shadow: 1px 1px 0 0 var(--ink); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .hint { color: #667; font-size: 13px; margin-top: 6px; }
+  .status { font-weight: 700; margin: 8px 0 16px; }
+  .pulse { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--blue); margin-right: 8px; animation: p 1s infinite; }
+  @keyframes p { 0%,100%{opacity:1} 50%{opacity:.3} }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; color: #889; }
+  .badge { font-weight: 800; }
+  .b-ok { color: var(--ok); } .b-warn { color: var(--warn); } .b-ko { color: var(--ko); }
+  .url { color: #556; font-size: 12px; word-break: break-all; max-width: 280px; display: inline-block; }
+  .shots { display: flex; gap: 6px; flex-wrap: wrap; }
+  .shots a img { height: 54px; border: 1px solid var(--line); border-radius: 6px; }
+  pre.log {
+    background: #0b1020; color: #cde3ff; padding: 14px; border-radius: 12px;
+    font-size: 12px; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .summary { display: flex; gap: 24px; flex-wrap: wrap; margin: 6px 0 14px; }
+  .summary div b { font-size: 22px; display: block; }
+  .muted { color: #889; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo"><i></i><i></i><i></i></span>
+  <h1>Éval Auto-Apply <b>BLOW MY JOB</b></h1>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <label for="urls">Colle les offres à tester (une URL par ligne)</label>
+    <textarea id="urls" placeholder="https://jobs.lever.co/...&#10;https://jobs.ashbyhq.com/...&#10;https://boards.greenhouse.io/..."></textarea>
+    <div class="hint">L'ATS est détecté automatiquement. L'agent remplit mais ne soumet jamais.</div>
+    <div class="row">
+      <div>
+        <label for="cv">Chemin du CV (PDF) — optionnel</label>
+        <input type="text" id="cv" placeholder="/Users/toi/Documents/cv.pdf" />
+      </div>
+      <div style="flex:0 0 auto;">
+        <button id="run">▶ Lancer l'éval</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none;">
+    <div class="status" id="status"></div>
+    <div class="summary" id="summary"></div>
+    <table>
+      <thead>
+        <tr><th>ATS</th><th>Atteint</th><th>Remplis</th><th>Échecs</th><th>Étapes</th><th>Durée</th><th>Captures</th><th>Offre</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="logCard" style="display:none;">
+    <label>Journal en direct</label>
+    <pre class="log" id="log"></pre>
+    <div class="muted">Une fenêtre Chromium s'ouvre pendant l'éval — laisse-la faire.</div>
+  </div>
+</div>
+
+<script>
+let jobId = null;
+let poll = null;
+
+const $ = (id) => document.getElementById(id);
+
+function atsCell(r) {
+  let t = r.ats_expected || r.ats_detected || "?";
+  if (r.ats_detected && r.ats_expected && r.ats_detected !== r.ats_expected) {
+    t = r.ats_expected + " → " + r.ats_detected;
+  }
+  return t;
+}
+
+function reachedBadge(r) {
+  if (r.ok) return '<span class="badge b-ok">✅ OK</span>';
+  if (r.fields_filled) return '<span class="badge b-warn">⚠️ partiel</span>';
+  if (r.error) return '<span class="badge b-ko">❌ erreur</span>';
+  return '<span class="badge b-ko">❌</span>';
+}
+
+function shotsCell(r) {
+  if (!r.screenshots || !r.screenshots.length) return '<span class="muted">—</span>';
+  return '<div class="shots">' + r.screenshots.map(s => {
+    const u = `/api/file?id=${jobId}&path=${encodeURIComponent(r.dir + '/' + s)}`;
+    return `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"/></a>`;
+  }).join('') + '</div>';
+}
+
+function render(st) {
+  $('resultsCard').style.display = 'block';
+  $('logCard').style.display = 'block';
+
+  if (st.running) {
+    $('status').innerHTML = `<span class="pulse"></span>Éval en cours… ${st.completed}/${st.total} offre(s) traitée(s)`;
+  } else {
+    $('status').innerHTML = `✅ Terminé — ${st.completed}/${st.total} offre(s)`;
+  }
+
+  const rs = st.results || [];
+  const reached = rs.filter(r => r.ok).length;
+  const anyFill = rs.filter(r => r.fields_filled).length;
+  const atsOk = rs.filter(r => r.ats_match).length;
+  $('summary').innerHTML = `
+    <div><b>${atsOk}/${st.total}</b><span class="muted">ATS détecté</span></div>
+    <div><b>${reached}/${st.total}</b><span class="muted">rempli + arrêt propre</span></div>
+    <div><b>${anyFill}/${st.total}</b><span class="muted">≥1 champ rempli</span></div>`;
+
+  $('rows').innerHTML = rs.map(r => `
+    <tr>
+      <td><b>${atsCell(r)}</b></td>
+      <td>${reachedBadge(r)}</td>
+      <td>${r.fields_filled ?? 0}</td>
+      <td>${r.fields_failed ?? 0}</td>
+      <td>${r.steps ?? 0}</td>
+      <td>${r.duration_s ? r.duration_s + 's' : '—'}</td>
+      <td>${shotsCell(r)}</td>
+      <td><span class="url">${r.url}</span>${r.error ? `<div class="b-ko" style="font-size:12px">${r.error}</div>` : ''}</td>
+    </tr>`).join('');
+
+  $('log').textContent = st.log || '';
+  $('log').scrollTop = $('log').scrollHeight;
+
+  if (st.done) {
+    clearInterval(poll); poll = null;
+    $('run').disabled = false;
+    $('run').textContent = "▶ Lancer l'éval";
+  }
+}
+
+async function tick() {
+  if (!jobId) return;
+  const r = await fetch(`/api/status?id=${jobId}`);
+  const st = await r.json();
+  if (st.error) return;
+  render(st);
+}
+
+$('run').addEventListener('click', async () => {
+  const urls = $('urls').value.trim();
+  if (!urls) { alert('Colle au moins une URL.'); return; }
+  $('run').disabled = true;
+  $('run').textContent = '⏳ Démarrage…';
+  const res = await fetch('/api/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ urls, cv_path: $('cv').value.trim() })
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert(data.error);
+    $('run').disabled = false; $('run').textContent = "▶ Lancer l'éval";
+    return;
+  }
+  jobId = data.id;
+  $('rows').innerHTML = '';
+  if (poll) clearInterval(poll);
+  poll = setInterval(tick, 2000);
+  tick();
+});
+</script>
+</body>
+</html>

@@ -9,13 +9,13 @@ export const AGENT_DOWNLOADS: AgentDownload[] = [
   {
     id: "mac-arm",
     label: "macOS (Apple Silicon)",
-    file: "JEAN-PAUL-Agent_aarch64.dmg",
-    hint: "Mac M1 / M2 / M3",
+    file: "BLOW-MY-JOB-Agent_aarch64.dmg",
+    hint: "Mac M1 / M2 / M3 / M4 / M5",
   },
   {
     id: "win",
     label: "Windows",
-    file: "JEAN-PAUL-Agent_x64-setup.exe",
+    file: "BLOW-MY-JOB-Agent_x64-setup.exe",
     hint: "Windows 10/11",
   },
 ];

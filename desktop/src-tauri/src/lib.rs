@@ -32,7 +32,14 @@ async fn claim_and_run(app: AppHandle, token: String, api_origin: String) -> Res
         .map_err(|e| format!("Réseau : {e}"))?;
 
     let status = res.status();
-    let body: Value = res.json().await.map_err(|e| format!("Réponse invalide : {e}"))?;
+    let raw = res
+        .text()
+        .await
+        .map_err(|e| format!("Réseau : {e}"))?;
+    let body: Value = serde_json::from_str(&raw).map_err(|_| {
+        let snippet: String = raw.chars().take(120).collect();
+        format!("Serveur injoignable ({status}) à {claim_url}. Réponse : {snippet}")
+    })?;
 
     if let Some(err) = body.get("error").and_then(|v| v.as_str()) {
         return Ok(RunResult {
@@ -127,7 +134,7 @@ async fn spawn_engine(
         env.insert("PLAYWRIGHT_BROWSERS_PATH".to_string(), cache);
     }
 
-    let sidecar_result = app.shell().sidecar("jeanpaul-engine");
+    let sidecar_result = app.shell().sidecar("blowmyjob-engine");
     if let Ok(sidecar) = sidecar_result {
         let (mut rx, _child) = sidecar
             .args(args.clone())
@@ -179,9 +186,14 @@ async fn spawn_engine(
 
     let (engine_dir, python) = match engine_root {
         Some(dir) => {
-            let venv_py = dir.join("venv/bin/python");
-            let py = if venv_py.exists() {
-                venv_py
+            let unix_venv_py = dir.join("venv/bin/python");
+            let windows_venv_py = dir.join("venv").join("Scripts").join("python.exe");
+            let py = if unix_venv_py.exists() {
+                unix_venv_py
+            } else if windows_venv_py.exists() {
+                windows_venv_py
+            } else if cfg!(target_os = "windows") {
+                std::path::PathBuf::from("python")
             } else {
                 std::path::PathBuf::from("python3")
             };
@@ -189,7 +201,7 @@ async fn spawn_engine(
         }
         None => {
             return Err(
-                "Sidecar jeanpaul-engine introuvable. Exécutez desktop/scripts/build-sidecar.sh"
+                "Sidecar blowmyjob-engine introuvable. Exécutez desktop/scripts/build-sidecar.sh"
                     .to_string(),
             );
         }
@@ -240,7 +252,7 @@ pub fn run() {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
-                let _ = app.deep_link().register("jeanpaul");
+                let _ = app.deep_link().register("blowmyjob");
             }
             let _ = app;
             Ok(())

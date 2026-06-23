@@ -5,7 +5,7 @@ const faqs = [
   },
   {
     q: "Comment ça marche concrètement ?",
-    a: "JEAN PAUL parcourt LinkedIn, sélectionne les offres les plus pertinentes avec un score de fit /10, génère un CV et une lettre adaptés, puis remplit le formulaire automatiquement. Il ne vous reste plus qu'à valider.",
+    a: "BLOW MY JOB parcourt LinkedIn, sélectionne les offres les plus pertinentes avec un score de fit /10, génère un CV et une lettre adaptés, puis remplit le formulaire automatiquement. Il ne vous reste plus qu'à valider.",
   },
   {
     q: "Est-ce que c'est sécurisé ?",

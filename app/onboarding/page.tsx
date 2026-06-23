@@ -28,7 +28,13 @@ import {
   TagInput,
   CvDropzone,
 } from "@/components/ProfilePreferencesFields";
+import BrandName from "@/components/BrandName";
 import { trackEvent } from "@/lib/umami";
+import {
+  appendRefToPath,
+  getStoredReferralCode,
+  persistReferralCode,
+} from "@/lib/referral-storage";
 
 type Form = Omit<OnboardingDraft, "draft_id" | "plan_id">;
 
@@ -62,6 +68,14 @@ export default function Onboarding() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const planId = parsePlanId(searchParams.get("plan"));
+  const referralCodeParam = searchParams.get("ref")?.trim() || "";
+
+  useEffect(() => {
+    if (referralCodeParam) {
+      const code = persistReferralCode(referralCodeParam);
+      if (code) saveDraft({ referral_code: code });
+    }
+  }, [referralCodeParam]);
   const { uid, user } = useAuth();
   const supabase = createClient();
   const [step, setStep] = useState(0);
@@ -286,18 +300,21 @@ export default function Onboarding() {
         already_paid: false,
         has_cv: !!form.cv_filename,
       });
+      const refCode = getStoredReferralCode() || referralCodeParam;
       saveDraft({
         ...form,
         plan_id: planId,
         email,
         full_name: fullName,
+        ...(refCode ? { referral_code: refCode } : {}),
       });
       trackEvent("onboarding_completed", {
         plan: planId,
         already_paid: false,
         has_cv: !!form.cv_filename,
       });
-      router.push(`/subscribe${planQuery(planId)}`);
+      const query = planQuery(planId);
+      router.push(appendRefToPath(`/subscribe${query}`, refCode));
     } catch (e) {
       trackEvent("onboarding_complete_error", { step: step + 1 });
       alert("Erreur : " + (e as Error).message);
@@ -306,11 +323,13 @@ export default function Onboarding() {
   }
 
   const persistDraft = () => {
+    const refCode = getStoredReferralCode() || referralCodeParam;
     saveDraft({
       ...form,
       plan_id: planId,
       email: user?.email?.trim() || form.email.trim(),
       full_name: form.full_name.trim(),
+      ...(refCode ? { referral_code: refCode } : {}),
     });
   };
 
@@ -341,7 +360,7 @@ export default function Onboarding() {
       <div className="bg-decor" aria-hidden="true" />
       <div className="ob__shell">
         <header className="ob__top">
-          <span className="ob__brand">JEAN&nbsp;PAUL</span>
+          <BrandName />
           <div className="ob__progress" aria-hidden="true">
             <span style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
           </div>
@@ -470,7 +489,7 @@ export default function Onboarding() {
             <Section
               kicker="Vos lettres"
               title="Quel ton pour vos lettres ?"
-              subtitle="Choisissez un style, c'est tout ce qu'il faut pour commencer. JEAN PAUL l'adapte à chaque offre."
+              subtitle="Choisissez un style, c'est tout ce qu'il faut pour commencer. BLOW MY JOB l'adapte à chaque offre."
             >
               <Field label="Ton">
                 <LetterTonePicker

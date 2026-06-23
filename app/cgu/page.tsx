@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import LegalPage from "@/components/LegalPage";
 
 export const metadata: Metadata = {
-  title: "Conditions générales · JEAN PAUL",
+  title: "Conditions générales · BLOW MY JOB",
 };
 
 export default function CguPage() {
@@ -12,7 +12,7 @@ export default function CguPage() {
 
       <h2>Objet</h2>
       <p>
-        Les présentes CGU régissent l&apos;accès et l&apos;utilisation de JEAN PAUL, service
+        Les présentes CGU régissent l&apos;accès et l&apos;utilisation de BLOW MY JOB, service
         d&apos;aide à la recherche d&apos;emploi : scan d&apos;offres (notamment LinkedIn),
         notation de compatibilité, génération de CV et lettres, assistance au remplissage de
         formulaires de postulation.
@@ -34,7 +34,7 @@ export default function CguPage() {
 
       <h2>Utilisation du service</h2>
       <ul>
-        <li>Vous restez seul responsable des dossiers candidatés. JEAN PAUL prépare ; vous validez.</li>
+        <li>Vous restez seul responsable des dossiers candidatés. BLOW MY JOB prépare ; vous validez.</li>
         <li>Pas d&apos;usage frauduleux, spam, ou contournement des plateformes tierces (LinkedIn, ATS).</li>
         <li>Les documents générés sont une aide : relisez-les avant envoi.</li>
         <li>Le service n&apos;est pas affilié à LinkedIn ni aux employeurs listés.</li>
@@ -48,13 +48,13 @@ export default function CguPage() {
 
       <h2>Propriété intellectuelle</h2>
       <p>
-        JEAN PAUL, son interface et son code restent notre propriété. Vous conservez vos CV,
+        BLOW MY JOB, son interface et son code restent notre propriété. Vous conservez vos CV,
         lettres et données personnelles.
       </p>
 
       <h2>Limitation de responsabilité</h2>
       <p>
-        Dans les limites légales, JEAN PAUL n&apos;est pas responsable des décisions de
+        Dans les limites légales, BLOW MY JOB n&apos;est pas responsable des décisions de
         recruteurs, des erreurs dans les formulaires tiers, ni des dommages indirects. Notre
         responsabilité est plafonnée au montant payé sur les 12 derniers mois.
       </p>
@@ -72,7 +72,7 @@ export default function CguPage() {
       </p>
 
       <p>
-        Contact : <a href="mailto:contact@jeanpaul.app">contact@jeanpaul.app</a>
+        Contact : <a href="mailto:contact@blowmyjob.fr">contact@blowmyjob.fr</a>
       </p>
     </LegalPage>
   );

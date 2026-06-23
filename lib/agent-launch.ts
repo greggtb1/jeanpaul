@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const AGENT_LAUNCH_TTL_MS = 5 * 60 * 1000;
-export const AGENT_DEEP_LINK_SCHEME = "jeanpaul://autoapply";
+export const AGENT_DEEP_LINK_SCHEME = "blowmyjob://autoapply";
 
 export type AgentLaunchPayload = {
   userId: string;
@@ -32,7 +32,9 @@ export async function createAgentLaunchToken(
   });
   if (error) throw new Error(error.message);
 
-  const deepLink = `${AGENT_DEEP_LINK_SCHEME}?token=${encodeURIComponent(token)}`;
+  const deepLink =
+    `${AGENT_DEEP_LINK_SCHEME}?token=${encodeURIComponent(token)}` +
+    `&origin=${encodeURIComponent(getAppOrigin())}`;
   return { token, deepLink, expiresAt };
 }
 

@@ -42,9 +42,9 @@ export const PLANS: Record<PlanId, Plan> = {
   test: {
     id: "test",
     name: "Découverte",
-    tagline: "Une vraie recherche pour tester JEAN PAUL jusqu'au bout",
+    tagline: "Une vraie recherche pour tester BLOW MY JOB jusqu'au bout",
     description:
-      "Paiement unique : JEAN PAUL scanne LinkedIn, note les offres et prépare jusqu'à 15 dossiers complets prêts à soumettre.",
+      "Paiement unique : BLOW MY JOB scanne LinkedIn, note les offres et prépare jusqu'à 15 dossiers complets prêts à soumettre.",
     features: [
       "Scan LinkedIn selon vos critères",
       "Jusqu'à 15 offres retenues et personnalisées",
@@ -62,12 +62,13 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Essentiel",
     tagline: "Votre prochain poste, sans passer vos soirées à postuler",
     description:
-      "Jusqu'à 180 dossiers prêts par mois. JEAN PAUL scanne, score et prépare chaque dossier pour vous.",
+      "Jusqu'à 180 dossiers prêts par mois. BLOW MY JOB scanne, score et prépare chaque dossier pour vous.",
     features: [
-      "180 dossiers prêts / mois",
-      "Offres triées pour coller à votre profil",
-      "CV et lettre sur mesure par annonce",
-      "Formulaires pré-remplis, vous validez l'envoi",
+      "Scan LinkedIn selon vos critères",
+      "Jusqu'à 180 offres retenues et personnalisées / mois",
+      "CV + lettre prêts pour chaque bon match",
+      "Score de pertinence /10 sur les offres analysées",
+      "Auto-postulation incluse : formulaires pré-remplis, vous validez l'envoi",
     ],
     kind: "subscription",
     applicationsQuota: 45,
@@ -81,10 +82,11 @@ export const PLANS: Record<PlanId, Plan> = {
     description:
       "300 dossiers prêts par mois quand vous voulez viser large sans tout faire à la main.",
     features: [
-      "300 dossiers prêts / mois",
-      "Tout le plan Essentiel inclus",
-      "Dossiers candidatés sans lever le petit doigt",
-      "Pensé pour la recherche active",
+      "Scan LinkedIn selon vos critères",
+      "Jusqu'à 300 offres retenues et personnalisées / mois",
+      "CV + lettre prêts pour chaque bon match",
+      "Score de pertinence /10 sur les offres analysées",
+      "Auto-postulation incluse : formulaires pré-remplis, vous validez l'envoi",
     ],
     featured: true,
     kind: "subscription",

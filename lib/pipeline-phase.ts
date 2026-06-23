@@ -1,6 +1,6 @@
 import type { PipelineRun } from "@/components/PipelineLog";
 
-export type PipelineRunMode = "full" | "autoapply" | "analyze";
+export type PipelineRunMode = "full" | "autoapply" | "analyze" | "import";
 
 export type PipelineSubPhase =
   | "boot"
@@ -56,6 +56,11 @@ const ANALYZE_STEPS = [
   { id: 2 as const, label: "CV + lettres" },
 ];
 
+const IMPORT_STEPS = [
+  { id: 1 as const, label: "Import + score" },
+  { id: 2 as const, label: "CV + lettres" },
+];
+
 const AUTOAPPLY_STEPS = [
   { id: 1 as const, label: "Préparation" },
   { id: 2 as const, label: "Remplissage" },
@@ -64,6 +69,7 @@ const AUTOAPPLY_STEPS = [
 
 export function getPipelineSteps(mode: PipelineRunMode = "full") {
   if (mode === "autoapply") return AUTOAPPLY_STEPS;
+  if (mode === "import") return IMPORT_STEPS;
   if (mode === "analyze") return ANALYZE_STEPS;
   return FULL_STEPS;
 }
@@ -137,9 +143,12 @@ export function parsePipelinePhase(
   const lastLine = lastNonEmptyLine(log);
   const autoapply = isAutoapplyRun(run);
   const analyzeOnly = /Reprise\s*:\s*analyse|sans scraping|mode.*analyze/i.test(log);
+  const importOnly = run?.result?.mode === "import" || /Import d'une offre|Import d'offre/i.test(log);
   const mode: PipelineRunMode = autoapply
     ? "autoapply"
-    : analyzeOnly || run?.result?.mode === "analyze"
+    : importOnly
+      ? "import"
+      : analyzeOnly || run?.result?.mode === "analyze"
       ? "analyze"
       : "full";
 
@@ -179,7 +188,7 @@ export function parsePipelinePhase(
     } else if (run?.status === "running" || run?.status === "pending") {
       step = 1;
     }
-  } else if (mode === "analyze") {
+  } else if (mode === "analyze" || mode === "import") {
     if (step3) step = 2;
     else if (step2) step = 1;
     else if (run?.status === "running" || run?.status === "pending") step = 1;
@@ -259,7 +268,7 @@ export function parsePipelinePhase(
     else subPhase = "autoapply_boot";
   } else if (run?.status === "done") subPhase = "done";
   else if (syncing) subPhase = "sync";
-  else if (step === 2 && (step2Generate || step3 || step2SkipDocs || mode === "full" || mode === "analyze"))
+  else if (step === 2 && (step2Generate || step3 || step2SkipDocs || mode === "full" || mode === "analyze" || mode === "import"))
     subPhase = "generate";
   else if (step === 1 && huntFill && huntPipeline) subPhase = "hunt_fill";
   else if (step === 2) subPhase = huntFill ? "hunt_fill" : "analyze";
@@ -310,10 +319,12 @@ export function parsePipelinePhase(
         : "Recherche intelligente en cours";
     subdetail = "Arrêt dès l'objectif atteint. Chaque offre est analysée.";
   } else if (subPhase === "analyze") {
-    stepLabel = "Analyse JEAN PAUL";
+    stepLabel = mode === "import" ? "Import + scoring" : "Analyse BLOW MY JOB";
     detail = analyzeTotal
       ? `${analyzeDone}/${analyzeTotal} offres scorées`
-      : "Notation fit /10";
+      : mode === "import"
+        ? "Récupération de l'offre + note /10"
+        : "Notation fit /10";
     subdetail = analyzeDone
       ? qualifying
         ? `${qualifying} ≥ 6/10 sur ce run`
@@ -353,7 +364,7 @@ export function parsePipelinePhase(
       ? `Page formulaire ${formPage}`
       : autoapplyReady
         ? `${autoapplyReady} onglet${autoapplyReady > 1 ? "s" : ""} prêt${autoapplyReady > 1 ? "s" : ""}`
-        : "JEAN PAUL remplit les champs…";
+        : "BLOW MY JOB remplit les champs…";
   } else if (subPhase === "autoapply_ready") {
     stepLabel = "Validation dans Chromium";
     detail = autoapplyTotal

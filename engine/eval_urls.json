@@ -1,0 +1,15 @@
+{
+  "_comment": "Cibles d'évaluation locale de l'auto-apply. Remplace les URLs par de vraies offres ouvertes. cv_path optionnel (chemin absolu vers un PDF de test).",
+  "cv_path": "",
+  "letter": "Madame, Monsieur,\n\nVivement intéressé par ce poste, je pense que mon profil correspond à vos attentes. Je serais ravi d'échanger de vive voix.\n\nCordialement.",
+  "targets": [
+    { "ats": "lever", "url": "https://jobs.lever.co/EXEMPLE/REMPLACE-MOI" },
+    { "ats": "greenhouse", "url": "https://boards.greenhouse.io/EXEMPLE/jobs/0000000" },
+    { "ats": "ashby", "url": "https://jobs.ashbyhq.com/EXEMPLE/REMPLACE-MOI" },
+    { "ats": "workable", "url": "https://apply.workable.com/EXEMPLE/j/REMPLACE-MOI" },
+    { "ats": "teamtailor", "url": "https://EXEMPLE.teamtailor.com/jobs/REMPLACE-MOI" },
+    { "ats": "smartrecruiters", "url": "https://jobs.smartrecruiters.com/EXEMPLE/REMPLACE-MOI" },
+    { "ats": "recruitee", "url": "https://EXEMPLE.recruitee.com/o/REMPLACE-MOI" },
+    { "ats": "wttj", "url": "https://www.welcometothejungle.com/fr/companies/EXEMPLE/jobs/REMPLACE-MOI" }
+  ]
+}

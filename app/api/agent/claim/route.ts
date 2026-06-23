@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Run introuvable." }, { status: 404 });
     }
 
-    const email = profile?.email || `${userId}@users.jeanpaul.local`;
+    const email = profile?.email || `${userId}@users.blowmyjob.local`;
     const hasJwtSecret = !!(
       process.env.SUPABASE_JWT_SECRET?.trim() || process.env.AGENT_JWT_SECRET?.trim()
     );

@@ -14,7 +14,7 @@ const columns = [
     title: "Ressources",
     links: [
       { label: "Guide dossiers", href: "#fonctionnement" },
-      { label: "Support", href: "mailto:contact@jeanpaul.app" },
+      { label: "Support", href: "mailto:contact@blowmyjob.fr" },
     ],
   },
 ];
@@ -26,7 +26,7 @@ export default function Footer() {
         <div className="footer__brand">
           <div className="brand">
             <span className="brand__logo brand__logo--img">
-              <img src="/logo.png" alt="JEAN PAUL" width={156} height={156} />
+              <img src="/logo.png" alt="BLOW MY JOB" width={156} height={156} />
             </span>
             <BrandName />
           </div>
@@ -48,11 +48,11 @@ export default function Footer() {
       </div>
 
       <div className="footer__bottom">
-        <span suppressHydrationWarning>© {new Date().getFullYear()} JEAN PAUL</span>
+        <span suppressHydrationWarning>© {new Date().getFullYear()} BLOW MY JOB</span>
         <nav className="footer__legal" aria-label="Mentions légales">
           <Link href="/cgu">CGU</Link>
           <Link href="/confidentialite">Confidentialité</Link>
-          <a href="mailto:contact@jeanpaul.app">Contact</a>
+          <a href="mailto:contact@blowmyjob.fr">Contact</a>
         </nav>
       </div>
     </footer>

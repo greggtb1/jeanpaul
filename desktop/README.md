@@ -1,4 +1,4 @@
-# JEAN PAUL Agent (desktop)
+# BLOW MY JOB Agent (desktop)
 
 Application Tauri pour l'auto-apply local (Chromium visible sur la machine de l'utilisateur).
 
@@ -30,19 +30,38 @@ En dev, si le sidecar PyInstaller n'est pas buildé, l'agent utilise `engine/ven
 bash desktop/scripts/build-sidecar.sh
 ```
 
-Produit `desktop/src-tauri/bin/jeanpaul-engine-<target-triple>`.
+Produit `desktop/src-tauri/bin/blowmyjob-engine-<target-triple>`.
 
 ## Build installateur
 
 ```bash
 cd desktop
-export VITE_API_ORIGIN=https://jeanpauljob.com
+export VITE_API_ORIGIN=https://blowmyjob.fr
 npm run tauri:build
+```
+
+## Build Windows
+
+Le plus simple : lance le workflow GitHub Actions **Build BLOW MY JOB Agent**. Il produit :
+
+- `BLOW-MY-JOB-Agent_x64-setup.exe` pour Windows 10/11
+- les `.dmg` macOS
+
+En urgence depuis une machine Windows :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop/scripts/build-windows.ps1
+```
+
+Le script copie l'installateur final ici :
+
+```text
+public/downloads/agent/BLOW-MY-JOB-Agent_x64-setup.exe
 ```
 
 ## Deep link
 
-Protocole : `jeanpaul://autoapply?token=<uuid>`
+Protocole : `blowmyjob://autoapply?token=<uuid>`
 
 Généré par `POST /api/pipeline` (mode `autoapply`), consommé par `POST /api/agent/claim`.
 

@@ -208,8 +208,8 @@ def _account_password_for(email: str) -> str:
     """
     import hashlib
 
-    seed = (email or "jeanpaul").strip().lower()
-    digest = hashlib.sha256(f"jeanpaul-apply::{seed}".encode("utf-8")).hexdigest()
+    seed = (email or "blowmyjob").strip().lower()
+    digest = hashlib.sha256(f"blowmyjob-apply::{seed}".encode("utf-8")).hexdigest()
     # 8 caractères alphanumériques issus du hash + un préfixe garantissant la complexité.
     body = digest[:8]
     return f"Jp!{body}{digest[8:10].upper()}9"
@@ -5407,6 +5407,14 @@ Example output:
             total_filled = sum(len(r.get("filled", [])) for r in pages_recap)
             total_failed = sum(len(r.get("failed", [])) for r in pages_recap)
             steps_done   = len(pages_recap)
+            # Résumé exposé pour le harness d'éval (inerte en prod : jamais lu).
+            self._last_run_summary = {
+                "ats": ats,
+                "steps": steps_done,
+                "fields_filled": total_filled,
+                "fields_failed": total_failed,
+                "pages_recap": pages_recap,
+            }
             console.rule(f"[bold]Résumé candidature — ATS : {ats}[/bold]")
             console.print(f"  Étapes : {steps_done}  |  Champs remplis : {total_filled}  |  Échecs : {total_failed}")
             for i, recap in enumerate(pages_recap, 1):

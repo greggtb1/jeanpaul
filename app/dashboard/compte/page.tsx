@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 
 export default function ComptePage() {
   const { uid, loading: authLoading } = useAuth();
+  const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -37,6 +39,12 @@ export default function ComptePage() {
         setLoading(false);
       });
   }, [uid, supabase]);
+
+  async function logout() {
+    await supabase.auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -117,6 +125,14 @@ export default function ComptePage() {
         <Link href="/dashboard/preferences" className="btn btn--outline btn--sm" style={{ marginTop: 12 }}>
           Modifier mes critères de recherche
         </Link>
+      </section>
+
+      <section className="db-panel db-panel--flat">
+        <h2 className="db-panel__title">Session</h2>
+        <p className="db-muted">Déconnectez-vous de votre compte sur cet appareil.</p>
+        <button type="button" className="btn btn--outline btn--sm" style={{ marginTop: 12 }} onClick={logout}>
+          Déconnexion
+        </button>
       </section>
     </main>
   );

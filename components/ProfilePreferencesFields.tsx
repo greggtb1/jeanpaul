@@ -268,7 +268,7 @@ export function LetterSampleOptional({
       <div className="ob__optional-fold__body">
         <p className="ob__optional-fold__lead">
           Vous n&apos;avez rien à coller ici pour continuer. Si vous avez déjà une lettre dont vous
-          êtes satisfait·e, JEAN PAUL s&apos;en inspire pour reproduire votre façon d&apos;écrire.
+          êtes satisfait·e, BLOW MY JOB s&apos;en inspire pour reproduire votre façon d&apos;écrire.
         </p>
         {onUpload ? (
           <LetterSampleInput
@@ -309,7 +309,7 @@ export function LetterSampleInput({
       <textarea
         className="ob__textarea ob__letter-sample__area"
         rows={4}
-        placeholder="Collez une lettre ou importez un PDF / Word. JEAN PAUL s'en inspire pour le style."
+        placeholder="Collez une lettre ou importez un PDF / Word. BLOW MY JOB s'en inspire pour le style."
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />

@@ -29,11 +29,27 @@ export default function Testimonials() {
   return (
     <section className="section section--testi" id="temoignages">
       <div className="container">
+        <div className="steps-proof steps-proof--testi is-visible">
+          <div className="steps-proof__copy">
+            <h3>En 3 minutes, vos candidatures arrivent déjà en boîte mail.</h3>
+            <p>
+              BLOW MY JOB fait disparaître la corvée.
+            </p>
+          </div>
+          <figure className="steps-proof__media">
+            <img
+              src="/proofs/postulation.png"
+              alt="Boîte mail affichant plusieurs confirmations de candidatures envoyées"
+              loading="lazy"
+            />
+          </figure>
+        </div>
+
         <div className="section__head">
           <span className="eyebrow">Retours terrain</span>
           <h2 className="section__title">Ils postulent sans y passer leurs soirées</h2>
           <p className="section__subtitle">
-            Des retours de candidats qui utilisent JEAN PAUL au quotidien.
+            Des retours de candidats qui utilisent BLOW MY JOB au quotidien.
           </p>
         </div>
 

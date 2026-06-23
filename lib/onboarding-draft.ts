@@ -17,6 +17,7 @@ export type OnboardingDraft = {
   letter_tone: string;
   letter_sample: string;
   plan_id: PlanId;
+  referral_code?: string;
 };
 
 const DRAFT_KEY = "jp_onboarding_draft";

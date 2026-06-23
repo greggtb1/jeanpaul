@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, type FormEvent } from "react";
 import { type Profile, type Job } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
@@ -21,6 +21,7 @@ import PipelineLog, { type PipelineRun } from "@/components/PipelineLog";
 import PipelineProgress from "@/components/PipelineProgress";
 import { parsePipelinePhase, isAutoapplyRun } from "@/lib/pipeline-phase";
 import LetterModal from "@/components/LetterModal";
+import CvModal from "@/components/CvModal";
 import AutoApplyTuto from "@/components/AutoApplyTuto";
 import AgentLaunchBanner from "@/components/AgentLaunchBanner";
 import { openAgentDeepLink } from "@/lib/agent-client";
@@ -50,6 +51,7 @@ import { isJobReady, isJobReadyWithoutCv } from "@/lib/job-ready";
 import { trackEvent } from "@/lib/umami";
 
 type TabId = "all" | "applied" | "generated";
+type PipelineStartMode = "full" | "autoapply" | "analyze" | "import";
 
 /** Compteur qui s'incrémente en douceur quand la valeur change. */
 function AnimatedCount({ value }: { value: number }) {
@@ -147,11 +149,17 @@ function StatFilterChips({
 }
 
 function getJobScore(job: Job): number | null {
+  if (isImportedJob(job)) return null;
   const s = job.fit_score ?? (job.data?._fit_score as number | undefined);
   return typeof s === "number" ? s : null;
 }
 
+function isImportedJob(job: Job): boolean {
+  return !!(job.data as Record<string, unknown> | undefined)?.imported_manually;
+}
+
 function getJobFitReasoning(job: Job): string | null {
+  if (isImportedJob(job)) return null;
   const d = job.data || {};
   const analysis = d._analysis as Record<string, unknown> | undefined;
   const fromAnalysis =
@@ -196,12 +204,14 @@ function getScoreDialStyle(score: number): React.CSSProperties {
 
 function isAutoApplyEligible(job: Job): boolean {
   if (job.applied || !job.cv_url || !job.letter_url) return false;
+  if (isImportedJob(job)) return true;
   const s = getJobScore(job);
   return s != null && s >= 6;
 }
 
 function isPriorityJob(job: Job): boolean {
   if (job.cv_url || job.letter_url || job.applied) return true;
+  if (isImportedJob(job)) return true;
   if (isJobReadyWithoutCv(job)) return true;
   const s = getJobScore(job);
   if (s === null) return true;
@@ -303,6 +313,7 @@ export default function Dashboard() {
   const [run, setRun] = useState<PipelineRun | null>(null);
   const [lastSearch, setLastSearch] = useState<PipelineRun | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [launchMode, setLaunchMode] = useState<PipelineStartMode | null>(null);
   const [stopping, setStopping] = useState(false);
   const [showAutoTuto, setShowAutoTuto] = useState(false);
   const [agentDeepLink, setAgentDeepLink] = useState<string | null>(null);
@@ -310,12 +321,17 @@ export default function Dashboard() {
   const [showFirstDoneTuto, setShowFirstDoneTuto] = useState(false);
   const [showNoCvCalib, setShowNoCvCalib] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [hidePoorFitAlert, setHidePoorFitAlert] = useState(false);
   const [sideTab, setSideTab] = useState<"terminal" | "guide">("terminal");
   const [selectMode, setSelectMode] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevRunStatusRef = useRef<string | null>(null);
-  const pendingLaunchRef = useRef<{ mode: "full" | "analyze"; urls?: string[] } | null>(null);
+  const pendingLaunchRef = useRef<{
+    mode: Exclude<PipelineStartMode, "autoapply">;
+    urls?: string[];
+    importUrl?: string;
+  } | null>(null);
 
   const freshUrls = useMemo(() => {
     const urls = lastSearch?.result?.new_urls;
@@ -419,10 +435,13 @@ export default function Dashboard() {
   }, []);
 
   const startPipeline = useCallback(async (
-    mode: "full" | "autoapply" | "analyze" = "full",
-    urls?: string[]
+    mode: PipelineStartMode = "full",
+    urls?: string[],
+    importUrl?: string
   ) => {
     setLaunching(true);
+    setLaunchMode(mode);
+    if (!isMobile) setSideTab("terminal");
     trackEvent("pipeline_start_clicked", {
       mode,
       selected_urls: urls?.length ?? 0,
@@ -438,6 +457,7 @@ export default function Dashboard() {
         body: JSON.stringify({
           mode,
           ...(urls?.length ? { urls } : {}),
+          ...(importUrl ? { import_url: importUrl } : {}),
         }),
       });
       const data = await parseApiJson<{
@@ -474,15 +494,26 @@ export default function Dashboard() {
       await fetchRun();
     } catch (e) {
       trackEvent("pipeline_start_error", { mode });
+      setLaunchMode(null);
       alert((e as Error).message);
     } finally {
       setLaunching(false);
     }
-  }, [fetchRun, router, profile?.first_search_done, profile?.cv_url, profile?.plan_id]);
+  }, [fetchRun, router, profile?.first_search_done, profile?.cv_url, profile?.plan_id, isMobile]);
 
   const retryAgentDeepLink = useCallback(() => {
     if (agentDeepLink) openAgentDeepLink(agentDeepLink);
   }, [agentDeepLink]);
+
+  useEffect(() => {
+    if (
+      run?.status === "done" ||
+      run?.status === "failed" ||
+      run?.status === "cancelled"
+    ) {
+      setLaunchMode(null);
+    }
+  }, [run?.status, run?.id]);
 
   useEffect(() => {
     if (!agentAwaiting || !run) return;
@@ -514,13 +545,17 @@ export default function Dashboard() {
   const onboardingDraft = useMemo(() => loadDraft(), [profile?.id]);
 
   const requestPipelineLaunch = useCallback(
-    (mode: "full" | "analyze" = "full", urls?: string[]) => {
-      if (needsPreScanNoCvModal(profile)) {
-        pendingLaunchRef.current = { mode, urls };
+    (
+      mode: Exclude<PipelineStartMode, "autoapply"> = "full",
+      urls?: string[],
+      importUrl?: string
+    ) => {
+      if (mode !== "import" && needsPreScanNoCvModal(profile)) {
+        pendingLaunchRef.current = { mode, urls, importUrl };
         setShowNoCvCalib(true);
         return;
       }
-      void startPipeline(mode, urls);
+      void startPipeline(mode, urls, importUrl);
     },
     [profile, onboardingDraft, startPipeline]
   );
@@ -532,7 +567,7 @@ export default function Dashboard() {
       setProfile(updated);
       setShowNoCvCalib(false);
       window.dispatchEvent(new CustomEvent("ja:prefs-updated"));
-      if (pending) void startPipeline(pending.mode, pending.urls);
+      if (pending) void startPipeline(pending.mode, pending.urls, pending.importUrl);
     },
     [startPipeline]
   );
@@ -614,7 +649,7 @@ export default function Dashboard() {
     const prev = prevRunStatusRef.current;
     const wasRunning = prev === "running" || prev === "pending";
     const mode = run.result?.mode;
-    const isFirstSearchRun = mode !== "autoapply" && mode !== "analyze";
+    const isFirstSearchRun = mode !== "autoapply" && mode !== "analyze" && mode !== "import";
 
     if (wasRunning && run.status === "done" && isFirstSearchRun && !hasSeenFirstSearchDoneTuto()) {
       setShowFirstDoneTuto(true);
@@ -714,8 +749,17 @@ export default function Dashboard() {
     exitSelectMode();
   }, [uid, selectMode, selectedEligibleUrls, eligibleUrls, startPipeline, exitSelectMode]);
 
-  const firstName = profile?.full_name?.split(" ")[0] || "vous";
-  const pipelineActive = run?.status === "running" || run?.status === "pending";
+  const greeting = (() => {
+    const name = (profile?.full_name || "").trim();
+    if (!name) return "Bonjour";
+    const parts = name.split(/\s+/).filter(Boolean);
+    // prénom seul si disponible, sinon nom complet
+    const display = parts.length >= 2 ? parts[0] : name;
+    return `Bonjour ${display}`;
+  })();
+  const runActive = run?.status === "running" || run?.status === "pending";
+  const importLaunchPending = launching && launchMode === "import" && !runActive;
+  const pipelineActive = !importLaunchPending && (launching || runActive);
 
   const stats = useMemo(() => {
     const scored = jobs.map(getJobScore).filter((s): s is number => s != null);
@@ -738,7 +782,7 @@ export default function Dashboard() {
   }, [jobs, freshUrls, pipelineActive]);
 
   const fitHealth = useMemo(() => computeFitHealth(fitScopeJobs), [fitScopeJobs]);
-  const showPoorFitAlert = !!fitHealth && isPoorFitHealth(fitHealth);
+  const showPoorFitAlert = !hidePoorFitAlert && !!fitHealth && isPoorFitHealth(fitHealth);
 
   const plan = useMemo(() => getPlan(profile?.plan_id), [profile?.plan_id]);
   const generatedCount = useMemo(() => countGeneratedJobs(jobs), [jobs]);
@@ -769,6 +813,10 @@ export default function Dashboard() {
     () => buildUpgradeOffer(plan.id, analyzeBlockReason),
     [plan.id, analyzeBlockReason]
   );
+  const importBlockReason = useMemo(
+    () => pipelineQuotaBlockReason(plan, "import", quotaOpts),
+    [plan, quotaOpts]
+  );
   const generationBlocked = !!scanBlockReason || !!analyzeBlockReason;
 
   const showFirstSearch =
@@ -779,7 +827,7 @@ export default function Dashboard() {
     !pipelineActive;
 
   const pendingAnalysis = useMemo(
-    () => jobs.filter((j) => getJobScore(j) == null).length,
+    () => jobs.filter((j) => !isImportedJob(j) && getJobScore(j) == null).length,
     [jobs]
   );
 
@@ -787,7 +835,7 @@ export default function Dashboard() {
     <>
       <main className="db__main db__main--with-terminal">
         <div className="db__hello">
-          <h1>Bonjour {firstName}</h1>
+          <h1>{greeting}</h1>
           {!showFirstSearch && (
             <p className="db__hello-sub">
               {profile?.target_roles?.length
@@ -853,14 +901,18 @@ export default function Dashboard() {
 
         {showFirstSearch && isMobile && (
           <div className="db-terminal-mini" aria-label="Terminal compact">
-            <PipelineLog run={run} variant="mini" />
+            <PipelineLog run={run} variant="mini" starting={launching} />
           </div>
         )}
 
         {!showFirstSearch && (
           <>
         {showPoorFitAlert && fitHealth && (
-          <PoorFitAlert health={fitHealth} roles={profile?.target_roles} />
+          <PoorFitAlert
+            health={fitHealth}
+            roles={profile?.target_roles}
+            onClose={() => setHidePoorFitAlert(true)}
+          />
         )}
 
         {agentDeepLink && (
@@ -878,6 +930,8 @@ export default function Dashboard() {
             compact={isMobile}
             onStop={requestStopPipeline}
             stopping={stopping}
+            launching={launching}
+            launchMode={launchMode}
           />
         ) : (
           <>
@@ -918,7 +972,7 @@ export default function Dashboard() {
 
         {isMobile && (
           <div className="db-terminal-mini db-terminal-mini--inline" aria-label="Terminal compact">
-            <PipelineLog run={run} variant="mini" />
+            <PipelineLog run={run} variant="mini" starting={launching} />
           </div>
         )}
 
@@ -945,6 +999,15 @@ export default function Dashboard() {
             <StatFilterChips stats={stats} tab={tab} onChange={setTab} />
           </div>
         </div>
+
+        {!pipelineActive && (
+          <ImportOfferCta
+            launching={launching}
+            disabled={!!importBlockReason}
+            disabledReason={importBlockReason}
+            onImport={(url) => requestPipelineLaunch("import", undefined, url)}
+          />
+        )}
 
         {loading || authLoading ? (
           <div className="db__empty">Chargement…</div>
@@ -1016,7 +1079,7 @@ export default function Dashboard() {
               >Comment ça marche</button>
             </div>
             {sideTab === "terminal" ? (
-              <PipelineLog run={run} />
+              <PipelineLog run={run} starting={launching} />
             ) : (
               <DashboardGuide />
             )}
@@ -1210,6 +1273,96 @@ function DashboardActionsBar({
       <a href="/dashboard/preferences" className="db-acts-config">
         Modifier les critères de recherche
       </a>
+
+    </div>
+  );
+}
+
+
+function ImportOfferCta({
+  launching,
+  disabled,
+  disabledReason,
+  onImport,
+  compact = false,
+}: {
+  launching: boolean;
+  disabled?: boolean;
+  disabledReason?: string | null;
+  onImport: (url: string) => void;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const trimmed = url.trim();
+  const canSubmit = !launching && !disabled && /^https?:\/\/\S+\.\S+/.test(trimmed);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    onImport(trimmed);
+    setUrl("");
+  };
+
+  return (
+    <div className={`db-import-offer${compact ? " db-import-offer--compact" : ""}`}>
+      {launching ? (
+        <div className="db-import-offer__pending" role="status" aria-live="polite">
+          <span className="db-run__inline-loader-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>Préparation de l&apos;import…</span>
+        </div>
+      ) : !open ? (
+        <button
+          type="button"
+          className="db-import-offer__toggle"
+          disabled={disabled}
+          title={disabledReason ?? undefined}
+          onClick={() => setOpen(true)}
+        >
+          Importer une offre par lien
+        </button>
+      ) : (
+        <form className="db-import-offer__form" onSubmit={submit}>
+          <label className="db-import-offer__label" htmlFor={compact ? "first-import-url" : "import-url"}>
+            Lien de l&apos;offre
+          </label>
+          <div className="db-import-offer__row">
+            <input
+              id={compact ? "first-import-url" : "import-url"}
+              className="db-import-offer__input"
+              type="url"
+              inputMode="url"
+              value={url}
+              disabled={launching || disabled}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://www.linkedin.com/jobs/..."
+            />
+            <button
+              type="submit"
+              className="btn btn--navy btn--sm"
+              disabled={!canSubmit}
+              title={disabledReason ?? undefined}
+            >
+              Importer
+            </button>
+            <button
+              type="button"
+              className="db-import-offer__cancel"
+              onClick={() => {
+                setOpen(false);
+                setUrl("");
+              }}
+            >
+              Annuler
+            </button>
+          </div>
+        </form>
+      )}
+      {disabled && disabledReason && <p className="db-import-offer__error">{disabledReason}</p>}
     </div>
   );
 }
@@ -1290,9 +1443,11 @@ function QuotaBlockedNotice({
 function PoorFitAlert({
   health,
   roles,
+  onClose,
 }: {
   health: FitHealth;
   roles?: string[] | null;
+  onClose: () => void;
 }) {
   const rolesLabel = roles?.length ? roles.join(", ") : "vos mots-clés";
   return (
@@ -1320,6 +1475,14 @@ function PoorFitAlert({
           </a>
         </div>
       </div>
+      <button
+        type="button"
+        className="db__fit-alert-close"
+        onClick={onClose}
+        aria-label="Fermer l'alerte"
+      >
+        ×
+      </button>
     </div>
   );
 }
@@ -1403,7 +1566,7 @@ function JobList({
             fresh={isFresh(j)}
             entering={entering.has(j.url)}
             enterDelay={i * 65}
-            analyzing={getJobScore(j) == null}
+            analyzing={!isImportedJob(j) && getJobScore(j) == null}
             onToggleApplied={() => onToggleApplied(j.url)}
             profile={profile}
             {...rowSelectProps(j)}
@@ -1532,6 +1695,7 @@ function JobRow({
   const company = (d.company as string) || "";
   const location = (d.location as string) || "";
   const url = (d.url as string) || job.url;
+  const imported = isImportedJob(job);
   const score = getJobScore(job);
   const fitTier = getFitTier(score);
   const fitReasoning = getJobFitReasoning(job);
@@ -1539,6 +1703,7 @@ function JobRow({
   const docsUnavailable = isJobReadyWithoutCv(job) && !job.cv_url;
 
   const [letterOpen, setLetterOpen] = useState(false);
+  const [cvOpen, setCvOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [justSent, setJustSent] = useState(false);
   useEffect(() => {
@@ -1561,6 +1726,7 @@ function JobRow({
         compact ? "jr--low" : "jr--seen",
         entering ? "jr--enter" : "",
         analyzing ? "jr--analyzing" : "",
+        imported ? "jr--imported" : "",
         canExpandDetail ? "jr--expandable" : "",
         detailOpen ? "jr--open" : "",
         job.applied ? "jr--sent" : "",
@@ -1610,7 +1776,8 @@ function JobRow({
           <div
             className={[
               "jr__dial",
-              score == null ? "is-na" : "",
+              imported ? "jr__dial--imported" : "",
+              score == null && !imported ? "is-na" : "",
               compact ? "jr__dial--sm" : "",
               analyzing ? "jr__dial--loading" : "",
             ]
@@ -1618,14 +1785,18 @@ function JobRow({
               .join(" ")}
             style={score != null && !analyzing ? getScoreDialStyle(score) : undefined}
             aria-label={
-              analyzing
+              imported
+                ? "Offre importée"
+                : analyzing
                 ? "Analyse en cours"
                 : score != null
                   ? `Score ${score} sur 10`
                   : "Non analysée"
             }
           >
-            {analyzing ? (
+            {imported ? (
+              <span className="jr__dial-imported">Importé</span>
+            ) : analyzing ? (
               <>
                 <span className="jr__dial-spin" aria-hidden="true" />
                 <span className="jr__dial-loading-label">…</span>
@@ -1658,6 +1829,9 @@ function JobRow({
                   Analyse
                 </span>
               )}
+              {imported && !compact && (
+                <span className="jr__pill jr__pill--imported">Importé</span>
+              )}
             </div>
             <p className="jr__meta">
               {company}
@@ -1673,7 +1847,8 @@ function JobRow({
       <div
         className={[
           "jr__dial",
-          score == null ? "is-na" : "",
+          imported ? "jr__dial--imported" : "",
+          score == null && !imported ? "is-na" : "",
           compact ? "jr__dial--sm" : "",
           analyzing ? "jr__dial--loading" : "",
           job.applied ? "jr__dial--sent" : "",
@@ -1682,14 +1857,18 @@ function JobRow({
           .join(" ")}
         style={score != null && !analyzing ? getScoreDialStyle(score) : undefined}
         aria-label={
-          analyzing
+          imported
+            ? "Offre importée"
+            : analyzing
             ? "Analyse en cours"
             : score != null
               ? `Score ${score} sur 10`
               : "Non analysée"
         }
       >
-        {analyzing ? (
+        {imported ? (
+          <span className="jr__dial-imported">Importé</span>
+        ) : analyzing ? (
           <>
             <span className="jr__dial-spin" aria-hidden="true" />
             <span className="jr__dial-loading-label">…</span>
@@ -1722,6 +1901,9 @@ function JobRow({
               Analyse
             </span>
           )}
+          {imported && !compact && (
+            <span className="jr__pill jr__pill--imported">Importé</span>
+          )}
         </div>
         <p className="jr__meta">
           {company}
@@ -1751,14 +1933,8 @@ function JobRow({
           <button
             type="button"
             className="jr__doc jr__doc--cv"
-            onClick={async () => {
-              try {
-                const res = await fetch(`/api/storage/signed-url?url=${encodeURIComponent(job.cv_url!)}`);
-                const data = await res.json();
-                if (data.url) window.open(data.url, "_blank", "noopener");
-                else alert("Impossible d'ouvrir le CV. Relancez une recherche pour le régénérer.");
-              } catch { alert("Erreur réseau."); }
-            }}
+            onClick={() => setCvOpen(true)}
+            title="Voir et modifier le CV"
           >
             CV
           </button>
@@ -1802,6 +1978,14 @@ function JobRow({
           letterUrl={job.letter_url}
           profile={profile}
           onClose={() => setLetterOpen(false)}
+        />
+      )}
+      {cvOpen && job.cv_url && (
+        <CvModal
+          company={company}
+          title={title}
+          cvUrl={job.cv_url}
+          onClose={() => setCvOpen(false)}
         />
       )}
     </article>

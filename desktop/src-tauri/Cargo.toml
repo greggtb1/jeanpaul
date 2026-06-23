@@ -1,12 +1,12 @@
 [package]
-name = "jeanpaul-agent"
+name = "blowmyjob-agent"
 version = "1.0.7"
-description = "JEAN PAUL desktop auto-apply agent"
-authors = ["JEAN PAUL"]
+description = "BLOW MY JOB desktop auto-apply agent"
+authors = ["BLOW MY JOB"]
 edition = "2021"
 
 [lib]
-name = "jeanpaul_agent_lib"
+name = "blowmyjob_agent_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

@@ -5,10 +5,11 @@ import Link from "next/link";
 import BrandName from "./BrandName";
 
 const links = [
-  { href: "#", label: "Démo" },
-  { href: "#fonctionnement", label: "Fonctionnement" },
-  { href: "#tarifs", label: "Tarifs" },
-  { href: "#faq", label: "FAQ" },
+  { href: "/", label: "Démo" },
+  { href: "/#fonctionnement", label: "Fonctionnement" },
+  { href: "/#tarifs", label: "Tarifs" },
+  { href: "/ambassadeur", label: "Ambassadeurs" },
+  { href: "/#faq", label: "FAQ" },
 ];
 
 export default function Header() {
@@ -18,13 +19,13 @@ export default function Header() {
     <header className="header">
       <Link className="brand" href="/" onClick={() => setOpen(false)}>
         <span className="brand__logo brand__logo--img">
-          <img src="/logo.png" alt="JEAN PAUL" width={156} height={156} />
+          <img src="/logo.png" alt="BLOW MY JOB" width={156} height={156} />
         </span>
         <BrandName />
       </Link>
 
       <nav className="nav nav--desktop">
-        {links.slice(0, 3).map((link) => (
+        {links.slice(0, 4).map((link) => (
           <Link key={link.label} href={link.href}>
             {link.label}
           </Link>
@@ -63,6 +64,9 @@ export default function Header() {
               {link.label}
             </Link>
           ))}
+          <Link href="/login" onClick={() => setOpen(false)}>
+            Connexion
+          </Link>
           <Link
             href="/onboarding?plan=pro"
             className="btn btn--outline btn--sm nav--mobile__cta"

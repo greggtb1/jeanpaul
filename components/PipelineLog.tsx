@@ -17,18 +17,18 @@ export type PipelineRun = {
 };
 
 const IDLE_LINES = [
-  { text: "[sys]  jean-paul-engine v2.4.0 · idle", cls: "plog__line--head" },
+  { text: "[sys]  blowmyjob-engine v2.4.0 · idle", cls: "plog__line--head" },
   { text: "[net]  linkedin scraper .......... standby", cls: "plog__line--cmd" },
-  { text: "[api]  jean paul .................. ready", cls: "plog__line--cmd" },
+  { text: "[api]  blow my job .................. ready", cls: "plog__line--cmd" },
   { text: "[db]   supabase sync ............ ok", cls: "plog__line--cmd" },
   { text: "[que]  awaiting pipeline trigger…", cls: "plog__line--analyze" },
 ];
 
 const BOOT_LINES = [
-  { text: "[boot] JEAN PAUL kernel v2.4.0", cls: "plog__line--head" },
+  { text: "[boot] BLOW MY JOB kernel v2.4.0", cls: "plog__line--head" },
   { text: "[init] allocation mémoire ........ OK", cls: "plog__line--cmd" },
   { text: "[sync] supabase ................ OK", cls: "plog__line--cmd" },
-  { text: "[sync] jean paul .............. OK", cls: "plog__line--cmd" },
+  { text: "[sync] blow my job .............. OK", cls: "plog__line--cmd" },
   { text: "[sync] linkedin scraper ........ OK", cls: "plog__line--cmd" },
   { text: "[eng]  moteur prêt · en attente de mission", cls: "plog__line--analyze" },
 ];
@@ -86,20 +86,26 @@ function BootSequence({ active }: { active: boolean }) {
 export default function PipelineLog({
   run,
   variant = "default",
+  starting = false,
 }: {
   run: PipelineRun | null;
   variant?: "default" | "mini";
+  starting?: boolean;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const isMini = variant === "mini";
-  const allLines = useMemo(() => (run?.log ? run.log.split("\n").filter(Boolean) : []), [run?.log]);
+  const allLines = useMemo(
+    () => (starting || !run?.log ? [] : run.log.split("\n").filter(Boolean)),
+    [run?.log, starting]
+  );
   const lines = useMemo(
     () => (isMini ? allLines.slice(-4) : allLines),
     [allLines, isMini]
   );
 
-  const idle = !run;
-  const running = run?.status === "running" || run?.status === "pending";
+  const idle = !run && !starting;
+  const running =
+    starting || run?.status === "running" || run?.status === "pending";
   const done = run?.status === "done";
   const failed = run?.status === "failed";
   const cancelled = run?.status === "cancelled";
@@ -110,9 +116,9 @@ export default function PipelineLog({
       setBootDone(false);
       return;
     }
-    const t = setTimeout(() => setBootDone(true), 2800);
+    const t = setTimeout(() => setBootDone(true), starting ? 1200 : 2800);
     return () => clearTimeout(t);
-  }, [running, lines.length, run?.id]);
+  }, [running, lines.length, run?.id, starting]);
 
   const showBoot = running && lines.length === 0 && !bootDone;
   const showWaiting = running && lines.length === 0 && bootDone;
@@ -132,15 +138,15 @@ export default function PipelineLog({
           <span />
           <span />
         </div>
-        <span className="plog__title">{isMini ? "Terminal" : "JEAN PAUL · terminal"}</span>
+        <span className="plog__title">{isMini ? "Terminal" : "BLOW MY JOB · terminal"}</span>
         <span className={`plog__badge ${idle ? "plog__badge--idle" : running ? "plog__badge--run" : done ? "plog__badge--ok" : cancelled ? "plog__badge--idle" : failed ? "plog__badge--err" : ""}`}>
           {(idle || running) && <span className={`plog__pulse ${idle ? "plog__pulse--idle" : ""}`} />}
-          {idle ? "Standby" : running ? "En cours" : done ? "Terminé" : cancelled ? "Arrêté" : failed ? "Erreur" : run!.status}
+          {idle ? "Standby" : running ? "Démarrage" : done ? "Terminé" : cancelled ? "Arrêté" : failed ? "Erreur" : run!.status}
         </span>
       </div>
 
       <div className="plog__progress" aria-hidden="true">
-        <span style={{ width: `${run?.progress || (running ? 8 : 0)}%` }} />
+        <span style={{ width: `${starting ? 8 : run?.progress || (running ? 8 : 0)}%` }} />
       </div>
 
       <div
@@ -165,7 +171,9 @@ export default function PipelineLog({
           </div>
         ) : showBoot ? (
           isMini ? (
-            <p className="plog__line plog__line--muted">Démarrage du moteur…</p>
+            <p className="plog__line plog__line--muted">
+              {starting ? "Connexion au moteur…" : "Démarrage du moteur…"}
+            </p>
           ) : (
             <BootSequence active />
           )

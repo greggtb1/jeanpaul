@@ -10,6 +10,7 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/dashboard";
+  const affiliateLogin = next.startsWith("/dashboard/parrainage");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -76,7 +77,16 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="auth-card__foot">
-          Pas encore de compte ? <Link href="/onboarding">Commencer</Link>
+          Pas encore de compte ?{" "}
+          <Link
+            href={
+              affiliateLogin
+                ? `/signup-affiliate?next=${encodeURIComponent(next)}`
+                : "/onboarding"
+            }
+          >
+            {affiliateLogin ? "Créer un compte ambassadeur" : "Commencer"}
+          </Link>
         </p>
         <p className="auth-card__back">
           <Link href="/">Retour à l&apos;accueil</Link>

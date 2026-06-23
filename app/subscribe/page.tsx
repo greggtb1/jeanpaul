@@ -1,19 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import BrandName from "@/components/BrandName";
 import {
   MONTHLY_DISCOUNT_PERCENT,
   displayPrice,
   parseBillingInterval,
-  parsePlanId,
   PLANS_LIST,
   type BillingInterval,
   type PlanId,
 } from "@/lib/plans";
 import { getOrCreateDraftId, loadDraft, saveDraft } from "@/lib/onboarding-draft";
 import { parseApiJson } from "@/lib/parse-api-json";
+import {
+  getStoredReferralCode,
+  persistReferralCode,
+  resolveReferralCode,
+} from "@/lib/referral-storage";
 import { trackEvent } from "@/lib/umami";
 
 export default function SubscribePage() {
@@ -22,11 +26,21 @@ export default function SubscribePage() {
   const [error, setError] = useState("");
 
   const cancelled = searchParams.get("cancelled") === "1";
+  const refFromUrl = searchParams.get("ref")?.trim() || "";
 
-  const initialPlanId = parsePlanId(searchParams.get("plan"));
   const [billing, setBilling] = useState<BillingInterval>(
     parseBillingInterval(searchParams.get("billing"))
   );
+
+  useEffect(() => {
+    const draftCode = loadDraft()?.referral_code;
+    let code = resolveReferralCode(refFromUrl);
+    if (!code && draftCode) persistReferralCode(draftCode);
+  }, [refFromUrl]);
+
+  function activeReferralCode(): string {
+    return getStoredReferralCode() || "";
+  }
 
   async function subscribe(planId: PlanId) {
     setLoadingPlanId(planId);
@@ -35,11 +49,13 @@ export default function SubscribePage() {
       const plan = PLANS_LIST.find((p) => p.id === planId)!;
       const isSubscription = plan.kind === "subscription";
       const selectedBilling = isSubscription ? billing : "one_time";
+      const code = activeReferralCode();
 
       trackEvent("checkout_started", {
         plan: planId,
         billing: selectedBilling,
         source: "subscribe_page",
+        referral_code: code || undefined,
       });
 
       const current = saveDraft({
@@ -57,6 +73,7 @@ export default function SubscribePage() {
           email: current.email || undefined,
           full_name: current.full_name || undefined,
           draft_id: current.draft_id,
+          referral_code: code || undefined,
         }),
       });
       const data = await parseApiJson<{ url?: string; error?: string }>(res);

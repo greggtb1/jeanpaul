@@ -338,7 +338,7 @@ export default function FacturationPage() {
                 </button>
               ) : (
                 <p className="fact-page__muted">
-                  <a href="mailto:hello@jeanpaul.app">hello@jeanpaul.app</a>
+                  <a href="mailto:hello@blowmyjob.fr">hello@blowmyjob.fr</a>
                 </p>
               )}
             </div>
@@ -352,7 +352,12 @@ export default function FacturationPage() {
           className={`fact-sheet${showUpgrade ? " fact-sheet--focus" : ""}`}
         >
           <div className="fact-sheet__section-head">
-            <h3>Changer de formule</h3>
+            <div>
+              <h3>Changer de formule</h3>
+              <p className="fact-page__muted">
+                Besoin de plus de dossiers inclus ? Choisissez une formule supérieure.
+              </p>
+            </div>
             <div className="fact-sheet__toggle" role="group" aria-label="Facturation">
               <button
                 type="button"
@@ -417,9 +422,12 @@ export default function FacturationPage() {
       >
         <div className="fact-sheet__section-head">
           <div>
-            <h3>Recherches en plus</h3>
+            <h3>Ajouter des dossiers</h3>
+            <p className="fact-page__muted">
+              Pour débloquer quelques dossiers sans changer de formule.
+            </p>
             {quotaUsage && quotaUsage.bonusCredits > 0 && (
-              <p className="fact-page__muted">
+              <p className="fact-page__muted fact-page__bonus">
                 {quotaUsage.bonusCredits} bonus restant
                 {quotaUsage.bonusCredits > 1 ? "s" : ""}
               </p>

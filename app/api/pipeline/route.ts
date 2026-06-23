@@ -80,12 +80,26 @@ export async function POST(req: NextRequest) {
     const mode =
       body.mode === "autoapply"
         ? "autoapply"
+        : body.mode === "import"
+          ? "import"
         : body.mode === "analyze"
           ? "analyze"
           : "full";
     const urls = Array.isArray(body.urls)
       ? (body.urls as string[]).filter((u) => typeof u === "string" && u.trim())
       : [];
+    const importUrl = typeof body.import_url === "string" ? body.import_url.trim() : "";
+
+    if (mode === "import") {
+      try {
+        const parsed = new URL(importUrl);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          return NextResponse.json({ error: "Lien d'offre invalide" }, { status: 400 });
+        }
+      } catch {
+        return NextResponse.json({ error: "Lien d'offre invalide" }, { status: 400 });
+      }
+    }
 
     const { supabase, user } = session;
     const userId = user.id;
@@ -155,7 +169,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === "autoapply" && urls.length) {
-      const { error: selErr } = await supabase.from("app_state").upsert({
+      const { error: selErr } = await admin.from("app_state").upsert({
         id: `autoapply_selection:${userId}`,
         user_id: userId,
         data: { urls },
@@ -165,7 +179,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await supabase.from("app_state").delete().eq("id", `pipeline_cancel:${runId}`);
+    if (mode === "import") {
+      const { error: importErr } = await admin.from("app_state").upsert({
+        id: `import_offer:${runId}`,
+        user_id: userId,
+        data: { url: importUrl },
+      });
+      if (importErr) {
+        return NextResponse.json({ error: importErr.message }, { status: 500 });
+      }
+    }
+
+    await admin.from("app_state").delete().eq("id", `pipeline_cancel:${runId}`);
 
     if (mode === "autoapply") {
       try {
@@ -237,7 +262,16 @@ export async function POST(req: NextRequest) {
 
     const child = spawn(
       engine.python,
-      [engine.script, "--user-id", userId, "--run-id", runId, "--mode", mode],
+      [
+        engine.script,
+        "--user-id",
+        userId,
+        "--run-id",
+        runId,
+        "--mode",
+        mode,
+        ...(mode === "import" ? ["--import-url", importUrl] : []),
+      ],
       {
       cwd: engine.engineDir,
       detached: true,

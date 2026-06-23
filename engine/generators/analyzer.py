@@ -25,9 +25,9 @@ ANALYZE_INSTRUCTIONS = """Tu es un expert RH. Analyse cette offre d'emploi et re
   "seniority": "junior|mid|senior",
   "language": "fr|en — langue principale de l'OFFRE (texte de l'annonce), indépendamment du profil candidat",
   "salary_range": "fourchette si mentionnée, sinon vide",
-  "why_interesting": "Ce qui rend ce poste attrayant pour ce candidat, 1-2 phrases",
+  "why_interesting": "Ce qui rend ce poste attrayant pour TOI (2e personne, « tu »), 1-2 phrases",
   "fit_score": 7,
-  "fit_reasoning": "Pourquoi ce score, 1-2 phrases"
+  "fit_reasoning": "Pourquoi ce score, adressé à TOI (2e personne, « tu »), 1-2 phrases"
 }}
 
 IMPORTANT — Évaluation du fit :
@@ -37,8 +37,10 @@ IMPORTANT — Évaluation du fit :
 - Si le profil est partiel, fais la meilleure estimation possible à partir des infos disponibles.
 
 IMPORTANT — Ton des champs why_interesting et fit_reasoning :
-- Si le PROFIL CANDIDAT indique un nom réel (champ « Nom » différent de « Candidat »), tu peux l'utiliser.
-- Sinon, adresse-toi DIRECTEMENT au candidat à la 2e personne : « Tu as… », « Ton profil… », « Ton expérience… ». N'invente JAMAIS de prénom ni de nom."""
+- Adresse-toi TOUJOURS directement au candidat à la 2e personne du singulier : « Tu as… », « Ton profil… », « Ton expérience… », « Tu maîtrises… ».
+- N'utilise JAMAIS la 3e personne (« il », « elle », « le candidat », « ce profil »).
+- Si le PROFIL CANDIDAT indique un prénom réel, tu peux l'utiliser ponctuellement, sinon utilise « tu » sans exception.
+- N'invente JAMAIS de prénom ni de nom."""
 
 ANALYZE_JOB_SUFFIX = """
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type FeatureRequest = {
   id: string;
@@ -10,6 +10,43 @@ type FeatureRequest = {
   mine: boolean;
   voted: boolean;
 };
+
+const doneTickets = [
+  {
+    title: "Coller une URL d'emploi",
+    text: "Importer une offre précise depuis LinkedIn, WTTJ, HelloWork ou un autre ATS.",
+  },
+  {
+    title: "Régénérer une lettre en un clic",
+    text: "Retoucher la lettre si besoin : plus court, plus humain, plus entreprise ou plus vous.",
+  },
+  {
+    title: "Même logique pour le CV",
+    text: "Prévisualiser, télécharger et retoucher le CV adapté à l'offre.",
+  },
+];
+
+const inProgressTickets = [
+  {
+    title: "Amélioration auto-apply",
+    text: "Rendre le remplissage automatique plus fiable sur davantage de formulaires.",
+  },
+  {
+    title: "Version Windows",
+    text: "Préparer le logiciel desktop pour les utilisateurs Windows.",
+  },
+];
+
+/** Idées utilisateur déjà couvertes par la colonne « Fait » — ne pas les afficher à voter. */
+const SHIPPED_IDEA_PATTERNS = [
+  /import(er)?\s+(une\s+)?offre|coller\s+une\s+url|url\s+d['']emploi|import\s+par\s+lien|linkedin.*import|wttj.*import/i,
+  /r[eé]g[eé]n[eé]rer.*lettre|retouch(er)?.*lettre|lettre\s+en\s+un\s+clic|lettre\s+de\s+motivation/i,
+  /m[eê]me\s+logique.*cv|retouch(er)?.*cv|r[eé]g[eé]n[eé]rer.*cv|pr[eé]visuali.*cv|t[eé]l[eé]charg.*cv|modifi(er)?.*cv|cv.*pdf|cv.*enregistrer.*pdf/i,
+];
+
+function isShippedIdea(message: string): boolean {
+  return SHIPPED_IDEA_PATTERNS.some((re) => re.test(message));
+}
 
 export default function IdeesPage() {
   const [requests, setRequests] = useState<FeatureRequest[]>([]);
@@ -30,6 +67,11 @@ export default function IdeesPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  const voteRequests = useMemo(
+    () => requests.filter((r) => !isShippedIdea(r.message)),
+    [requests]
+  );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,15 +133,19 @@ export default function IdeesPage() {
       <div className="ideas-header">
         <h1 className="ideas-title">Boîte à idées</h1>
         <p className="ideas-sub">
-          Je développe ce que vous demandez. Soumettez une idée, votez pour les autres.
+          Votez pour ce qui vous manque le plus, ajoutez vos recos, et je priorise la suite avec vos retours.
         </p>
       </div>
 
       <form className="ideas-form" onSubmit={submit}>
+        <div className="ideas-form-intro">
+          <strong>Une idée, une gêne, une feature qui ferait gagner du temps ?</strong>
+          <span>Laissez-la ici. Plus une idée reçoit de votes, plus elle remonte dans la roadmap.</span>
+        </div>
         <textarea
           ref={textareaRef}
           className="ideas-textarea"
-          placeholder="Décrivez votre idée ou la feature manquante…"
+          placeholder="Ex : améliorer tel formulaire, ajouter tel jobboard, retoucher le CV autrement…"
           value={text}
           onChange={(e) => setText(e.target.value)}
           maxLength={500}
@@ -119,30 +165,74 @@ export default function IdeesPage() {
         {success && <p className="ideas-ok">Idée envoyée, merci !</p>}
       </form>
 
-      <div className="ideas-list">
-        {loading ? (
-          <p className="ideas-loading">Chargement…</p>
-        ) : requests.length === 0 ? (
-          <p className="ideas-empty">Soyez le premier à soumettre une idée.</p>
-        ) : (
-          requests.map((req) => (
-            <div key={req.id} className={`ideas-card${req.mine ? " ideas-card--mine" : ""}`}>
-              <button
-                type="button"
-                className={`ideas-vote${req.voted ? " ideas-vote--active" : ""}`}
-                onClick={() => toggleVote(req)}
-                aria-label={req.voted ? "Annuler mon vote" : "Voter pour cette idée"}
-              >
-                <span className="ideas-vote-arrow">▲</span>
-                <span className="ideas-vote-count">{req.votes}</span>
-              </button>
-              <div className="ideas-card-body">
-                <p className="ideas-card-text">{req.message}</p>
-                {req.mine && <span className="ideas-card-mine">Votre idée</span>}
-              </div>
-            </div>
-          ))
-        )}
+      <div className="ideas-kanban" aria-label="Roadmap et idées">
+        <section className="ideas-column ideas-column--vote">
+          <div className="ideas-column__head">
+            <span>À voter</span>
+            <strong>{voteRequests.length}</strong>
+          </div>
+          <div className="ideas-list">
+            {loading ? (
+              <p className="ideas-loading">Chargement…</p>
+            ) : voteRequests.length === 0 ? (
+              <p className="ideas-empty">Soyez le premier à proposer une idée à voter.</p>
+            ) : (
+              voteRequests.map((req) => (
+                <div key={req.id} className={`ideas-card${req.mine ? " ideas-card--mine" : ""}`}>
+                  <button
+                    type="button"
+                    className={`ideas-vote${req.voted ? " ideas-vote--active" : ""}`}
+                    onClick={() => toggleVote(req)}
+                    aria-label={req.voted ? "Annuler mon vote" : "Voter pour cette idée"}
+                  >
+                    <span className="ideas-vote-arrow">▲</span>
+                    <span className="ideas-vote-count">{req.votes}</span>
+                  </button>
+                  <div className="ideas-card-body">
+                    <p className="ideas-card-text">{req.message}</p>
+                    {req.mine && <span className="ideas-card-mine">Votre idée</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="ideas-column ideas-column--progress">
+          <div className="ideas-column__head">
+            <span>En cours</span>
+            <strong>{inProgressTickets.length}</strong>
+          </div>
+          <div className="ideas-list">
+            {inProgressTickets.map((ticket) => (
+              <article key={ticket.title} className="ideas-card ideas-card--static">
+                <span className="ideas-status-dot" aria-hidden="true" />
+                <div className="ideas-card-body">
+                  <h2 className="ideas-card-title">{ticket.title}</h2>
+                  <p className="ideas-card-text">{ticket.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="ideas-column ideas-column--done">
+          <div className="ideas-column__head">
+            <span>Fait par le développeur</span>
+            <strong>{doneTickets.length}</strong>
+          </div>
+          <div className="ideas-list">
+            {doneTickets.map((ticket) => (
+              <article key={ticket.title} className="ideas-card ideas-card--static">
+                <span className="ideas-status-dot" aria-hidden="true" />
+                <div className="ideas-card-body">
+                  <h2 className="ideas-card-title">{ticket.title}</h2>
+                  <p className="ideas-card-text">{ticket.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
       </div>
     </main>
   );

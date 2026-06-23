@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import LegalPage from "@/components/LegalPage";
 
 export const metadata: Metadata = {
-  title: "Politique de confidentialité · JEAN PAUL",
+  title: "Politique de confidentialité · BLOW MY JOB",
 };
 
 export default function ConfidentialitePage() {
@@ -12,9 +12,9 @@ export default function ConfidentialitePage() {
 
       <h2>Responsable du traitement</h2>
       <p>
-        JEAN PAUL est un service en ligne d&apos;aide à la recherche d&apos;emploi et à la
+        BLOW MY JOB est un service en ligne d&apos;aide à la recherche d&apos;emploi et à la
         préparation de dossiers. Pour toute question :{" "}
-        <a href="mailto:contact@jeanpaul.app">contact@jeanpaul.app</a>.
+        <a href="mailto:contact@blowmyjob.fr">contact@blowmyjob.fr</a>.
       </p>
 
       <h2>Données collectées</h2>
@@ -57,7 +57,7 @@ export default function ConfidentialitePage() {
       <h2>Vos droits</h2>
       <p>
         Accès, rectification, effacement, limitation, portabilité, opposition : écrivez à{" "}
-        <a href="mailto:contact@jeanpaul.app">contact@jeanpaul.app</a>. Réclamation possible
+        <a href="mailto:contact@blowmyjob.fr">contact@blowmyjob.fr</a>. Réclamation possible
         auprès de la CNIL.
       </p>
 

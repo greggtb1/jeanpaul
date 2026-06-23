@@ -69,7 +69,7 @@ export async function POST(req: Request) {
             currency: "eur",
             unit_amount: creditPackPriceCents(pack),
             product_data: {
-              name: `JEAN PAUL · ${pack.label} supplémentaires`,
+              name: `BLOW MY JOB · ${pack.label} supplémentaires`,
               description: pack.hint,
               metadata: { credit_pack: pack.id, credits: String(pack.credits) },
             },

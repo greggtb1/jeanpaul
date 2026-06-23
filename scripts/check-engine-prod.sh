@@ -2,7 +2,7 @@
 # Diagnostic rapide — à lancer sur le serveur Hostinger après SSH.
 set -euo pipefail
 
-echo "=== JEAN PAUL — diagnostic moteur ==="
+echo "=== BLOW MY JOB — diagnostic moteur ==="
 echo "Dossier courant : $(pwd)"
 echo ""
 

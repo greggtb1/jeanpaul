@@ -8,23 +8,6 @@ const SCAN_PHASES = ["boot", "scrape_prepare", "scrape_query", "scrape_desc", "s
 const SCORE_PHASES = ["analyze", "hunt_fill"];
 const GEN_PHASES = ["generate", "sync", "done"];
 
-const FULL_STAGES = [
-  { id: "scan", label: "LinkedIn" },
-  { id: "score", label: "Note /10" },
-  { id: "gen", label: "CV + lettre" },
-] as const;
-
-const ANALYZE_STAGES = [
-  { id: "score", label: "Note /10" },
-  { id: "gen", label: "CV + lettre" },
-] as const;
-
-const AUTO_STAGES = [
-  { id: "prep", label: "Préparation" },
-  { id: "fill", label: "Formulaires" },
-  { id: "send", label: "Validation" },
-] as const;
-
 function getHero(phase: ReturnType<typeof parsePipelinePhase>): { value: string; label: string } {
   const frac = phase.detail.match(/^(\d+)\s*\/\s*(\d+)/);
   if (frac) {
@@ -55,63 +38,18 @@ function getHero(phase: ReturnType<typeof parsePipelinePhase>): { value: string;
 function getStatusLabel(
   phase: ReturnType<typeof parsePipelinePhase>,
   autoapply: boolean,
-  analyzeOnly: boolean
+  analyzeOnly: boolean,
+  importOnly: boolean
 ): string {
   if (phase.subPhase === "autoapply_ready") return "À valider dans le navigateur";
   if (autoapply) return "Auto-postulation";
+  if (importOnly) return "Import d'offre";
   if (analyzeOnly) return "Analyse des offres";
   if (SCORE_PHASES.includes(phase.subPhase)) return "Recherche & notation";
   if (GEN_PHASES.includes(phase.subPhase)) return "Rédaction CV + lettre";
   if (SCAN_PHASES.includes(phase.subPhase)) return "Scan LinkedIn";
   if (phase.subPhase === "done") return "Terminé";
   return "En cours";
-}
-
-function StageTrack({
-  stages,
-  activeId,
-}: {
-  stages: readonly { id: string; label: string }[];
-  activeId: string;
-}) {
-  const activeIdx = stages.findIndex((s) => s.id === activeId);
-
-  return (
-    <ol className="db-run__steps" data-cols={stages.length} aria-label="Étapes">
-      {stages.map((stage, i) => {
-        const state =
-          i < activeIdx ? "is-done" : i === activeIdx ? "is-active" : "is-upcoming";
-        return (
-          <li key={stage.id} className={`db-run__step ${state}`}>
-            <span className="db-run__step-dot" aria-hidden="true" />
-            <span className="db-run__step-label">{stage.label}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function resolveStages(
-  phase: ReturnType<typeof parsePipelinePhase>,
-  autoapply: boolean,
-  analyzeOnly: boolean
-) {
-  if (autoapply) {
-    let active = "prep";
-    if (phase.subPhase === "autoapply_fill") active = "fill";
-    if (phase.subPhase === "autoapply_ready" || phase.subPhase === "done") active = "send";
-    return { stages: AUTO_STAGES, activeId: active };
-  }
-  if (analyzeOnly) {
-    const active = GEN_PHASES.includes(phase.subPhase) ? "gen" : "score";
-    return { stages: ANALYZE_STAGES, activeId: active };
-  }
-
-  const inScore = SCORE_PHASES.includes(phase.subPhase);
-  const inGen = GEN_PHASES.includes(phase.subPhase);
-  const active = inGen ? "gen" : inScore ? "score" : "scan";
-  return { stages: FULL_STAGES, activeId: active };
 }
 
 function InlineLoader({ label }: { label: string }) {
@@ -146,6 +84,8 @@ export default function PipelineProgress({
   compact = false,
   onStop,
   stopping,
+  launching = false,
+  launchMode,
 }: {
   run: PipelineRun | null;
   jobsFound?: number;
@@ -153,17 +93,32 @@ export default function PipelineProgress({
   compact?: boolean;
   onStop?: () => void;
   stopping?: boolean;
+  launching?: boolean;
+  launchMode?: "full" | "analyze" | "import" | "autoapply" | null;
 }) {
   const phase = useMemo(() => parsePipelinePhase(run, jobsFound), [run, jobsFound]);
-  const hero = getHero(phase);
+  const hero = launching
+    ? { value: "…", label: "démarrage" }
+    : getHero(phase);
 
   const autoapply = run?.result?.mode === "autoapply" || /auto.?apply|auto.?postul/i.test(run?.log || "");
   const analyzeOnly = /Reprise\s*:\s*analyse|sans scraping/i.test(run?.log || "");
-  const statusLabel = getStatusLabel(phase, autoapply, analyzeOnly);
-  const stageTrack = resolveStages(phase, autoapply, analyzeOnly);
-  const showInlineLoader = !["done", "autoapply_ready"].includes(phase.subPhase);
+  const importOnly =
+    launchMode === "import" ||
+    run?.result?.mode === "import" ||
+    /Import d'une offre|Import d'offre/i.test(run?.log || "");
+  const statusLabel = launching
+    ? launchMode === "import"
+      ? "Import d'offre"
+      : launchMode === "analyze"
+        ? "Analyse des offres"
+        : "Démarrage"
+    : getStatusLabel(phase, autoapply, analyzeOnly, importOnly);
+  const showInlineLoader =
+    launching || !["done", "autoapply_ready"].includes(phase.subPhase);
+  const progressPct = launching ? 4 : phase.progress;
 
-  const stopButton = onStop ? (
+  const stopButton = onStop && !launching ? (
     <button
       type="button"
       className="db-run__stop"
@@ -188,8 +143,8 @@ export default function PipelineProgress({
           <span className="db-run__unit">{hero.label}</span>
         </div>
         <div className="db-run__progress">
-          <div className="db-run__bar" role="progressbar" aria-valuenow={phase.progress} aria-valuemin={0} aria-valuemax={100}>
-            <span style={{ width: `${phase.progress}%` }} />
+          <div className="db-run__bar" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+            <span style={{ width: `${progressPct}%` }} />
           </div>
         </div>
       </section>
@@ -215,13 +170,9 @@ export default function PipelineProgress({
       </div>
 
       <div className="db-run__progress">
-        <div className="db-run__bar" role="progressbar" aria-valuenow={phase.progress} aria-valuemin={0} aria-valuemax={100}>
-          <span style={{ width: `${phase.progress}%` }} />
+        <div className="db-run__bar" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+          <span style={{ width: `${progressPct}%` }} />
         </div>
-        <StageTrack
-          stages={stageTrack.stages}
-          activeId={stageTrack.activeId}
-        />
       </div>
     </section>
   );

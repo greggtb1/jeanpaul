@@ -3,6 +3,11 @@ import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { grantCreditsForSession, isCreditsSession } from "@/lib/stripe-credits";
+import {
+  recordReferralPayment,
+  recordReferralFromCheckoutSession,
+  stripeCustomerIdFrom,
+} from "@/lib/referral-conversions";
 
 export const runtime = "nodejs";
 
@@ -53,6 +58,15 @@ export async function POST(req: NextRequest) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.client_reference_id || session.metadata?.supabase_user_id;
+
+      if (!isCreditsSession(session)) {
+        try {
+          await recordReferralFromCheckoutSession(admin, session);
+        } catch (e) {
+          console.error("[stripe/webhook] referral checkout", e);
+        }
+      }
+
       if (!userId || session.metadata?.pending === "true") break;
 
       if (isCreditsSession(session)) {
@@ -93,6 +107,30 @@ export async function POST(req: NextRequest) {
       }
 
       await admin.from("profiles").update(updates).eq("id", userId);
+      break;
+    }
+    case "invoice.paid": {
+      const invoice = event.data.object as Stripe.Invoice & {
+        subscription?: string | Stripe.Subscription | null;
+      };
+      const subscriptionRef = invoice.subscription;
+      if (!subscriptionRef) break;
+
+      const subscription =
+        typeof subscriptionRef === "string"
+          ? await stripe.subscriptions.retrieve(subscriptionRef)
+          : subscriptionRef;
+      const metadata = subscription.metadata;
+
+      await recordReferralPayment(admin, {
+        metadata,
+        referredUserId: metadata?.supabase_user_id ?? null,
+        referredEmail: invoice.customer_email ?? null,
+        customerId: stripeCustomerIdFrom(invoice.customer),
+        subscriptionId: subscription.id,
+        invoiceId: invoice.id,
+        amountPaidCents: invoice.amount_paid ?? 0,
+      });
       break;
     }
     case "customer.subscription.updated":

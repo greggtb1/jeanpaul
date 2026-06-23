@@ -23,6 +23,8 @@ node_modules/
 # misc
 .DS_Store
 *.pem
+deploy.zip
+components/*.mov
 
 # debug
 npm-debug.log*
@@ -32,6 +34,7 @@ yarn-error.log*
 
 # env files
 .env*
+hostinger.env
 
 # typescript
 *.tsbuildinfo
@@ -46,8 +49,10 @@ engine/venv/
 *.pyc
 engine/applications/
 engine/*.backup.json
+engine/eval_runs/
+EVAL/runs/
 
 # Binaires agent desktop (ne pas committer)
 public/downloads/agent/*.dmg
 public/downloads/agent/*.exe
-desktop/src-tauri/bin/jeanpaul-engine*
+desktop/src-tauri/bin/blowmyjob-engine*

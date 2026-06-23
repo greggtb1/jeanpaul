@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
+import ReferralCapture from "@/components/ReferralCapture";
 import "./globals.css";
 
 const inter = Inter({
@@ -17,9 +18,9 @@ const displayFont = Plus_Jakarta_Sans({
 });
 
 const siteTitle =
-  "JEAN PAUL | Dossiers prêts auto : offres, CV et lettre sur mesure";
+  "BLOW MY JOB | Dossiers prêts auto : offres, CV et lettre sur mesure";
 const siteDescription =
-  "Trouvez les offres qui vous correspondent. JEAN PAUL génère un CV et une lettre par poste, remplit les formulaires. Vous relisez, vous validez.";
+  "Trouvez les offres qui vous correspondent. BLOW MY JOB génère un CV et une lettre par poste, remplit les formulaires. Vous relisez, vous validez.";
 
 function siteUrl(): URL {
   const raw = process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
   metadataBase: siteUrl(),
   title: {
     default: siteTitle,
-    template: "%s | JEAN PAUL",
+    template: "%s | BLOW MY JOB",
   },
   description: siteDescription,
   keywords: [
@@ -49,7 +50,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "fr_FR",
-    siteName: "JEAN PAUL",
+    siteName: "BLOW MY JOB",
     title: siteTitle,
     description: siteDescription,
   },
@@ -80,6 +81,7 @@ export default function RootLayout({
           data-website-id="7f67339f-f236-4e56-8cac-0c4216486e16"
           strategy="afterInteractive"
         />
+        <ReferralCapture />
         {children}
       </body>
     </html>

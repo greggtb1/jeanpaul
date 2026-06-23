@@ -14,7 +14,7 @@ export default function AgentLaunchBanner({
       <div className="agent-banner__body">
         <strong>Agent desktop requis</strong>
         <p>
-          L&apos;auto-apply s&apos;exécute sur votre machine (Chromium visible). Ouvrez JEAN PAUL
+          L&apos;auto-apply s&apos;exécute sur votre machine (Chromium visible). Ouvrez BLOW MY JOB
           Agent ou installez-le si ce n&apos;est pas déjà fait.
         </p>
         {awaitingAgent && (

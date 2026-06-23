@@ -20,14 +20,18 @@ const STATUS_LABEL: Record<string, string> = {
   error: "Erreur",
 };
 
-async function handleToken(token: string, setStatus: (s: AgentStatus) => void) {
+async function handleToken(
+  token: string,
+  setStatus: (s: AgentStatus) => void,
+  origin?: string | null
+) {
   setStatus({ phase: "claim", message: "Connexion au serveur…" });
   try {
     const result = await invoke<{
       runId: string;
       message: string;
       error?: string;
-    }>("claim_and_run", { token, apiOrigin: API_ORIGIN });
+    }>("claim_and_run", { token, apiOrigin: origin || API_ORIGIN });
     if (result.error) {
       setStatus({ phase: "error", message: result.message, error: result.error, runId: result.runId });
       return;
@@ -42,12 +46,15 @@ async function handleToken(token: string, setStatus: (s: AgentStatus) => void) {
   }
 }
 
-function parseTokenFromUrl(url: string): string | null {
+function parseLaunchUrl(url: string): { token: string | null; origin: string | null } {
   try {
     const parsed = new URL(url);
-    return parsed.searchParams.get("token");
+    return {
+      token: parsed.searchParams.get("token"),
+      origin: parsed.searchParams.get("origin"),
+    };
   } catch {
-    return null;
+    return { token: null, origin: null };
   }
 }
 
@@ -64,8 +71,8 @@ export default function App() {
       try {
         const startUrls = await getCurrent();
         if (!cancelled && startUrls?.length) {
-          const token = parseTokenFromUrl(startUrls[0]);
-          if (token) await handleToken(token, setStatus);
+          const { token, origin } = parseLaunchUrl(startUrls[0]);
+          if (token) await handleToken(token, setStatus, origin);
         }
       } catch {
         /* deep link plugin unavailable in pure web preview */
@@ -75,8 +82,10 @@ export default function App() {
     void boot();
 
     const unlistenOpen = onOpenUrl((urls) => {
-      const token = urls[0] ? parseTokenFromUrl(urls[0]) : null;
-      if (token) void handleToken(token, setStatus);
+      const { token, origin } = urls[0]
+        ? parseLaunchUrl(urls[0])
+        : { token: null, origin: null };
+      if (token) void handleToken(token, setStatus, origin);
     });
 
     const unlistenEvent = listen<string>("agent://status", (event) => {
@@ -100,7 +109,7 @@ export default function App() {
             <span className="agent__logo-bar agent__logo-bar--yellow" />
           </span>
           <span className="agent__wordmark">
-            JEAN PAUL <b>Agent</b>
+            BLOW MY JOB <b>Agent</b>
           </span>
         </div>
         <p className="agent__tagline">

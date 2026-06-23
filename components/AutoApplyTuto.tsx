@@ -4,48 +4,49 @@ import Link from "next/link";
 
 const STEPS = [
   {
-    title: "Installez l'app (1ʳᵉ fois)",
-    text: "Téléchargez JEAN PAUL Agent sur votre Mac ou PC. Chromium aussi se télécharge tout seul au premier Postuler, rien à installer de votre côté.",
+    num: 1,
+    title: "Installez l'app",
+    text: "Mac ou PC. Chromium se télécharge tout seul au premier lancement.",
     visual: (
-      <div className="tuto__app-card">
-        <img src="/logo.png" alt="" width={44} height={44} className="tuto__app-card-icon" />
-        <div>
-          <strong>JEAN PAUL Agent</strong>
-          <span>Sur votre ordinateur</span>
-        </div>
+      <div className="aat__visual aat__visual--app">
+        <img src="/logo.png" alt="" width={40} height={40} className="aat__app-icon" />
+        <strong>BLOW MY JOB Agent</strong>
+        <span>Sur votre ordinateur</span>
       </div>
     ),
   },
   {
-    title: "Connectez-vous à LinkedIn (1ʳᵉ fois)",
-    text: "Chromium s'ouvre (téléchargé automatiquement si besoin, ~1 min). Connectez-vous une fois à LinkedIn, la session est gardée.",
+    num: 2,
+    title: "Connectez-vous à LinkedIn",
+    text: "Une seule fois. La session est mémorisée.",
     visual: (
-      <div className="tuto__browser tuto__browser--soft">
-        <div className="tuto__browser-bar">
+      <div className="aat__visual aat__visual--browser">
+        <div className="aat__browser-bar">
           <span /><span /><span />
           <em>linkedin.com</em>
         </div>
-        <div className="tuto__browser-body">
-          <div className="tuto__field">votre@email.com</div>
-          <div className="tuto__field">••••••••</div>
-          <div className="tuto__btn-fake">Se connecter</div>
+        <div className="aat__browser-body">
+          <div className="aat__field">votre@email.com</div>
+          <div className="aat__field">••••••••</div>
+          <button className="aat__btn-fake">Se connecter</button>
         </div>
       </div>
     ),
   },
   {
+    num: 3,
     title: "Vérifiez et envoyez",
-    text: "Un onglet par offre, formulaire déjà rempli avec votre CV et votre lettre. Vous relisez, vous cliquez Envoyer.",
+    text: "Formulaire déjà rempli. Vous relisez, vous cliquez Envoyer.",
     visual: (
-      <div className="tuto__browser tuto__browser--soft">
-        <div className="tuto__browser-bar">
+      <div className="aat__visual aat__visual--browser">
+        <div className="aat__browser-bar">
           <span /><span /><span />
           <em>Formulaire prêt</em>
         </div>
-        <div className="tuto__browser-body">
-          <div className="tuto__field tuto__field--filled">Votre nom ✓</div>
-          <div className="tuto__field tuto__field--filled">CV_adapté.pdf ✓</div>
-          <div className="tuto__btn-fake tuto__btn-fake--go">Envoyer</div>
+        <div className="aat__browser-body">
+          <div className="aat__field aat__field--ok">Votre nom ✓</div>
+          <div className="aat__field aat__field--ok">CV_adapté.pdf ✓</div>
+          <button className="aat__btn-fake aat__btn-fake--go">Envoyer</button>
         </div>
       </div>
     ),
@@ -64,58 +65,41 @@ export default function AutoApplyTuto({
   return (
     <div className="tuto__overlay" onClick={onClose}>
       <div
-        className="tuto"
+        className="aat"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="autoapply-tuto-title"
+        aria-labelledby="aat-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="tuto__close" type="button" onClick={onClose} aria-label="Fermer">
-          ×
-        </button>
+        <button className="tuto__close" type="button" onClick={onClose} aria-label="Fermer">×</button>
 
-        <div className="tuto__intro">
-          <img src="/logo.png" alt="" width={40} height={40} className="tuto__intro-icon" />
-          <div>
-            <h2 id="autoapply-tuto-title" className="tuto__title">
-              Comment fonctionne Postuler ?
-            </h2>
-            <p className="tuto__lead">
-              L&apos;auto-apply tourne sur <strong>votre ordinateur</strong>, pas sur le serveur.
-              Voici les 3 étapes.
-            </p>
-          </div>
-        </div>
+        <h2 id="aat-title" className="aat__title">Comment fonctionne Postuler ?</h2>
+        <p className="aat__lead">L&apos;auto-apply tourne sur <strong>votre ordinateur</strong>.</p>
 
-        <ol className="tuto__steps">
-          {STEPS.map((s, i) => (
-            <li className="tuto__step" key={s.title}>
+        <ol className="aat__steps">
+          {STEPS.map((s) => (
+            <li key={s.num} className="aat__step">
               {s.visual}
-              <div className="tuto__step-head">
-                <span className="tuto__step-num">{i + 1}</span>
-                <h3>{s.title}</h3>
-              </div>
-              <p>{s.text}</p>
+              <div className="aat__step-num">{s.num}</div>
+              <strong className="aat__step-title">{s.title}</strong>
+              <p className="aat__step-text">{s.text}</p>
             </li>
           ))}
         </ol>
 
-        <p className="tuto__footnote">
-          Pas encore installé ?{" "}
+        <div className="aat__footer">
           <Link
             href="/download"
             target="_blank"
             rel="noopener noreferrer"
+            className="aat__dl-link"
             onClick={(e) => e.stopPropagation()}
           >
-            Télécharger JEAN PAUL Agent
+            Télécharger BLOW MY JOB Agent
           </Link>
-        </p>
-
-        <div className="tuto__actions">
           <button
             type="button"
-            className="btn btn--coral"
+            className="btn btn--coral aat__launch-btn"
             onClick={onLaunch}
             disabled={launching}
           >

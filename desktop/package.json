@@ -1,5 +1,5 @@
 {
-  "name": "jeanpaul-agent",
+  "name": "blowmyjob-agent",
   "private": true,
   "version": "1.0.7",
   "type": "module",
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:windows": "tauri build -- --target x86_64-pc-windows-msvc"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",

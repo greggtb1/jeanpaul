@@ -43,7 +43,7 @@ export function mintAgentJwt(userId: string, runId: string, expiresInSec = 900):
   const now = Math.floor(Date.now() / 1000);
   const header = base64urlJson({ alg: "HS256", typ: "JWT" });
   const payload = base64urlJson({
-    aud: "jeanpaul-agent",
+    aud: "blowmyjob-agent",
     exp: now + expiresInSec,
     iat: now,
     sub: userId,
@@ -71,7 +71,7 @@ export function verifyAgentJwt(token: string): { userId: string; runId: string }
       exp?: number;
       aud?: string;
     };
-    if (body.aud !== "jeanpaul-agent" || !body.sub || !body.runId) return null;
+    if (body.aud !== "blowmyjob-agent" || !body.sub || !body.runId) return null;
     if (typeof body.exp === "number" && body.exp < Math.floor(Date.now() / 1000)) return null;
     return { userId: body.sub, runId: body.runId };
   } catch {

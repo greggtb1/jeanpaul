@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "com.jeanpaul.agent",
+  "identifier": "com.blowmyjob.agent",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,7 +9,7 @@
       "identifier": "shell:allow-spawn",
       "allow": [
         {
-          "name": "jeanpaul-engine",
+          "name": "blowmyjob-engine",
           "sidecar": true,
           "args": true
         }
@@ -19,7 +19,7 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "jeanpaul-engine",
+          "name": "blowmyjob-engine",
           "sidecar": true,
           "args": true
         }

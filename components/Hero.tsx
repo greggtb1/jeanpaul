@@ -15,7 +15,7 @@ export default function Hero() {
         </h1>
 
         <p className="hero__subtitle">
-          JEAN PAUL détecte les offres qui vous correspondent, génère un CV et une
+          BLOW MY JOB détecte les offres qui vous correspondent, génère un CV et une
           lettre de motivation propres à chaque offre, et postule pour vous.
         </p>
 
@@ -40,7 +40,7 @@ export default function Hero() {
 
         <div className="hero__social">
           <div className="hero__stat">
-            <span className="hero__stat-prefix" aria-hidden="true" />
+            <span className="hero__stat-prefix">plus de</span>
             <span className="hero__stat-value">+6 350</span>
             <span className="hero__stat-label">dossiers candidatés sans lever le petit doigt</span>
           </div>
@@ -51,12 +51,14 @@ export default function Hero() {
             <span className="hero__stat-label">débloqués en 1 semaine</span>
           </div>
           <div className="hero__stat-divider" aria-hidden="true" />
-          <div className="hero__reassurance-inline">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z" stroke="#0040f0" strokeWidth="1.8" strokeLinejoin="round" />
-              <path d="m9 12 2 2 4-4" stroke="#0040f0" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-            Vous validez avant l&apos;envoi
+          <div className="hero__stat hero__stat--reassurance">
+            <span className="hero__stat-value hero__stat-value--icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z" stroke="#0040f0" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="m9 12 2 2 4-4" stroke="#0040f0" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="hero__stat-label">Vous validez avant l&apos;envoi</span>
           </div>
         </div>
       </div>

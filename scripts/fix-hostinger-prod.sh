@@ -2,11 +2,11 @@
 # Post-déploiement Hostinger — à lancer en SSH après chaque deploy.
 set -euo pipefail
 
-ENGINE_SRC="${ENGINE_SRC:-$HOME/jeanpaul/engine}"
-NODEJS="${NODEJS:-$HOME/domains/jeanpauljob.com/nodejs}"
-ENV_FILE="${ENV_FILE:-$HOME/domains/jeanpauljob.com/public_html/.builds/config/.env}"
+ENGINE_SRC="${ENGINE_SRC:-$HOME/blowmyjob/engine}"
+NODEJS="${NODEJS:-$HOME/domains/blowmyjob.fr/nodejs}"
+ENV_FILE="${ENV_FILE:-$HOME/domains/blowmyjob.fr/public_html/.builds/config/.env}"
 
-echo "=== JEAN PAUL — fix post-deploy ==="
+echo "=== BLOW MY JOB — fix post-deploy ==="
 
 # 1. Tuer les processus Node zombies (évite le 503)
 BEFORE=$(pgrep -c -f 'next-server' 2>/dev/null || echo 0)
@@ -31,7 +31,7 @@ if [[ -f "$ENV_FILE" ]]; then
   fi
   # Ajouter ENGINE_* sur des lignes séparées (jamais concaténer)
   for VAR in \
-    "APP_ROOT=$HOME/jeanpaul" \
+    "APP_ROOT=$HOME/blowmyjob" \
     "ENGINE_DIR=$ENGINE_SRC" \
     "ENGINE_PYTHON=$ENGINE_SRC/venv/bin/python"; do
     KEY="${VAR%%=*}"
@@ -57,8 +57,8 @@ link_engine() {
   echo "Lié : $target"
 }
 
-link_engine "$HOME/domains/jeanpauljob.com/public_html/engine"
-link_engine "$HOME/domains/jeanpauljob.com/public_html/.builds/last-source/engine"
+link_engine "$HOME/domains/blowmyjob.fr/public_html/engine"
+link_engine "$HOME/domains/blowmyjob.fr/public_html/.builds/last-source/engine"
 link_engine "$NODEJS/engine"
 
 echo ""

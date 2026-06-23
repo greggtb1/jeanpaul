@@ -9,6 +9,7 @@ export function isJobReadyWithoutCv(job: Job): boolean {
 export function isJobReady(job: Job): boolean {
   if (job.applied) return false;
   if (job.cv_url) return true;
+  if (job.data?.imported_manually && isJobReadyWithoutCv(job)) return true;
   const score = job.fit_score ?? (job.data?._fit_score as number | undefined);
   if (typeof score !== "number" || score < MIN_READY_SCORE) return false;
   return isJobReadyWithoutCv(job);
@@ -43,6 +44,7 @@ function jobCountsForQuota(job: {
 }): boolean {
   if (job.cv_url) return true;
   if (!job.data?.ready_without_cv) return false;
+  if (job.data.imported_manually) return true;
   const score = job.fit_score ?? (job.data._fit_score as number | undefined);
   return typeof score === "number" && score >= MIN_READY_SCORE;
 }

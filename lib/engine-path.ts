@@ -56,7 +56,7 @@ function discoverEngine(cwd: string): { engineDir: string; script: string } {
 
   const home = process.env.HOME?.trim();
   if (home) {
-    pushEngineDir(candidates, seen, path.join(home, "jeanpaul", "engine"));
+    pushEngineDir(candidates, seen, path.join(home, "blowmyjob", "engine"));
   }
 
   for (const engineDir of candidates) {

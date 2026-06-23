@@ -39,7 +39,7 @@ export default function FirstSearchDoneTuto({ onClose }: { onClose: () => void }
             <strong>Cliquez sur une offre</strong> pour voir pourquoi elle vous correspond (score et analyse).
           </li>
           <li>
-            <strong>Cliquez sur Postuler</strong> en haut : JEAN PAUL ouvre les formulaires et remplit les champs
+            <strong>Cliquez sur Postuler</strong> en haut : BLOW MY JOB ouvre les formulaires et remplit les champs
             automatiquement. Vous n&apos;avez plus qu&apos;à valider l&apos;envoi.
           </li>
         </ul>

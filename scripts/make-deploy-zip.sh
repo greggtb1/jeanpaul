@@ -8,6 +8,8 @@ cd "$ROOT"
 zip -r "$OUT" . \
   -x "node_modules/*" \
   -x "moteur/*" \
+  -x "desktop/*" \
+  -x "EVAL/*" \
   -x "engine/venv/*" \
   -x "engine/applications/*" \
   -x ".git/*" \
@@ -16,7 +18,9 @@ zip -r "$OUT" . \
   -x "__MACOSX/*" \
   -x ".DS_Store" \
   -x ".env.local" \
-  -x ".env.production"
+  -x ".env.production" \
+  -x "hostinger.env" \
+  -x "public/downloads/agent/JEAN-PAUL-*"
 
 echo "OK → $OUT"
 echo "Après upload : réinstallez le venv Linux en SSH si engine/venv a été écrasé."

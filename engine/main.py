@@ -20,6 +20,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import parse_qs, urlparse
 
 import click
 from rich.console import Console
@@ -364,7 +365,8 @@ def list_jobs(min_score):
 @click.option("--skip-cv", is_flag=True)
 @click.option("--skip-analysis", is_flag=True)
 @click.option("--no-dashboard", is_flag=True)
-def apply(apply_all, ids, min_score, max_apply, language, skip_cv, skip_analysis, no_dashboard):
+@click.option("--url", "only_url", default=None, help="Limiter la génération à une URL précise")
+def apply(apply_all, ids, min_score, max_apply, language, skip_cv, skip_analysis, no_dashboard, only_url):
     """Genere CV + lettre de motivation personnalises."""
     config = load_config(CONFIG_FILE)
     api_key = get_api_key(config)
@@ -395,6 +397,9 @@ def apply(apply_all, ids, min_score, max_apply, language, skip_cv, skip_analysis
     else:
         console.print("[yellow]Precise --all, --ids 1,3,5 ou --min-score 7[/yellow]")
         return
+
+    if only_url:
+        selected = [j for j in selected if _urls_overlap(j.get("url", ""), only_url)]
 
     if not selected:
         console.print("[yellow]Aucune offre selectionnee.[/yellow]")
@@ -970,7 +975,7 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
 # -- Chasse sans generation (dashboard : garantir N offres >= min_score) -------
 
 @cli.command("hunt-fill")
-@click.option("--target", default=5, type=int, help="Nombre d'offres >= min-score a trouver")
+@click.option("--target", default=15, type=int, help="Nombre d'offres >= min-score a trouver")
 @click.option("--min-score", default=6, type=int)
 @click.option("--max-analyzed", default=0, type=int, help="Plafond d'analyses si objectif non atteint (0 = illimite)")
 @click.option("--location", "-l", default="Paris")
@@ -1886,6 +1891,285 @@ def auto_apply(min_score, max_apps, ids, no_dashboard, recent_only):
 # QUICK-APPLY : postuler depuis une URL directement
 # ============================================================================
 
+def _clean_scraped_text(value: str, limit: int = 6000) -> str:
+    value = re.sub(r"\n{3,}", "\n\n", value or "")
+    value = re.sub(r"[ \t]{2,}", " ", value)
+    return value.strip()[:limit]
+
+
+def _title_from_slug(slug: str) -> str:
+    return " ".join(w.capitalize() for w in re.sub(r"[-_]+", " ", slug or "").split())
+
+
+def _company_from_wttj_url(url: str) -> str:
+    match = re.search(r"/companies/([^/]+)/jobs/", url)
+    return _title_from_slug(match.group(1)) if match else ""
+
+
+def _linkedin_job_id_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query or "")
+    current_id = (qs.get("currentJobId") or [""])[0]
+    if current_id.isdigit():
+        return current_id
+    match = re.search(r"/jobs/view/(\d+)", parsed.path or "")
+    return match.group(1) if match else ""
+
+
+def _canonical_linkedin_url(job_id: str, fallback_url: str) -> str:
+    return f"https://www.linkedin.com/jobs/view/{job_id}" if job_id else fallback_url
+
+
+def _scrape_linkedin_job(url: str, BeautifulSoup) -> dict:
+    """Lit la vraie fiche LinkedIn via jobs-guest, même depuis une URL /jobs/search."""
+    import requests
+
+    job_id = _linkedin_job_id_from_url(url)
+    if not job_id:
+        return {"title": "", "company": "", "description": "", "url": url, "error": "id LinkedIn introuvable"}
+
+    endpoint = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8",
+    }
+    resp = requests.get(endpoint, headers=headers, timeout=20)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    title_el = soup.select_one(
+        "h2.top-card-layout__title, h1.top-card-layout__title, "
+        "h1.topcard__title, h2.topcard__title, h1, h2"
+    )
+    company_el = soup.select_one(
+        "a.topcard__org-name-link, span.topcard__org-name, "
+        "a.top-card-layout__card-name-link, .topcard__flavor-row a, "
+        "[class*='company-name']"
+    )
+    desc_el = soup.select_one(
+        ".show-more-less-html__markup, .description__text, "
+        ".jobs-description__content, [class*='description']"
+    )
+
+    title = _clean_scraped_text(title_el.get_text(" ", strip=True), 180) if title_el else ""
+    company = _clean_scraped_text(company_el.get_text(" ", strip=True), 120) if company_el else ""
+    desc = _clean_scraped_text(desc_el.get_text("\n", strip=True)) if desc_el else ""
+
+    if not title and soup.title:
+        title = _clean_scraped_text(soup.title.get_text(" ", strip=True).split(" | ")[0], 180)
+    if not company and soup.title and " at " in soup.title.get_text(" ", strip=True):
+        company = _clean_scraped_text(soup.title.get_text(" ", strip=True).split(" at ")[-1].split("|")[0], 120)
+
+    return {
+        "title": title,
+        "company": company,
+        "description": desc,
+        "url": _canonical_linkedin_url(job_id, url),
+        "error": "",
+    }
+
+
+def _scrape_wttj_job(url: str) -> dict:
+    """WTTJ est rendu côté client : Playwright lit la fiche affichée, pas le HTML brut."""
+    scraper = WTTJScraper()
+    result = {"title": "", "company": _company_from_wttj_url(url), "description": "", "url": url, "error": ""}
+    try:
+        scraper._ensure_browser()
+        ctx = scraper._new_context()
+        page = ctx.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        except Exception:
+            page.goto(url, wait_until="load", timeout=30_000)
+        time.sleep(1.2)
+        scraper._handle_modal(page)
+        try:
+            page.wait_for_selector("h1", timeout=10_000)
+        except Exception:
+            pass
+        # Certaines fiches chargent la description après scroll.
+        for _ in range(3):
+            try:
+                page.evaluate("window.scrollBy(0, window.innerHeight)")
+            except Exception:
+                break
+            time.sleep(0.4)
+
+        data = page.evaluate(
+            """
+            () => {
+              const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+              const text = (sel) => {
+                const el = document.querySelector(sel);
+                return el ? clean(el.innerText || el.textContent || '') : '';
+              };
+              const title =
+                text('[data-testid="job-title"]') ||
+                text('h1');
+              const company =
+                text('[data-testid="company-name"]') ||
+                text('a[href*="/companies/"]:not([href*="/jobs/"])') ||
+                text('header a[href*="/companies/"]');
+              const descEl =
+                document.querySelector('[data-testid="job-description"]') ||
+                document.querySelector('[class*="JobDescription"]') ||
+                Array.from(document.querySelectorAll('section, article, main'))
+                  .map((el) => ({ el, len: clean(el.innerText || '').length }))
+                  .filter((x) => x.len > 300)
+                  .sort((a, b) => b.len - a.len)[0]?.el;
+              const description = descEl ? (descEl.innerText || descEl.textContent || '').trim() : '';
+              return { title, company, description, pageTitle: document.title || '' };
+            }
+            """
+        ) or {}
+        result["title"] = _clean_scraped_text(data.get("title", ""), 180)
+        result["company"] = _clean_scraped_text(data.get("company", ""), 120) or result["company"]
+        result["description"] = _clean_scraped_text(data.get("description", ""))
+
+        if not result["description"]:
+            result["description"] = _clean_scraped_text(scraper.fetch_description(url))
+        if not result["title"] and data.get("pageTitle"):
+            result["title"] = _clean_scraped_text(data["pageTitle"].split("|")[0], 180)
+        try:
+            ctx.close()
+        except Exception:
+            pass
+    except Exception as e:
+        result["error"] = str(e)
+    finally:
+        try:
+            scraper._close_browser()
+        except Exception:
+            pass
+    return result
+
+
+def _scrape_generic_job_with_playwright(url: str) -> dict:
+    """Fallback JS pour HelloWork et autres ATS dont la fiche est rendue côté client."""
+    result = {"title": "", "company": "", "description": "", "url": url, "error": ""}
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+            )
+            ctx = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                locale="fr-FR",
+                viewport={"width": 1440, "height": 1200},
+            )
+            page = ctx.new_page()
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            except Exception:
+                page.goto(url, wait_until="load", timeout=30_000)
+            time.sleep(1.2)
+
+            # Accepte/ferme les bannières communes avant de lire la fiche.
+            for label in ["Tout accepter", "Accepter tout", "J'accepte", "Accepter", "OK", "Accept all"]:
+                try:
+                    btn = page.get_by_role("button", name=re.compile(label, re.I)).first
+                    if btn.is_visible(timeout=500):
+                        btn.click(timeout=1_000)
+                        time.sleep(0.5)
+                        break
+                except Exception:
+                    pass
+
+            for _ in range(4):
+                try:
+                    page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
+                except Exception:
+                    break
+                time.sleep(0.35)
+
+            data = page.evaluate(
+                """
+                () => {
+                  const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+                  const stripHtml = (html) => {
+                    const div = document.createElement('div');
+                    div.innerHTML = html || '';
+                    return clean(div.innerText || div.textContent || '');
+                  };
+                  const meta = (name) =>
+                    document.querySelector(`meta[property="${name}"], meta[name="${name}"]`)?.content || '';
+
+                  const findJobPosting = (node) => {
+                    if (!node) return null;
+                    if (Array.isArray(node)) {
+                      for (const item of node) {
+                        const found = findJobPosting(item);
+                        if (found) return found;
+                      }
+                      return null;
+                    }
+                    if (typeof node !== 'object') return null;
+                    const type = node['@type'];
+                    const types = Array.isArray(type) ? type : [type];
+                    if (types.some((t) => String(t).toLowerCase() === 'jobposting')) return node;
+                    if (node['@graph']) return findJobPosting(node['@graph']);
+                    return null;
+                  };
+
+                  let jsonLd = null;
+                  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+                    try {
+                      jsonLd = findJobPosting(JSON.parse(script.textContent || ''));
+                      if (jsonLd) break;
+                    } catch (_) {}
+                  }
+
+                  const title =
+                    clean(jsonLd?.title) ||
+                    clean(document.querySelector('[data-testid*="title" i], [class*="job-title" i], [class*="JobTitle" i], h1')?.innerText) ||
+                    clean(meta('og:title')).split('|')[0];
+
+                  const org = jsonLd?.hiringOrganization;
+                  const company =
+                    clean(typeof org === 'string' ? org : org?.name) ||
+                    clean(document.querySelector('[data-testid*="company" i], [class*="company" i], [class*="Company" i], [class*="recruiter" i]')?.innerText) ||
+                    clean(meta('og:site_name'));
+
+                  let description =
+                    stripHtml(jsonLd?.description) ||
+                    clean(document.querySelector('[data-testid*="description" i], [class*="job-description" i], [class*="JobDescription" i], [class*="description" i], article')?.innerText);
+
+                  if (!description || description.length < 300) {
+                    const blocks = Array.from(document.querySelectorAll('main section, main article, section, article, main'))
+                      .map((el) => clean(el.innerText || ''))
+                      .filter((txt) => txt.length > 300)
+                      .sort((a, b) => b.length - a.length);
+                    description = blocks[0] || description;
+                  }
+
+                  return { title, company, description, pageTitle: document.title || '' };
+                }
+                """
+            ) or {}
+
+            result["title"] = _clean_scraped_text(data.get("title", ""), 180)
+            result["company"] = _clean_scraped_text(data.get("company", ""), 120)
+            result["description"] = _clean_scraped_text(data.get("description", ""))
+            if not result["title"] and data.get("pageTitle"):
+                result["title"] = _clean_scraped_text(data["pageTitle"].split("|")[0], 180)
+            ctx.close()
+            browser.close()
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def _scrape_job_from_url(url: str) -> dict:
     """
     Scrape titre, entreprise et description depuis une URL d'offre.
@@ -1908,59 +2192,98 @@ def _scrape_job_from_url(url: str) -> dict:
     result = {"title": "", "company": "", "description": "", "error": ""}
 
     try:
+        if "linkedin.com" in url:
+            return _scrape_linkedin_job(url, BeautifulSoup)
+        if "welcometothejungle.com" in url:
+            return _scrape_wttj_job(url)
+
+        rendered = _scrape_generic_job_with_playwright(url)
+        if rendered.get("title") and rendered.get("company") and len(rendered.get("description") or "") >= 120:
+            return rendered
+
         resp = requests.get(url, headers=headers, timeout=20)
         soup = BeautifulSoup(resp.text, "lxml")
 
-        if "linkedin.com" in url:
-            title_el = soup.select_one(
-                "h1.top-card-layout__title, h1.topcard__title, h2.top-card-layout__title, h1"
-            )
-            company_el = soup.select_one(
-                "a.topcard__org-name-link, span.topcard__org-name, "
-                "a.top-card-layout__card-name-link, [class*='company-name']"
-            )
-            desc_el = soup.select_one(
-                ".show-more-less-html__markup, .description__text, [class*='description']"
-            )
-            result["title"]       = title_el.get_text(strip=True) if title_el else ""
-            result["company"]     = company_el.get_text(strip=True) if company_el else ""
-            result["description"] = desc_el.get_text(separator="\n", strip=True) if desc_el else ""
-            if not result["title"] and soup.title:
-                result["title"] = soup.title.get_text().split(" at ")[0].split(" | ")[0].strip()
-            if not result["company"] and soup.title:
-                parts = soup.title.get_text().split(" at ")
-                if len(parts) > 1:
-                    result["company"] = parts[-1].split("|")[0].strip()
-
-        elif "welcometothejungle.com" in url:
-            title_el   = soup.select_one("h1")
-            company_el = soup.select_one("h2, [class*='company-name'], [data-testid='company-name']")
-            desc_el    = soup.select_one("article, [data-testid='job-description'], main")
-            result["title"]       = title_el.get_text(strip=True) if title_el else ""
-            result["company"]     = company_el.get_text(strip=True) if company_el else ""
-            result["description"] = desc_el.get_text(separator="\n", strip=True)[:6000] if desc_el else ""
-            if not result["company"] and soup.title:
-                pt = soup.title.get_text()
-                result["company"] = pt.split("|")[-1].strip() if "|" in pt else ""
-
-        else:
-            title_el = soup.select_one("h1")
-            result["title"] = title_el.get_text(strip=True) if title_el else (
-                soup.title.get_text().split("|")[0].strip() if soup.title else ""
-            )
-            if soup.title and "|" in soup.title.get_text():
-                result["company"] = soup.title.get_text().split("|")[-1].strip()
-            for sel in ["article", "main", "#content", ".job-description",
-                        "[class*='description']", "[class*='content']", "body"]:
-                el = soup.select_one(sel)
-                if el and len(el.get_text()) > 200:
-                    result["description"] = el.get_text(separator="\n", strip=True)[:6000]
-                    break
+        title_el = soup.select_one("h1")
+        result["title"] = _clean_scraped_text(title_el.get_text(strip=True), 180) if title_el else (
+            _clean_scraped_text(soup.title.get_text().split("|")[0], 180) if soup.title else ""
+        )
+        if soup.title and "|" in soup.title.get_text():
+            result["company"] = _clean_scraped_text(soup.title.get_text().split("|")[-1], 120)
+        for sel in ["article", "main", "#content", ".job-description",
+                    "[class*='description']", "[class*='content']", "body"]:
+            el = soup.select_one(sel)
+            if el and len(el.get_text()) > 200:
+                result["description"] = _clean_scraped_text(el.get_text(separator="\n", strip=True))
+                break
 
     except Exception as e:
         result["error"] = str(e)
 
     return result
+
+
+@cli.command("import-url")
+@click.option("--url", required=True, help="URL de l'offre à importer dans le dashboard")
+@click.option("--min-score", default=6, type=int)
+def import_url(url, min_score):
+    """Importe une offre précise dans le dashboard, sans scoring."""
+
+    ats = detect_ats(url)
+    console.print(f"\n[bold cyan]🔗 Import d'offre — {ats.upper()}[/bold cyan]")
+    console.print(f"[dim]{url[:100]}[/dim]\n")
+
+    console.print("[dim]  Récupération de l'offre...[/dim]", end="")
+    scraped = _scrape_job_from_url(url)
+    if scraped.get("error") and not scraped.get("title"):
+        console.print(f" [yellow]⚠ {scraped['error'][:80]}[/yellow]")
+
+    job_url = (scraped.get("url") or url).strip()
+    title = (scraped.get("title") or "").strip()
+    company = (scraped.get("company") or "").strip()
+    desc = (scraped.get("description") or "").strip()
+    if not title or not company or len(desc) < 120:
+        console.print(" [red]✗[/red]")
+        console.print(
+            "[red]Impossible de lire correctement la fiche : titre, entreprise ou description manquante.[/red]"
+        )
+        if scraped.get("error"):
+            console.print(f"[dim]{scraped['error'][:180]}[/dim]")
+        raise click.ClickException("Import interrompu pour éviter des documents génériques.")
+
+    console.print(f" [green]✓[/green] [bold]{company}[/bold] — {title[:70]}")
+
+    job = {
+        "title": title,
+        "company": company,
+        "url": job_url,
+        "original_url": url,
+        "description": desc,
+        "platform": ats,
+        "source": ats,
+        "imported_manually": True,
+        "imported_at": datetime.utcnow().isoformat(),
+    }
+
+    jobs = [
+        j for j in load_jobs(JOBS_FILE)
+        if not (_urls_overlap(j.get("url", ""), url) or _urls_overlap(j.get("url", ""), job_url))
+    ]
+    jobs.append(job)
+    for i, j in enumerate(jobs):
+        j["_idx"] = i + 1
+
+    save_jobs(jobs, JOBS_FILE)
+    try:
+        q = supabase_client().table("jobs").update({"fit_score": None}).eq("url", job_url)
+        uid = os.environ.get("JA_USER_ID")
+        if uid:
+            q = q.eq("user_id", uid)
+        q.execute()
+    except Exception:
+        pass
+
+    console.print("   [green]✓[/green] Offre importée — génération directe des documents")
 
 
 @cli.command("quick-apply")

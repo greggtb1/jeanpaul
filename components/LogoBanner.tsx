@@ -20,7 +20,7 @@ export default function LogoBanner() {
     <div className="banner-wrap">
       <div className="banner-inner">
         <div className="banner-label">
-          <span className="banner-label__line1">Candidaté avec JEAN PAUL</span>
+          <span className="banner-label__line1">Candidaté avec BLOW MY JOB</span>
           <span className="banner-label__line2">maintenant chez</span>
         </div>
 

@@ -17,26 +17,26 @@ const STEPS = [
   {
     icon: "🔍",
     title: "Scanner",
-    body: "JEAN PAUL parcourt LinkedIn selon vos critères et récupère les offres qui correspondent. Vous n'avez rien à faire.",
+    body: "BLOW MY JOB parcourt LinkedIn selon vos critères et récupère les offres qui correspondent. Vous n'avez rien à faire.",
     detail: "Un scan prend environ 5 minutes. Vous pouvez même fermer la fenêtre si vous voulez.",
   },
   {
     icon: "🧠",
     title: "Score sur 10",
-    body: "Chaque offre est notée par JEAN PAUL selon votre profil. Bleu pâle, peu pertinent. Bleu foncé, très bon match.",
+    body: "Chaque offre est notée par BLOW MY JOB selon votre profil. Bleu pâle, peu pertinent. Bleu foncé, très bon match.",
     detail: "Seules les offres à 6 et plus ont un CV et une lettre générés.",
   },
   {
     icon: "📄",
     title: "CV et lettre",
-    body: "Pour chaque bonne offre, JEAN PAUL adapte votre CV et écrit une lettre ciblée. Les documents apparaissent directement dans la fiche.",
+    body: "Pour chaque bonne offre, BLOW MY JOB adapte votre CV et écrit une lettre ciblée. Les documents apparaissent directement dans la fiche.",
     detail: "Cliquez sur CV ou Lettre pour les voir ou les télécharger.",
   },
   {
     icon: "✅",
     title: "Postuler",
     body: "Sélectionnez les offres qui vous intéressent et lancez la postulation. Chromium pré-remplit les formulaires à votre place.",
-    detail: "JEAN PAUL fait le sale boulot. Vous n'avez plus qu'à cliquer Submit.",
+    detail: "BLOW MY JOB fait le sale boulot. Vous n'avez plus qu'à cliquer Submit.",
   },
 ];
 
@@ -62,7 +62,7 @@ export default function DashboardOnboarding({ userId }: { userId: string | null 
   const isLast = step === STEPS.length - 1;
 
   return (
-    <div className="dob__overlay" role="dialog" aria-modal="true" aria-label="Comment fonctionne JEAN PAUL">
+    <div className="dob__overlay" role="dialog" aria-modal="true" aria-label="Comment fonctionne BLOW MY JOB">
       <div className="dob__panel">
         <button className="dob__close" onClick={close} aria-label="Fermer">✕</button>
 

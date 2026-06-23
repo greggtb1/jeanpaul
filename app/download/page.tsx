@@ -40,7 +40,7 @@ export default async function DownloadPage() {
       </Link>
 
       <div className="download-page__hero">
-        <h1>JEAN PAUL Agent</h1>
+        <h1>BLOW MY JOB Agent</h1>
         <p>
           Chromium s&apos;ouvre sur <strong>votre</strong> écran et remplit les formulaires avec
           votre CV et vos lettres. Le scan et l&apos;analyse restent sur le site.
@@ -94,11 +94,6 @@ export default async function DownloadPage() {
         ))}
       </div>
 
-      <p className="download-page__chromium">
-        <strong>Pas besoin d&apos;installer Chromium vous-même.</strong> Au premier Postuler,
-        l&apos;agent le télécharge tout seul (environ 1 min, connexion internet requise). Ensuite,
-        connectez-vous à LinkedIn une fois dans la fenêtre, la session est mémorisée.
-      </p>
     </main>
   );
 }

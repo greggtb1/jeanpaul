@@ -1,4 +1,4 @@
-name: Build JEAN PAUL Agent
+name: Build BLOW MY JOB Agent
 
 on:
   push:
@@ -14,13 +14,13 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: JEAN-PAUL-Agent_aarch64.dmg
+            artifact: BLOW-MY-JOB-Agent_aarch64.dmg
           - os: macos-13
             target: x86_64-apple-darwin
-            artifact: JEAN-PAUL-Agent_x64.dmg
+            artifact: BLOW-MY-JOB-Agent_x64.dmg
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: JEAN-PAUL-Agent_x64-setup.exe
+            artifact: BLOW-MY-JOB-Agent_x64-setup.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -42,8 +42,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
       - name: Install desktop deps
         working-directory: desktop
+        shell: bash
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
@@ -54,14 +58,29 @@ jobs:
       - name: Build Tauri app
         working-directory: desktop
         env:
-          VITE_API_ORIGIN: https://jeanpauljob.com
+          VITE_API_ORIGIN: https://blowmyjob.fr
         run: npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Normalize installer filename
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p public/downloads/agent
+          if [[ "${{ matrix.target }}" == "x86_64-pc-windows-msvc" ]]; then
+            files=(desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe)
+            cp "${files[0]}" public/downloads/agent/BLOW-MY-JOB-Agent_x64-setup.exe
+          elif [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
+            files=(desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg)
+            cp "${files[0]}" public/downloads/agent/BLOW-MY-JOB-Agent_aarch64.dmg
+          else
+            files=(desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg)
+            cp "${files[0]}" public/downloads/agent/BLOW-MY-JOB-Agent_x64.dmg
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
-            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            public/downloads/agent/${{ matrix.artifact }}
           if-no-files-found: error

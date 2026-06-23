@@ -4,6 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { ensureGregPromoCode } from "@/lib/stripe-promo";
 import {
+  ensureReferralCoupon,
+  findReferralCode,
+  REFERRAL_COMMISSION_RATE,
+  REFERRAL_DISCOUNT_PERCENT,
+} from "@/lib/referrals";
+import {
   getPlan,
   isPlanId,
   isUpgradePlan,
@@ -45,15 +51,24 @@ function checkoutSessionBase(
     ...extra.metadata,
   });
 
+  const hasDiscounts = !!(extra.discounts && extra.discounts.length > 0);
   const base: Stripe.Checkout.SessionCreateParams = {
     mode,
     line_items: [buildCheckoutLineItem(planId, billing)],
-    allow_promotion_codes: true,
     success_url: successUrl,
     cancel_url: cancelUrl,
     ...extra,
     metadata: meta,
   };
+  // Stripe interdit allow_promotion_codes + discounts — on omet l'un ou l'autre.
+  // Code test « greg » : champ promo Stripe uniquement sur Découverte.
+  if (hasDiscounts) {
+    delete base.allow_promotion_codes;
+  } else if (planId === "test") {
+    base.allow_promotion_codes = true;
+  } else {
+    delete base.allow_promotion_codes;
+  }
 
   if (mode === "subscription") {
     base.subscription_data = {
@@ -122,6 +137,7 @@ export async function POST(req: Request) {
     let fullName = "";
     let draftId = "";
     let upgrade = false;
+    let referralCode = "";
 
     try {
       const body = await req.json();
@@ -135,6 +151,7 @@ export async function POST(req: Request) {
       fullName = (body?.full_name ?? "").trim();
       draftId = (body?.draft_id ?? "").trim();
       upgrade = body?.upgrade === true;
+      referralCode = (body?.referral_code ?? "").trim();
     } catch {
       return NextResponse.json({ error: "Corps invalide" }, { status: 400 });
     }
@@ -153,6 +170,32 @@ export async function POST(req: Request) {
     const stripe = getStripe();
     await ensureGregPromoCode(stripe);
     const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const referralAdmin = referralCode ? createAdminClient() : null;
+    const referral = referralAdmin
+      ? await findReferralCode(referralAdmin, referralCode)
+      : null;
+    if (referralCode && !referral) {
+      return NextResponse.json({ error: "Code parrainage invalide." }, { status: 400 });
+    }
+    if (referral && user?.id === referral.user_id) {
+      return NextResponse.json(
+        { error: "Vous ne pouvez pas utiliser votre propre code." },
+        { status: 400 }
+      );
+    }
+    const referralCouponId = referral ? await ensureReferralCoupon(stripe) : null;
+    const referralMetadata: Record<string, string> = referral
+      ? {
+          referral_code_id: referral.id,
+          referral_code: referral.code,
+          referrer_user_id: referral.user_id,
+          referral_discount_percent: String(REFERRAL_DISCOUNT_PERCENT),
+          referral_commission_rate: String(REFERRAL_COMMISSION_RATE),
+        }
+      : {};
+    const referralDiscount = referralCouponId
+      ? { discounts: [{ coupon: referralCouponId }] }
+      : {};
 
     if (user?.id && user.email) {
       const admin = createAdminClient();
@@ -217,7 +260,9 @@ export async function POST(req: Request) {
             supabase_user_id: user.id,
             draft_id: draftId,
             previous_subscription_id: profile?.stripe_subscription_id ?? "",
+            ...referralMetadata,
           },
+          ...referralDiscount,
         })
       );
 
@@ -229,12 +274,21 @@ export async function POST(req: Request) {
     }
 
     const guestCheckout: Stripe.Checkout.SessionCreateParams = {
-      customer_creation: "always",
-      metadata: { pending: "true" },
+      metadata: { pending: "true", ...referralMetadata },
+      ...referralDiscount,
     };
+    // `customer_creation` n'est valide qu'en mode `payment` (one-shot).
+    // En mode `subscription`, Stripe crée le client automatiquement.
+    if (checkoutMode(planId) === "payment") {
+      guestCheckout.customer_creation = "always";
+    }
     if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       guestCheckout.customer_email = email;
-      guestCheckout.metadata = { pending: "true", checkout_email: email };
+      guestCheckout.metadata = {
+        pending: "true",
+        checkout_email: email,
+        ...referralMetadata,
+      };
     }
 
     const session = await stripe.checkout.sessions.create(

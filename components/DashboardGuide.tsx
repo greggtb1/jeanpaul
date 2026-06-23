@@ -6,7 +6,7 @@ const GUIDE = [
   {
     title: "Scanner",
     steps: [
-      { label: "Cliquez sur Scanner", desc: "JEAN PAUL parcourt LinkedIn selon vos critères et récupère les offres qui correspondent." },
+      { label: "Cliquez sur Scanner", desc: "BLOW MY JOB parcourt LinkedIn selon vos critères et récupère les offres qui correspondent." },
       { label: "Suivez la progression", desc: "Le terminal affiche l'avancement. Vous pouvez fermer le navigateur, ça tourne en fond." },
       { label: "Les offres arrivent", desc: "Chaque offre analysée s'affiche dans la liste avec sa note sur 10." },
     ],
@@ -16,7 +16,7 @@ const GUIDE = [
     steps: [
       { label: "Bleu pâle (1 à 5)", desc: "Peu pertinent. L'offre est visible mais pas prioritaire." },
       { label: "Bleu foncé (6 à 10)", desc: "Bon match. CV et lettre sont générés automatiquement." },
-      { label: "Voir le détail", desc: "Cliquez sur une fiche pour lire l'analyse complète de JEAN PAUL." },
+      { label: "Voir le détail", desc: "Cliquez sur une fiche pour lire l'analyse complète de BLOW MY JOB." },
     ],
   },
   {

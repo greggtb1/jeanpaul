@@ -11,7 +11,7 @@ import os
 import re
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Set
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 from urllib.request import urlopen
 
 from dotenv import load_dotenv
@@ -513,6 +513,10 @@ def _normalize_job_url(url: str) -> str:
         path = (p.path or "").rstrip("/")
         if "linkedin.com" in host:
             host = "www.linkedin.com"
+            qs = parse_qs(p.query or "")
+            current_id = (qs.get("currentJobId") or [""])[0]
+            if current_id and current_id.isdigit():
+                path = f"/jobs/view/{current_id}"
             path = re.sub(r"/+$", "", path)
         return urlunparse((p.scheme or "https", host, path, "", "", "")).rstrip("/")
     except Exception:
@@ -532,7 +536,11 @@ def _url_match_keys(url: str) -> Set[str]:
         keys.add(norm)
         keys.add(norm.rstrip("/"))
     bare = raw.split("?")[0].rstrip("/")
-    keys.add(bare)
+    # Une URL LinkedIn de recherche avec currentJobId représente une fiche précise.
+    # Ne pas ajouter /jobs/search nu, sinon toutes les fiches importées depuis
+    # une page de recherche se dédupliquent entre elles.
+    if not ("linkedin.com" in raw.lower() and "/jobs/search" in bare and "/jobs/view/" in norm):
+        keys.add(bare)
     return {k for k in keys if k}
 
 

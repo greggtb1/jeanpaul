@@ -413,18 +413,44 @@ def _qualifying_urls(user_id: str, urls_before: set | None = None, limit: int = 
     return out
 
 
+def _qualifying_import_url(user_id: str, target_url: str) -> list[str]:
+    from store import _urls_overlap
+
+    for j in load_jobs(user_id=user_id):
+        url = j.get("url") or ""
+        if not _urls_overlap(url, target_url):
+            continue
+        if j.get("imported_manually"):
+            return [url]
+        s = j.get("_fit_score") if isinstance(j.get("_fit_score"), int) else j.get("fit_score")
+        return [url] if isinstance(s, int) and s >= MIN_SCORE else []
+    return []
+
+
 def _run_generation_or_mark_ready(
     user_id: str,
     run_id: str,
     urls_before: set | None,
     docs_before: set,
     progress_after: int = 92,
+    target_url: str | None = None,
 ) -> list[str]:
     """Génère CV+lettres si CV présent, sinon marque les offres qualifiantes comme prêtes."""
     if _has_cv(user_id):
-        pipeline_log(run_id, "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──")
+        pipeline_log(
+            run_id,
+            "\n── Étape 2 : Génération CV + lettres ──"
+            if target_url
+            else "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──",
+        )
+        max_docs = "1" if target_url else str(HUNT_TARGET)
+        args = ["apply", "--max", max_docs, "--no-dashboard"]
+        if target_url:
+            args.extend(["--all", "--url", target_url, "--skip-analysis"])
+        else:
+            args.extend(["--min-score", "6"])
         rc = run_main(
-            ["apply", "--min-score", "6", "--max", str(HUNT_TARGET), "--no-dashboard"],
+            args,
             user_id,
             run_id,
         )
@@ -437,17 +463,64 @@ def _run_generation_or_mark_ready(
         sync_documents(user_id, run_id)
         return list(_urls_with_docs(user_id) - docs_before)
 
-    ready_urls = _qualifying_urls(user_id, urls_before)
+    ready_urls = _qualifying_import_url(user_id, target_url) if target_url else _qualifying_urls(user_id, urls_before)
     pipeline_log(run_id, "\n── Étape 2 : Pas de CV, génération ignorée ──")
     pipeline_log(
         run_id,
-        f"✓ {len(ready_urls)} offre(s) repérée(s) comme dossiers prêts (score ≥ {MIN_SCORE}/10)",
+        f"✓ {len(ready_urls)} offre(s) repérée(s) comme dossiers prêts",
     )
     if ready_urls:
         n = mark_ready_without_cv(user_id, ready_urls)
         pipeline_log(run_id, f"✓ {n} dossier(s) prêt(s) sans CV ni lettre (économie de tokens)")
     pipeline_set_status(run_id, "running", progress=progress_after)
     return ready_urls
+
+
+def run_import_offer(user_id: str, run_id: str, import_url: str):
+    """Importe une offre trouvée à la main, puis génère uniquement ce dossier."""
+    if not import_url:
+        pipeline_log(run_id, "❌ Lien d'offre manquant.")
+        pipeline_finish(run_id, "failed", {"mode": "import", "error": "missing_url"})
+        return
+
+    docs_before = _urls_with_docs(user_id)
+    pipeline_set_status(run_id, "running", progress=8)
+    pipeline_log(run_id, "🔗 Import d'une offre trouvée à la main")
+    pipeline_log(run_id, f"   {import_url[:140]}")
+
+    pipeline_set_status(run_id, "running", progress=18)
+    pipeline_log(run_id, "\n── Étape 1 : Import de l'offre ──")
+    rc = run_main(["import-url", "--url", import_url, "--min-score", str(MIN_SCORE)], user_id, run_id)
+    if rc == 130:
+        _exit_if_cancelled(run_id, user_id)
+    if rc != 0:
+        pipeline_log(run_id, "❌ L'import de l'offre a échoué.")
+        pipeline_finish(run_id, "failed", {"step": "import", "mode": "import", "url": import_url})
+        sys.exit(rc)
+
+    pipeline_set_status(run_id, "running", progress=58)
+    generated_urls = _run_generation_or_mark_ready(
+        user_id,
+        run_id,
+        None,
+        docs_before,
+        progress_after=92,
+        target_url=import_url,
+    )
+
+    ready = len(generated_urls)
+    if ready:
+        pipeline_log(run_id, f"\n📊 1 offre importée · {ready} dossier prêt")
+    else:
+        pipeline_log(run_id, "\n📊 1 offre importée · dossier non généré")
+    pipeline_log(run_id, "\n✅ Terminé. Rafraîchissez le dashboard pour voir l'offre.")
+    pipeline_finish(run_id, "done", {
+        "mode": "import",
+        "import_url": import_url,
+        "new_urls": [import_url],
+        "generated_urls": generated_urls,
+        "skip_docs": not _has_cv(user_id),
+    })
 
 
 def sync_documents(user_id: str, run_id: str):
@@ -641,7 +714,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--user-id", required=True)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--mode", default="full", choices=["full", "autoapply", "analyze", "test-chromium"])
+    parser.add_argument("--mode", default="full", choices=["full", "autoapply", "analyze", "import", "test-chromium"])
+    parser.add_argument("--import-url", default="")
     opts = parser.parse_args()
 
     run_id = opts.run_id
@@ -664,8 +738,12 @@ def main():
         run_analyze_pending(opts.user_id, run_id)
         return
 
+    if opts.mode == "import":
+        run_import_offer(opts.user_id, run_id, opts.import_url)
+        return
+
     pipeline_set_status(run_id, "running", progress=5)
-    pipeline_log(run_id, "🚀 JEAN PAUL : recherche lancée")
+    pipeline_log(run_id, "🚀 BLOW MY JOB : recherche lancée")
     track_search_criteria(opts.user_id, run_id)
 
     # Profil

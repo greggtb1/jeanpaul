@@ -32,6 +32,27 @@ export function resolveStripePriceId(
   return undefined;
 }
 
+/** Produit Stripe lié à un price configuré (ex. STRIPE_PRICE_TEST → produit Découverte). */
+export async function resolveStripeProductIdForPlan(
+  stripe: Stripe,
+  planId: PlanId
+): Promise<string | undefined> {
+  const fromEnv =
+    planId === "test" ? process.env.STRIPE_PRODUCT_TEST?.trim() : undefined;
+  if (fromEnv) return fromEnv;
+
+  const billing: BillingInterval = "weekly";
+  const priceId = resolveStripePriceId(planId, billing);
+  if (!priceId) return undefined;
+
+  try {
+    const price = await stripe.prices.retrieve(priceId);
+    return typeof price.product === "string" ? price.product : price.product?.id;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildCheckoutLineItem(
   planId: string,
   billing: BillingInterval
@@ -50,7 +71,7 @@ export function buildCheckoutLineItem(
         currency: "eur",
         unit_amount: oneTimePriceCents(plan),
         product_data: {
-          name: `JEAN PAUL · ${plan.name}`,
+          name: `BLOW MY JOB · ${plan.name}`,
           description: `1 recherche complète · jusqu'à ${plan.applicationsQuota} dossiers prêts à soumettre`,
           metadata: {
             plan_id: plan.id,
@@ -76,7 +97,7 @@ export function buildCheckoutLineItem(
         interval_count: 1,
       },
       product_data: {
-        name: `JEAN PAUL · ${plan.name}`,
+        name: `BLOW MY JOB · ${plan.name}`,
         description: `${monthlyApplicationsQuota(plan)} dossiers prêts à soumettre / mois`,
         metadata: {
           plan_id: plan.id,

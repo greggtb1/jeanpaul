@@ -12,6 +12,7 @@ const NAV = [
   { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", mobileIcon: "⌂", exact: true },
   { href: "/dashboard/compte", label: "Mon compte", mobileLabel: "Compte", mobileIcon: "◎" },
   { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture", mobileIcon: "€" },
+  { href: "/dashboard/parrainage", label: "Parrainage", mobileLabel: "Parrain", mobileIcon: "%" },
   { href: "/dashboard/preferences", label: "Critères de recherche", mobileLabel: "Critères", mobileIcon: "⚙" },
   { href: "/dashboard/idees", label: "Boîte à idées", mobileLabel: "Idées", mobileIcon: "✦" },
 ];
@@ -21,8 +22,12 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const router = useRouter();
   const { uid, loading } = useAuth();
 
+  const isReferralPage = pathname.startsWith("/dashboard/parrainage");
+
   useEffect(() => {
     if (loading || !uid) return;
+    if (isReferralPage) return;
+
     const supabase = createClient();
     supabase
       .from("profiles")
@@ -38,7 +43,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           data.subscription_status === "active" || data.subscription_status === "trialing";
         if (!active) router.replace("/subscribe");
       });
-  }, [router, uid, loading]);
+  }, [router, uid, loading, isReferralPage]);
 
   async function logout() {
     const supabase = createClient();
@@ -58,12 +63,6 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             </span>
             <BrandName />
           </Link>
-          <button type="button" className="db-topbar__logout" onClick={logout} aria-label="Déconnexion">
-            <span className="db-topbar__logout-icon" aria-hidden="true">
-              ⎋
-            </span>
-            <span className="db-topbar__logout-text">Sortir</span>
-          </button>
         </header>
         <aside className="db-side">
           <Link href="/" className="db__brand db__brand--side">
@@ -100,7 +99,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         </aside>
         <div className="db-content">{children}</div>
       </div>
-      <DashboardOnboarding userId={uid} />
+      {!isReferralPage && <DashboardOnboarding userId={uid} />}
     </div>
   );
 }

@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { trackEvent } from "@/lib/umami";
 
 const steps = [
   {
     badge: "01",
     title: "Importe ton profil",
     description:
-      "Tu déposes ton CV, tu précises ce que tu cherches. JEAN PAUL a tout ce qu'il faut pour postuler à ta place.",
+      "Tu déposes ton CV, tu précises ce que tu cherches. BLOW MY JOB a tout ce qu'il faut pour postuler à ta place.",
+    descriptionShort: "Dépose ton CV et précise ta recherche.",
     image: "/profil-config.png",
     imageAlt: "Import de CV et configuration du profil avec expérience et préférences d'emploi",
   },
@@ -16,29 +19,67 @@ const steps = [
     title: "Recherche",
     description:
       "On scanne LinkedIn et on te remonte uniquement les offres qui matchent, avec un score de fit sur 10.",
+    descriptionShort: "Offres pertinentes, avec un score de fit sur 10.",
     image: "/radar-recherche.png",
-    imageAlt: "JEAN PAUL scanne LinkedIn, Welcome to the Jungle et Upwork pour trouver les offres pertinentes",
+    imageAlt: "BLOW MY JOB scanne LinkedIn, Welcome to the Jungle et Upwork pour trouver les offres pertinentes",
   },
   {
     badge: "03",
     title: "Préparation",
     description:
       "CV, lettre et formulaire sont générés pour chaque offre. Plus de copier-coller, plus de soirées perdues.",
+    descriptionShort: "CV, lettre et formulaire générés pour chaque offre.",
     image: "/generation.png",
     imageAlt: "CV et lettre de motivation générés et adaptés à chaque offre",
   },
   {
     badge: "04",
-    title: "Validation",
+    title: "Remplissage automatique",
     description:
-      "Tu relis, tu modifies si besoin, tu valides. Rien ne part sans ton accord.",
+      "Tout est rempli automatiquement, tu n'as plus qu'à valider.",
+    descriptionShort: "Tout est rempli, tu valides.",
     image: "/remplissage.png",
     imageAlt: "Formulaire Doctolib rempli automatiquement avec les informations de Grégoire Linee",
   },
 ];
 
+const VIDEO_SPEEDS = [
+  { rate: 1, label: "×1" },
+  { rate: 1.3, label: "×1,3" },
+  { rate: 1.5, label: "×1,5" },
+] as const;
+
+const DEFAULT_VIDEO_SPEED = 1.3;
+
 export default function Steps() {
   const sectionRef = useRef<HTMLElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackRate, setPlaybackRate] = useState(DEFAULT_VIDEO_SPEED);
+  const [showEndCta, setShowEndCta] = useState(false);
+
+  const setVideoSpeed = (rate: number) => {
+    setPlaybackRate(rate);
+    if (videoRef.current) videoRef.current.playbackRate = rate;
+  };
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = DEFAULT_VIDEO_SPEED;
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const onEnded = () => setShowEndCta(true);
+    const onPlay = () => setShowEndCta(false);
+
+    video.addEventListener("ended", onEnded);
+    video.addEventListener("play", onPlay);
+    return () => {
+      video.removeEventListener("ended", onEnded);
+      video.removeEventListener("play", onPlay);
+    };
+  }, []);
 
   useEffect(() => {
     const root = sectionRef.current;
@@ -85,6 +126,63 @@ export default function Steps() {
           </p>
         </div>
 
+        <div className="steps-video step-reveal">
+          <div className="steps-video__frame">
+            <video
+              ref={videoRef}
+              className="steps-video__player"
+              controls
+              playsInline
+              preload="metadata"
+              controlsList="nodownload noplaybackrate"
+            >
+              <source src="/videos/blowmyjob-demo.mp4" type="video/mp4" />
+              Votre navigateur ne peut pas lire cette vidéo.
+            </video>
+            <div
+              className={`steps-video__endcta${showEndCta ? " is-visible" : ""}`}
+              aria-hidden={!showEndCta}
+            >
+              <Link
+                href="/onboarding"
+                className="btn btn--outline btn--sm steps-video__cta"
+                onClick={() =>
+                  trackEvent("landing_cta_click", { source: "steps_video" })
+                }
+              >
+                Commencer
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M5 12h14M13 6l6 6-6 6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </Link>
+            </div>
+            <div
+              className="steps-video__speeds"
+              role="group"
+              aria-label="Vitesse de lecture"
+            >
+              {VIDEO_SPEEDS.map(({ rate, label }) => (
+                <button
+                  key={rate}
+                  type="button"
+                  className={`steps-video__speed${playbackRate === rate ? " is-active" : ""}`}
+                  onClick={() => setVideoSpeed(rate)}
+                  aria-pressed={playbackRate === rate}
+                  aria-label={`Vitesse ${label}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <div className="steps-showcase">
           <div className="steps-rail step-reveal" aria-hidden="true" />
           {steps.map((step, i) => (
@@ -99,7 +197,14 @@ export default function Steps() {
               <div className="step-row__copy">
                 <span className="step-row__num">{step.badge}</span>
                 <h3>{step.title}</h3>
-                <p>{step.description}</p>
+                <p>
+                  <span className="step-row__desc step-row__desc--full">
+                    {step.description}
+                  </span>
+                  <span className="step-row__desc step-row__desc--short">
+                    {step.descriptionShort}
+                  </span>
+                </p>
               </div>
             </article>
           ))}
