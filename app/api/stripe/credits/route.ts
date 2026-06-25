@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { CREDIT_PACKS, creditPackPriceCents, isCreditPackId } from "@/lib/plans";
+import { datafastAttributionMetadata } from "@/lib/datafast";
 
 /** Crée une session Stripe Checkout pour un pack de dossiers prêts. */
 export async function POST(req: Request) {
@@ -52,11 +53,13 @@ export async function POST(req: Request) {
     }
 
     const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const datafastMetadata = await datafastAttributionMetadata();
     const metadata = {
       checkout_type: "credits",
       credit_pack: pack.id,
       credits: String(pack.credits),
       supabase_user_id: user.id,
+      ...datafastMetadata,
     };
 
     const session = await stripe.checkout.sessions.create({

@@ -24,6 +24,7 @@ import {
   checkoutMode,
   resolveStripePriceId,
 } from "@/lib/stripe-prices";
+import { datafastAttributionMetadata } from "@/lib/datafast";
 import type Stripe from "stripe";
 
 function checkoutSessionBase(
@@ -169,6 +170,7 @@ export async function POST(req: Request) {
 
     const stripe = getStripe();
     await ensureGregPromoCode(stripe);
+    const datafastMetadata = await datafastAttributionMetadata();
     const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const referralAdmin = referralCode ? createAdminClient() : null;
     const referral = referralAdmin
@@ -260,6 +262,7 @@ export async function POST(req: Request) {
             supabase_user_id: user.id,
             draft_id: draftId,
             previous_subscription_id: profile?.stripe_subscription_id ?? "",
+            ...datafastMetadata,
             ...referralMetadata,
           },
           ...referralDiscount,
@@ -274,7 +277,7 @@ export async function POST(req: Request) {
     }
 
     const guestCheckout: Stripe.Checkout.SessionCreateParams = {
-      metadata: { pending: "true", ...referralMetadata },
+      metadata: { pending: "true", ...datafastMetadata, ...referralMetadata },
       ...referralDiscount,
     };
     // `customer_creation` n'est valide qu'en mode `payment` (one-shot).
@@ -287,6 +290,7 @@ export async function POST(req: Request) {
       guestCheckout.metadata = {
         pending: "true",
         checkout_email: email,
+        ...datafastMetadata,
         ...referralMetadata,
       };
     }

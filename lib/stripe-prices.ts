@@ -61,7 +61,9 @@ export function buildCheckoutLineItem(
   const id = parsePlanId(planId);
   const priceId = resolveStripePriceId(id, billing);
 
-  if (priceId) {
+  // Découverte est gérée en price_data inline pour éviter toute dérive
+  // si STRIPE_PRICE_TEST pointe encore vers un ancien price (ex: 2,99 €).
+  if (priceId && id !== "test") {
     return { price: priceId, quantity: 1 };
   }
 
@@ -72,7 +74,7 @@ export function buildCheckoutLineItem(
         unit_amount: oneTimePriceCents(plan),
         product_data: {
           name: `BLOW MY JOB · ${plan.name}`,
-          description: `1 recherche complète · jusqu'à ${plan.applicationsQuota} dossiers prêts à soumettre`,
+          description: `Jusqu'à ${plan.applicationsQuota} candidatures envoyées`,
           metadata: {
             plan_id: plan.id,
             applications_quota: String(plan.applicationsQuota),
@@ -98,7 +100,7 @@ export function buildCheckoutLineItem(
       },
       product_data: {
         name: `BLOW MY JOB · ${plan.name}`,
-        description: `${monthlyApplicationsQuota(plan)} dossiers prêts à soumettre / mois`,
+        description: `${monthlyApplicationsQuota(plan)} candidatures envoyées / mois`,
         metadata: {
           plan_id: plan.id,
           applications_per_week: String(plan.applicationsQuota),

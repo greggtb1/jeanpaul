@@ -9,14 +9,17 @@ export default function Hero() {
     <section className="hero">
       <div className="hero__left">
         <h1 className="hero__title">
-          Postulez sans<br />
-          l&apos;effort{" "}
-          <mark className="hero__mark">répétitif.</mark>
+          <span className="hero__title-lead">Obtenez enfin des</span>
+          <br />
+          <mark className="hero__mark">entretiens</mark>, en
+          <br />
+          3 clics.
         </h1>
 
         <p className="hero__subtitle">
-          BLOW MY JOB détecte les offres qui vous correspondent, génère un CV et une
-          lettre de motivation propres à chaque offre, et postule pour vous.
+          BLOW MY JOB repère les offres qui matchent votre profil, génère des CV et
+          lettres ultra ciblés, optimisés pour les filtres IA des recruteurs, puis
+          soumet la candidature pour vous.
         </p>
 
         <div className="hero__cta">

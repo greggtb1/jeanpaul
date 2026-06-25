@@ -56,6 +56,7 @@ export default function Steps() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackRate, setPlaybackRate] = useState(DEFAULT_VIDEO_SPEED);
   const [showEndCta, setShowEndCta] = useState(false);
+  const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
 
   const setVideoSpeed = (rate: number) => {
     setPlaybackRate(rate);
@@ -82,6 +83,12 @@ export default function Steps() {
   }, []);
 
   useEffect(() => {
+    if (shouldLoadVideo && videoRef.current) {
+      videoRef.current.load();
+    }
+  }, [shouldLoadVideo]);
+
+  useEffect(() => {
     const root = sectionRef.current;
     if (!root) return;
 
@@ -92,6 +99,7 @@ export default function Steps() {
     const targets = root.querySelectorAll(".step-reveal");
     if (reducedMotion) {
       targets.forEach((el) => el.classList.add("is-visible"));
+      setShouldLoadVideo(true);
       return;
     }
 
@@ -100,6 +108,9 @@ export default function Steps() {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             entry.target.classList.add("is-visible");
+            if (entry.target.classList.contains("steps-video")) {
+              setShouldLoadVideo(true);
+            }
             observer.unobserve(entry.target);
           }
         });
@@ -133,10 +144,13 @@ export default function Steps() {
               className="steps-video__player"
               controls
               playsInline
-              preload="metadata"
+              preload="none"
+              poster="/videos/blowmyjob-demo-poster.jpg"
               controlsList="nodownload noplaybackrate"
             >
-              <source src="/videos/blowmyjob-demo.mp4" type="video/mp4" />
+              {shouldLoadVideo && (
+                <source src="/videos/blowmyjob-demo.mp4" type="video/mp4" />
+              )}
               Votre navigateur ne peut pas lire cette vidéo.
             </video>
             <div

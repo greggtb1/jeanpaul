@@ -9,9 +9,9 @@ export default function FinalCta() {
     <section className="section">
       <div className="container">
         <div className="finalcta">
-          <h2>Laissez Blow My Job faire le sale boulot.</h2>
+          <h2>Plus de candidatures utiles, plus d&apos;entretiens.</h2>
           <p>
-            Vous validez, le reste est automatisé.
+            En quelques clics, vos dossiers sont prêts et calibrés pour passer les filtres IA des recruteurs.
           </p>
           <Link
             href={`/onboarding${planQuery("test")}`}

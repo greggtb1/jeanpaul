@@ -81,6 +81,12 @@ export default function RootLayout({
           data-website-id="7f67339f-f236-4e56-8cac-0c4216486e16"
           strategy="afterInteractive"
         />
+        <Script
+          src="https://datafa.st/js/script.js"
+          data-website-id="dfid_ZUk0ZJXBXT20zJb6gNBa2"
+          data-domain="blowmyjob.fr"
+          strategy="afterInteractive"
+        />
         <ReferralCapture />
         {children}
       </body>

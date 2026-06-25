@@ -104,7 +104,7 @@ export default function Pricing() {
         </div>
 
         <p className="pricing__note">
-          <strong>Découverte</strong> : paiement unique ({displayPrice(PLANS_LIST[0]).amount} €, 1 recherche complète jusqu&apos;à 15 dossiers prêts à soumettre).
+          <strong>Découverte</strong> : paiement unique ({displayPrice(PLANS_LIST[0]).amount} €, jusqu&apos;à 25 candidatures envoyées).
           {" "}
           <strong>Essentiel</strong> et <strong>Intensif</strong> : abonnement hebdo ou mensuel (−{MONTHLY_DISCOUNT_PERCENT} %),
           résiliable à tout moment.

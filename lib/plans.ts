@@ -6,16 +6,17 @@ export const MONTHLY_DISCOUNT_PERCENT = 15;
 /** Semaines facturées pour dériver le tarif mensuel (4 sem. × prix hebdo, −15 %). */
 export const WEEKS_PER_MONTH = 4;
 
-/** Affichage marketing : quota hebdo × 4 (le plafond réel reste hebdomadaire). */
+/** Affichage marketing : quota hebdo × 4 (ou monthlyQuotaMarketing si défini). */
 export function monthlyApplicationsQuota(plan: Plan): number {
+  if (plan.monthlyQuotaMarketing != null) return plan.monthlyQuotaMarketing;
   return plan.applicationsQuota * WEEKS_PER_MONTH;
 }
 
 export function applicationsQuotaLabel(plan: Plan): string {
   if (plan.kind === "one_time") {
-    return `1 recherche complète · jusqu'à ${plan.applicationsQuota} dossiers`;
+    return `1 recherche · jusqu'à ${plan.applicationsQuota} candidatures envoyées`;
   }
-  return `${monthlyApplicationsQuota(plan)} dossiers / mois`;
+  return `${monthlyApplicationsQuota(plan)} candidatures envoyées / mois`;
 }
 
 const LEGACY_PLAN_IDS: Record<string, PlanId> = {
@@ -32,8 +33,10 @@ export type Plan = {
   features: string[];
   featured?: boolean;
   kind: "one_time" | "subscription";
-  /** Dossiers adaptés au profil (one-shot) ou plafond hebdo (abo). */
+  /** Candidatures envoyées (one-shot) ou plafond hebdo (abo). */
   applicationsQuota: number;
+  /** Affichage mensuel marketing (ex. 350) si différent de quota hebdo × 4. */
+  monthlyQuotaMarketing?: number;
   priceOneTimeEur: number | null;
   priceWeeklyEur: number | null;
 };
@@ -44,32 +47,26 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Découverte",
     tagline: "Une vraie recherche pour tester BLOW MY JOB jusqu'au bout",
     description:
-      "Paiement unique : BLOW MY JOB scanne LinkedIn, note les offres et prépare jusqu'à 15 dossiers complets prêts à soumettre.",
+      "Paiement unique : une recherche complète avec jusqu'à 25 candidatures envoyées.",
     features: [
+      "Jusqu'à 25 candidatures envoyées",
+      "CV + lettre adaptés pour chaque offre",
       "Scan LinkedIn selon vos critères",
-      "Jusqu'à 15 offres retenues et personnalisées",
-      "CV + lettre prêts pour chaque bon match",
-      "Score de pertinence /10 sur les offres analysées",
+      "Score de pertinence /10",
+      "Auto-postulation sur les offres éligibles",
       "Sans abonnement",
     ],
     kind: "one_time",
-    applicationsQuota: 15,
-    priceOneTimeEur: 2.99,
+    applicationsQuota: 25,
+    priceOneTimeEur: 7.99,
     priceWeeklyEur: null,
   },
   chill: {
     id: "chill",
     name: "Essentiel",
     tagline: "Votre prochain poste, sans passer vos soirées à postuler",
-    description:
-      "Jusqu'à 180 dossiers prêts par mois. BLOW MY JOB scanne, score et prépare chaque dossier pour vous.",
-    features: [
-      "Scan LinkedIn selon vos critères",
-      "Jusqu'à 180 offres retenues et personnalisées / mois",
-      "CV + lettre prêts pour chaque bon match",
-      "Score de pertinence /10 sur les offres analysées",
-      "Auto-postulation incluse : formulaires pré-remplis, vous validez l'envoi",
-    ],
+    description: "Toutes les fonctionnalités de Découverte.",
+    features: ["Jusqu'à 180 candidatures envoyées par mois"],
     kind: "subscription",
     applicationsQuota: 45,
     priceOneTimeEur: null,
@@ -79,18 +76,15 @@ export const PLANS: Record<PlanId, Plan> = {
     id: "tryhard",
     name: "Intensif",
     tagline: "Accélérez sans brûler vos nuits",
-    description:
-      "300 dossiers prêts par mois quand vous voulez viser large sans tout faire à la main.",
+    description: "Toutes les fonctionnalités de Découverte.",
     features: [
-      "Scan LinkedIn selon vos critères",
-      "Jusqu'à 300 offres retenues et personnalisées / mois",
-      "CV + lettre prêts pour chaque bon match",
-      "Score de pertinence /10 sur les offres analysées",
-      "Auto-postulation incluse : formulaires pré-remplis, vous validez l'envoi",
+      "Jusqu'à 350 candidatures envoyées par mois",
+      "Vous trouvez un job en 2 mois ou on vous rembourse votre abonnement",
     ],
     featured: true,
     kind: "subscription",
-    applicationsQuota: 75,
+    applicationsQuota: 88,
+    monthlyQuotaMarketing: 350,
     priceOneTimeEur: null,
     priceWeeklyEur: 25,
   },

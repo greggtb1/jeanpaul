@@ -124,6 +124,34 @@ export default function ParrainagePage() {
         <p>Vous touchez 35% à chaque paiement. Vos filleuls ont −15% avec votre code.</p>
       </header>
 
+      <section className="referral-pitch">
+        <div className="referral-pitch__main">
+          <span className="referral-pitch__badge">Revenus récurrents</span>
+          <h2 className="referral-pitch__title">
+            Transformez vos recommandations en revenu chaque mois
+          </h2>
+          <p className="referral-pitch__lead">
+            Vous aimez le service ? Partagez votre code. Vos filleuls obtiennent
+            <strong> −15% à vie</strong>, et vous gagnez <strong>35% de tout ce qu&apos;ils paient</strong>,
+            à chaque renouvellement, sans rien faire de plus.
+          </p>
+        </div>
+        <ul className="referral-pitch__points">
+          <li>
+            <strong>35% à vie</strong>
+            <span>Sur chaque paiement, tant qu&apos;ils restent abonnés</span>
+          </li>
+          <li>
+            <strong>−15% pour eux</strong>
+            <span>Un vrai avantage qui facilite le partage</span>
+          </li>
+          <li>
+            <strong>0 effort</strong>
+            <span>Un lien à partager, on suit tout pour vous</span>
+          </li>
+        </ul>
+      </section>
+
       <section className="referral-panel">
         <h2>À partager</h2>
 

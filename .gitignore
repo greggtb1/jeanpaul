@@ -25,6 +25,7 @@ node_modules/
 *.pem
 deploy.zip
 components/*.mov
+public/videos/*.orig.mp4
 
 # debug
 npm-debug.log*
