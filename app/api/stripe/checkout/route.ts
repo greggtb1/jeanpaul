@@ -62,7 +62,7 @@ function checkoutSessionBase(
     metadata: meta,
   };
   // Stripe interdit allow_promotion_codes + discounts — on omet l'un ou l'autre.
-  // Code test « greg » : champ promo Stripe uniquement sur Découverte.
+  // Code test « greg » : champ promo Stripe uniquement sur Start.
   if (hasDiscounts) {
     delete base.allow_promotion_codes;
   } else if (planId === "test") {
@@ -94,6 +94,9 @@ async function tryInstantSubscriptionUpgrade(
   if (target.kind !== "subscription" || !isUpgradePlan(currentPlanId, targetPlanId)) {
     return null;
   }
+  // Prix mensuel dédié (ex. Essentiel 39 €/mois) : on repasse par la session
+  // Checkout en price_data inline pour garantir le bon montant.
+  if (target.priceMonthlyEur != null) return null;
 
   const priceId = resolveStripePriceId(targetPlanId, billing);
   if (!priceId) return null;
@@ -166,6 +169,8 @@ export async function POST(req: Request) {
     }
     if (plan.kind === "one_time") {
       billing = "weekly";
+    } else if (plan.priceMonthlyEur != null) {
+      billing = "monthly";
     }
 
     const stripe = getStripe();
@@ -185,12 +190,16 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const referralCouponId = referral ? await ensureReferralCoupon(stripe) : null;
-    const referralMetadata: Record<string, string> = referral
+    // Start garde le champ code promo Stripe (« greg »). Stripe interdit
+    // d'avoir à la fois une remise pré-appliquée et le champ code promo : on
+    // n'applique donc pas le parrainage sur cette formule.
+    const referralApplies = !!referral && planId !== "test";
+    const referralCouponId = referralApplies ? await ensureReferralCoupon(stripe) : null;
+    const referralMetadata: Record<string, string> = referralApplies
       ? {
-          referral_code_id: referral.id,
-          referral_code: referral.code,
-          referrer_user_id: referral.user_id,
+          referral_code_id: referral!.id,
+          referral_code: referral!.code,
+          referrer_user_id: referral!.user_id,
           referral_discount_percent: String(REFERRAL_DISCOUNT_PERCENT),
           referral_commission_rate: String(REFERRAL_COMMISSION_RATE),
         }
@@ -199,7 +208,9 @@ export async function POST(req: Request) {
       ? { discounts: [{ coupon: referralCouponId }] }
       : {};
 
-    if (user?.id && user.email) {
+    // Un utilisateur anonyme (mode essai) passe par le parcours connecté :
+    // le paiement porte son user_id, ses offres et documents sont conservés.
+    if (user?.id && (user.email || user.is_anonymous)) {
       const admin = createAdminClient();
       const { data: profile } = await admin
         .from("profiles")
@@ -236,11 +247,17 @@ export async function POST(req: Request) {
         }
       }
 
+      const customerEmail =
+        user.email ||
+        (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : undefined) ||
+        profile?.email ||
+        undefined;
+
       let customerId = profile?.stripe_customer_id as string | undefined;
       if (!customerId) {
         const customer = await stripe.customers.create({
-          email: user.email,
-          name: profile?.full_name || user.user_metadata?.full_name || undefined,
+          email: customerEmail,
+          name: profile?.full_name || user.user_metadata?.full_name || fullName || undefined,
           metadata: { supabase_user_id: user.id, plan_id: planId },
         });
         customerId = customer.id;

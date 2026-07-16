@@ -2,18 +2,50 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase";
 import { downloadLetterPdf } from "@/lib/letter-pdf";
+import { isPlausiblePersonName } from "@/lib/file-name";
+
+function hasSignableName(name: string | null | undefined): boolean {
+  return isPlausiblePersonName(name);
+}
+
+/** Met une majuscule en début de chaque mot (gère les tirets : Jean-Pierre). */
+function capitalizeName(value: string): string {
+  return value
+    .toLocaleLowerCase("fr-FR")
+    .replace(/(^|[\s'-])([\p{L}])/gu, (_, sep, char) => sep + char.toLocaleUpperCase("fr-FR"));
+}
+
+const REFINE_PLACEHOLDERS = [
+  "Rends la lettre plus directe et plus courte",
+  "Ajoute un ton plus humain et naturel",
+  "Insiste davantage sur mon expérience",
+  "Parle plus de l'entreprise et de ses enjeux",
+  "Rends l'accroche plus percutante",
+];
 
 type Props = {
   company: string;
   title: string;
   letterUrl: string;
   profile: Profile | null;
+  /** Déclenché quand l'essai gratuit de retouche est épuisé (mode découverte). */
+  onLockedRefine?: () => void;
+  onNameSaved?: (fullName: string) => void;
   onClose: () => void;
 };
 
-export default function LetterModal({ company, title, letterUrl, profile, onClose }: Props) {
+export default function LetterModal({
+  company,
+  title,
+  letterUrl,
+  profile,
+  onLockedRefine,
+  onNameSaved,
+  onClose,
+}: Props) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,9 +53,14 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
   const [pdfBusy, setPdfBusy] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [instruction, setInstruction] = useState("");
+  const [refinePlaceholder, setRefinePlaceholder] = useState(REFINE_PLACEHOLDERS[0]);
   const [refining, setRefining] = useState(false);
   const [displayText, setDisplayText] = useState("");
   const [animating, setAnimating] = useState(false);
+  const [namePromptOpen, setNamePromptOpen] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [savedName, setSavedName] = useState("");
   const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -69,11 +106,62 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (namePromptOpen) {
+          setNamePromptOpen(false);
+          return;
+        }
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, namePromptOpen]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    let phraseIndex = 0;
+    let charIndex = 0;
+    let deleting = false;
+    let timer: number | undefined;
+
+    const tick = () => {
+      if (cancelled) return;
+      const phrase = REFINE_PLACEHOLDERS[phraseIndex];
+      const next = phrase.slice(0, charIndex);
+      setRefinePlaceholder(next || phrase.slice(0, 1));
+
+      if (!deleting && charIndex < phrase.length) {
+        charIndex += 1;
+        timer = window.setTimeout(tick, 42);
+        return;
+      }
+
+      if (!deleting) {
+        deleting = true;
+        timer = window.setTimeout(tick, 1400);
+        return;
+      }
+
+      if (charIndex > 1) {
+        charIndex -= 1;
+        timer = window.setTimeout(tick, 22);
+        return;
+      }
+
+      deleting = false;
+      phraseIndex = (phraseIndex + 1) % REFINE_PLACEHOLDERS.length;
+      charIndex = 1;
+      timer = window.setTimeout(tick, 260);
+    };
+
+    timer = window.setTimeout(tick, 300);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [mounted]);
 
   const copy = async () => {
     if (!text) return;
@@ -86,13 +174,14 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
     }
   };
 
-  const downloadPdf = async () => {
-    if (!text) return;
+  const resolveSenderName = () => (savedName || profile?.full_name || "").trim();
+
+  const runDownload = async (senderName: string) => {
     setPdfBusy(true);
     setError("");
     try {
       await downloadLetterPdf(text, company, title, {
-        name: profile?.full_name || "Candidat",
+        name: senderName,
         email: profile?.email,
         phone: profile?.phone,
         location: profile?.location || profile?.target_locations?.[0] || "Paris",
@@ -102,6 +191,53 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
     } finally {
       setPdfBusy(false);
     }
+  };
+
+  const downloadPdf = async () => {
+    if (!text) return;
+    if (!hasSignableName(resolveSenderName())) {
+      // Ne pas pré-remplir avec un nom non plausible (ex. un intitulé de poste
+      // capturé par erreur depuis le CV) : on repart d'un champ vide.
+      const existing = (profile?.full_name || "").trim();
+      if (hasSignableName(existing)) {
+        const parts = existing.split(/\s+/).filter(Boolean);
+        setFirstName(parts[0] || "");
+        setLastName(parts.slice(1).join(" "));
+      } else {
+        setFirstName("");
+        setLastName("");
+      }
+      setNamePromptOpen(true);
+      return;
+    }
+    await runDownload(resolveSenderName());
+  };
+
+  const confirmNameAndDownload = async () => {
+    const first = capitalizeName(firstName.trim());
+    const last = capitalizeName(lastName.trim());
+    if (!first || !last) {
+      setError("Indiquez votre prénom et votre nom pour signer la lettre.");
+      return;
+    }
+    setFirstName(first);
+    setLastName(last);
+    const fullName = `${first} ${last}`;
+    setError("");
+    if (profile?.id) {
+      const { error: updateError } = await createClient()
+        .from("profiles")
+        .update({ full_name: fullName })
+        .eq("id", profile.id);
+      if (updateError) {
+        setError("Impossible d'enregistrer votre nom. Réessayez.");
+        return;
+      }
+    }
+    setSavedName(fullName);
+    onNameSaved?.(fullName);
+    setNamePromptOpen(false);
+    await runDownload(fullName);
   };
 
   const refineLetter = async (nextInstruction = instruction) => {
@@ -120,7 +256,20 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
         body: JSON.stringify({ letter: text, instruction: prompt }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Modification impossible");
+      if (!res.ok) {
+        if (res.status === 403 && data.trialLocked) {
+          if (onLockedRefine) {
+            onLockedRefine();
+          } else {
+            setError(
+              data.error ||
+                "Retouches gratuites épuisées. Choisissez une formule pour continuer."
+            );
+          }
+          return;
+        }
+        throw new Error(data.error || "Modification impossible");
+      }
       const refined = (data.text || "").trim();
       setText(refined);
       setInstruction("");
@@ -177,8 +326,13 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
         <div className="letter-modal__body">
           {loading && <p className="letter-modal__status">Chargement…</p>}
           {error && !loading && <p className="letter-modal__error">{error}</p>}
+          {!loading && text && (refining || animating) && (
+            <p className="letter-modal__rewrite-status" aria-live="polite">
+              {refining ? "Retouche en cours…" : "Réécriture de la lettre…"}
+            </p>
+          )}
           {!loading && text && (
-            <div className={`letter-modal__paper${refining || animating ? " letter-modal__paper--active" : ""}`}>
+            <div className={`letter-modal__paper${refining || animating ? " letter-modal__paper--active" : ""}${refining ? " letter-modal__paper--busy" : ""}`}>
               <button
                 type="button"
                 className={`letter-modal__copy${copied ? " letter-modal__copy--done" : ""}`}
@@ -217,15 +371,19 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
                   </svg>
                 )}
               </button>
+              {refining && (
+                <div className="letter-modal__rewrite" role="status" aria-live="polite">
+                  <div className="letter-modal__dots" aria-hidden="true" />
+                  <div className="letter-modal__rewrite-badge">
+                    <span className="letter-modal__rewrite-dot" aria-hidden="true" />
+                    Réécriture de la lettre par l&apos;IA…
+                  </div>
+                </div>
+              )}
               <div className="letter-modal__text">
                 {displayText}
                 {animating && <span className="letter-modal__cursor" aria-hidden="true" />}
               </div>
-              {(refining || animating) && (
-                <p className="letter-modal__rewrite-status" aria-live="polite">
-                  {refining ? "Retouche en cours…" : "Réécriture de la lettre…"}
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -277,18 +435,34 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
                 onKeyDown={(e) => {
                   if (e.key === "Enter") refineLetter();
                 }}
-                placeholder="Retoucher avec une phrase..."
+                placeholder={refinePlaceholder}
                 aria-label="Consigne de retouche de la lettre"
               />
               <button
                 type="button"
-                className="letter-modal__send"
-                disabled={!text || loading || refining || animating || instruction.trim().length < 3}
+                className={`letter-modal__send${refining || animating ? " letter-modal__send--busy" : ""}`}
+                disabled={
+                  !text ||
+                  loading ||
+                  refining ||
+                  animating ||
+                  instruction.trim().length < 3
+                }
                 onClick={() => refineLetter()}
               >
-                {refining ? "…" : "OK"}
+                {refining || animating ? (
+                  <span className="letter-modal__send-spinner" aria-hidden="true" />
+                ) : (
+                  "OK"
+                )}
               </button>
             </div>
+            {(refining || animating) && (
+              <p className="letter-modal__refine-loading" aria-live="polite">
+                <span className="letter-modal__refine-loading-dot" aria-hidden="true" />
+                {refining ? "Retouche en cours…" : "Écriture…"}
+              </p>
+            )}
           </div>
         )}
 
@@ -302,6 +476,67 @@ export default function LetterModal({ company, title, letterUrl, profile, onClos
             {pdfBusy ? "PDF…" : "Télécharger PDF"}
           </button>
         </footer>
+
+        {namePromptOpen && (
+          <div
+            className="letter-modal__name-pop-overlay"
+            role="presentation"
+            onClick={() => !pdfBusy && setNamePromptOpen(false)}
+          >
+            <div
+              className="letter-modal__name-pop"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Signature de la lettre"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="letter-modal__name-prompt-title">Signez votre lettre</p>
+              <p className="letter-modal__name-prompt-text">
+                Prénom et nom pour la signature du PDF.
+              </p>
+              <div className="letter-modal__name-row">
+                <input
+                  type="text"
+                  className="letter-modal__input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Prénom"
+                  autoFocus
+                  aria-label="Prénom"
+                />
+                <input
+                  type="text"
+                  className="letter-modal__input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Nom"
+                  aria-label="Nom"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmNameAndDownload();
+                  }}
+                />
+              </div>
+              <div className="letter-modal__name-actions">
+                <button
+                  type="button"
+                  className="letter-modal__name-cancel"
+                  onClick={() => setNamePromptOpen(false)}
+                  disabled={pdfBusy}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--navy btn--sm"
+                  disabled={pdfBusy}
+                  onClick={confirmNameAndDownload}
+                >
+                  {pdfBusy ? "PDF…" : "Télécharger le PDF"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body

@@ -9,11 +9,11 @@ export default function Hero() {
     <section className="hero">
       <div className="hero__left">
         <h1 className="hero__title">
-          <span className="hero__title-lead">Obtenez enfin des</span>
+          <span className="hero__title-lead">Obtenez enfin</span>
           <br />
-          <mark className="hero__mark">entretiens</mark>, en
+          des <mark className="hero__mark">entretiens</mark>
           <br />
-          3 clics.
+          en 3 clics.
         </h1>
 
         <p className="hero__subtitle">
@@ -25,10 +25,15 @@ export default function Hero() {
         <div className="hero__cta">
           <Link
             href="/onboarding"
-            className="btn btn--outline"
-            onClick={() => trackEvent("landing_cta_click", { source: "hero" })}
+            className="btn btn--cta hero__cta-primary"
+            onClick={() =>
+              trackEvent("landing_cta_click", {
+                source: "hero",
+                cta_label: "Commencer maintenant",
+              })
+            }
           >
-            Démarrer
+            Commencer maintenant
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path
                 d="M5 12h14M13 6l6 6-6 6"

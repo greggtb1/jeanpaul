@@ -110,6 +110,17 @@ export default function PipelineLog({
   const failed = run?.status === "failed";
   const cancelled = run?.status === "cancelled";
   const [bootDone, setBootDone] = useState(false);
+  const badgeLabel = idle
+    ? "Standby"
+    : done
+      ? "Terminé"
+      : cancelled
+        ? "Arrêté"
+        : failed
+          ? "Erreur"
+          : starting || allLines.length === 0
+            ? "Démarrage"
+            : "En cours";
 
   useEffect(() => {
     if (!running || lines.length > 0) {
@@ -141,7 +152,7 @@ export default function PipelineLog({
         <span className="plog__title">{isMini ? "Terminal" : "BLOW MY JOB · terminal"}</span>
         <span className={`plog__badge ${idle ? "plog__badge--idle" : running ? "plog__badge--run" : done ? "plog__badge--ok" : cancelled ? "plog__badge--idle" : failed ? "plog__badge--err" : ""}`}>
           {(idle || running) && <span className={`plog__pulse ${idle ? "plog__pulse--idle" : ""}`} />}
-          {idle ? "Standby" : running ? "Démarrage" : done ? "Terminé" : cancelled ? "Arrêté" : failed ? "Erreur" : run!.status}
+          {badgeLabel}
         </span>
       </div>
 

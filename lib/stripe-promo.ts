@@ -11,12 +11,12 @@ function promoCouponId(promo: Stripe.PromotionCode): string | undefined {
   return coupon?.id;
 }
 
-/** Coupon 100 % — tests uniquement, formule Découverte (code « greg » sur Stripe Checkout). */
+/** Coupon 100 % — tests uniquement, formule Start (code « greg » sur Stripe Checkout). */
 export async function ensureGregPromoCode(stripe: Stripe): Promise<void> {
   const productId = await resolveStripeProductIdForPlan(stripe, "test");
   if (!productId) {
     console.warn(
-      "[stripe-promo] Produit Découverte introuvable (STRIPE_PRICE_TEST ou STRIPE_PRODUCT_TEST) — greg non configuré."
+      "[stripe-promo] Produit Start introuvable (STRIPE_PRICE_TEST ou STRIPE_PRODUCT_TEST) — greg non configuré."
     );
     return;
   }
@@ -28,7 +28,7 @@ export async function ensureGregPromoCode(stripe: Stripe): Promise<void> {
       id: GREG_COUPON_ID,
       percent_off: 100,
       duration: "once",
-      name: "Test greg — Découverte uniquement",
+      name: "Test greg — Start uniquement",
       applies_to: { products: [productId] },
       metadata: { purpose: "internal_test", plan_id: "test" },
     });

@@ -8,13 +8,29 @@ export function buildOnboardingPrefsPatch(
   profile: Profile | null | undefined,
   draft: Partial<OnboardingDraft> | null
 ): Partial<
-  Pick<Profile, "target_roles" | "target_locations" | "contract_type" | "remote_pref">
+  Pick<
+    Profile,
+    | "target_roles"
+    | "target_locations"
+    | "location_search_mode"
+    | "location_radius_km"
+    | "contract_type"
+    | "remote_pref"
+  >
 > | null {
   if (!draft) return null;
 
   const src = resolveCalibrationSources(profile, draft);
   const patch: Partial<
-    Pick<Profile, "target_roles" | "target_locations" | "contract_type" | "remote_pref">
+    Pick<
+      Profile,
+      | "target_roles"
+      | "target_locations"
+      | "location_search_mode"
+      | "location_radius_km"
+      | "contract_type"
+      | "remote_pref"
+    >
   > = {};
 
   if (!profile?.target_roles?.length && src.target_roles.length) {
@@ -22,6 +38,15 @@ export function buildOnboardingPrefsPatch(
   }
   if (!profile?.target_locations?.length && src.target_locations.length) {
     patch.target_locations = src.target_locations;
+  }
+  if (!profile?.location_search_mode && draft.location_search_mode) {
+    patch.location_search_mode = draft.location_search_mode;
+    patch.location_radius_km =
+      draft.location_search_mode === "city"
+        ? null
+        : draft.location_radius_km
+          ? parseInt(draft.location_radius_km, 10)
+          : 25;
   }
   if (!asStringArray(profile?.contract_type).length && src.contract_type.length) {
     patch.contract_type = src.contract_type;

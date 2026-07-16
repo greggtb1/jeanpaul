@@ -5,7 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import {
   ROLE_GROUPS,
+  ROLE_DOMAINS,
   LOCATION_SUGGESTIONS,
+  LOCATION_RADIUS_OPTIONS,
+  SECTOR_SUGGESTIONS,
   CONTRACTS,
   REMOTE,
   EMPTY_PREFERENCES,
@@ -55,7 +58,13 @@ export default function SearchPreferencesForm() {
         const { error } = await supabase.from("profiles").upsert({
           id: uid,
           target_roles: data.target_roles,
+          target_sectors: data.target_sectors,
           target_locations: data.target_locations,
+          location_search_mode: data.location_search_mode,
+          location_radius_km:
+            data.location_search_mode === "city"
+              ? null
+              : parseInt(data.location_radius_km || "25", 10),
           contract_type: data.contract_type,
           remote_pref: data.remote_pref,
           salary_min: data.salary_min ? parseInt(data.salary_min, 10) : null,
@@ -90,16 +99,23 @@ export default function SearchPreferencesForm() {
 
   useEffect(() => {
     if (!uid) return;
-    supabase
+    const client = createClient();
+    let cancelled = false;
+    client
       .from("profiles")
       .select("*")
       .eq("id", uid)
       .maybeSingle()
       .then(({ data }) => {
+        if (cancelled) return;
         if (data) {
           const next: PreferencesForm = {
             target_roles: data.target_roles ?? [],
+            target_sectors: data.target_sectors ?? [],
             target_locations: data.target_locations ?? [],
+            location_search_mode: data.location_search_mode ?? "city",
+            location_radius_km:
+              data.location_radius_km != null ? String(data.location_radius_km) : "",
             contract_type: asStringArray(data.contract_type),
             remote_pref: asStringArray(data.remote_pref),
             salary_min: data.salary_min ? String(data.salary_min) : "",
@@ -114,7 +130,10 @@ export default function SearchPreferencesForm() {
         readyRef.current = true;
         setLoading(false);
       });
-  }, [uid, supabase]);
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
 
   useEffect(() => {
     if (!uid || loading || !readyRef.current) return;
@@ -160,7 +179,7 @@ export default function SearchPreferencesForm() {
       if (error) throw error;
       const { data: signedData, error: signedError } = await supabase.storage
         .from("cvs")
-        .createSignedUrl(path, 60 * 60 * 24 * 365); // 1 an
+        .createSignedUrl(path, 60 * 60 * 24 * 365);
       if (signedError || !signedData?.signedUrl) throw signedError ?? new Error("URL indisponible");
       set({ cv_url: signedData.signedUrl, cv_filename: file.name });
     } catch (e) {
@@ -188,49 +207,109 @@ export default function SearchPreferencesForm() {
     return <p className="db-muted">Chargement…</p>;
   }
 
+  const hasCity =
+    form.target_locations.some((l) => !/remote|t[ée]l[ée]travail|distanciel/i.test(l));
+
   return (
     <form className="pref-page" onSubmit={(e) => e.preventDefault()}>
-      <section className="db-panel db-panel--cv">
-        <h2 className="db-panel__title">Votre CV</h2>
-        <p className="db-muted">PDF pour adapter chaque dossier.</p>
-        <CvDropzone
-          cvUrl={form.cv_url}
-          cvFilename={form.cv_filename}
-          uploading={uploading}
-          onFile={handleFile}
-          compact
-        />
+      <section className="pref-block">
+        <header className="pref-block__head">
+          <h2 className="pref-block__title">Postes</h2>
+        </header>
+
+        <PrefField label="Postes visés">
+          <TagInput
+            value={form.target_roles}
+            onChange={(v) => set({ target_roles: v })}
+            groups={ROLE_GROUPS}
+            domains={ROLE_DOMAINS}
+            freeform
+            hideFreeformHint
+            autocomplete
+            placeholder="Ex. Growth Marketing, Product Manager…"
+          />
+        </PrefField>
+
+        <div className="pref-sector">
+          <div className="pref-sector__top">
+            <span className="pref-sector__badge">Nouveau</span>
+            <span className="pref-sector__title">Secteurs visés</span>
+          </div>
+          <p className="pref-sector__lead">
+            Pas demandé à l&apos;onboarding. Utile pour écarter les offres hors sujet
+            (banque, admin, etc.).
+          </p>
+          <TagInput
+            value={form.target_sectors}
+            onChange={(v) => set({ target_sectors: v })}
+            suggestions={SECTOR_SUGGESTIONS}
+            freeform
+            compact
+            placeholder="Ex. Culture, médias, tech…"
+          />
+        </div>
       </section>
 
-      <section className="db-panel db-panel--criteria">
-        <h2 className="db-panel__title">Critères de recherche</h2>
-        <div className="ob__fields pref-criteria-grid">
-          <PrefField label="Postes visés" className="pref-criteria-grid__full">
-            <TagInput
-              value={form.target_roles}
-              onChange={(v) => set({ target_roles: v })}
-              groups={ROLE_GROUPS}
-              freeform
-              compact
-              placeholder="Ex. Growth Marketing, Customer Success…"
-            />
-          </PrefField>
-          <PrefField label="Lieux">
+      <section className="pref-block">
+        <header className="pref-block__head">
+          <h2 className="pref-block__title">Conditions</h2>
+        </header>
+
+        <div className="pref-grid">
+          <PrefField label="Lieux" className="pref-grid__span2">
             <TagInput
               value={form.target_locations}
               onChange={(v) => set({ target_locations: v })}
               suggestions={LOCATION_SUGGESTIONS}
               compact
-              placeholder="Paris, Remote…"
+              placeholder="Paris, Remote, Lyon…"
             />
+            {hasCity && (
+              <div className="ob__location-radius ob__location-radius--compact">
+                <span className="ob__location-radius-label">Rayon</span>
+                <div
+                  className="ob__location-radius-options"
+                  role="group"
+                  aria-label="Rayon de recherche"
+                >
+                  {LOCATION_RADIUS_OPTIONS.map((option) => {
+                    const active =
+                      option.value === "city"
+                        ? form.location_search_mode === "city"
+                        : form.location_search_mode === "radius" &&
+                          form.location_radius_km === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`ob__location-radius-chip${active ? " is-active" : ""}`}
+                        onClick={() =>
+                          option.value === "city"
+                            ? set({ location_search_mode: "city", location_radius_km: "" })
+                            : set({
+                                location_search_mode: "radius",
+                                location_radius_km: option.value,
+                              })
+                        }
+                        aria-pressed={active}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </PrefField>
-          <PrefField label="Type de contrat">
+
+          <PrefField label="Contrat">
             <MultiChoice
               options={CONTRACTS}
               value={form.contract_type}
               onChange={(v) => set({ contract_type: v })}
             />
           </PrefField>
+
           <PrefField label="Présentiel">
             <MultiChoice
               options={REMOTE}
@@ -238,11 +317,13 @@ export default function SearchPreferencesForm() {
               onChange={(v) => set({ remote_pref: v })}
             />
           </PrefField>
-          <PrefField label="Salaire minimum souhaité (k€/an, optionnel)">
+
+          <PrefField label="Salaire min. (k€/an)" hint="Optionnel">
             <input
-              className="ob__input"
+              className="ob__input pref-salary-input"
               type="number"
-              placeholder="45"
+              inputMode="numeric"
+              placeholder="Ex. 40"
               value={form.salary_min}
               onChange={(e) => set({ salary_min: e.target.value })}
             />
@@ -250,11 +331,31 @@ export default function SearchPreferencesForm() {
         </div>
       </section>
 
-      <section className="db-panel">
-        <h2 className="db-panel__title">Lettres de motivation</h2>
-        <div className="ob__fields">
+      <div className="pref-split">
+        <section className="pref-block pref-block--cv">
+          <header className="pref-block__head">
+            <h2 className="pref-block__title">CV</h2>
+            <p className="pref-block__lead">PDF pour adapter chaque dossier.</p>
+          </header>
+          <CvDropzone
+            cvUrl={form.cv_url}
+            cvFilename={form.cv_filename}
+            uploading={uploading}
+            onFile={handleFile}
+            compact
+          />
+        </section>
+
+        <section className="pref-block">
+          <header className="pref-block__head">
+            <h2 className="pref-block__title">Lettres</h2>
+          </header>
           <PrefField label="Ton">
-            <LetterTonePicker value={form.letter_tone} onChange={(v) => set({ letter_tone: v })} />
+            <LetterTonePicker
+              grid
+              value={form.letter_tone}
+              onChange={(v) => set({ letter_tone: v })}
+            />
           </PrefField>
           <LetterSampleOptional
             value={form.letter_sample}
@@ -262,10 +363,10 @@ export default function SearchPreferencesForm() {
             uploading={letterUploading}
             onUpload={handleLetterFile}
           />
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <div className="db-panel__actions pref-page__actions pref-page__autosave" aria-live="polite">
+      <div className="pref-page__actions pref-page__autosave" aria-live="polite">
         {uploading || letterUploading ? (
           <span className="db-muted">Upload en cours…</span>
         ) : saving ? (
@@ -275,7 +376,7 @@ export default function SearchPreferencesForm() {
         ) : saved ? (
           <span className="db-saved">✓ Enregistré</span>
         ) : (
-          <span className="db-muted">Modifications enregistrées automatiquement</span>
+          <span className="db-muted">Enregistrement automatique</span>
         )}
       </div>
     </form>

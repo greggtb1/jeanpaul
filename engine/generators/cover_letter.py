@@ -6,6 +6,7 @@ et la sauvegarde en TXT (texte brut, prêt à copier-coller).
 import anthropic
 import os
 import random
+import time
 from pathlib import Path
 from typing import Dict, Optional
 from rich.console import Console
@@ -14,6 +15,35 @@ from job_language import language_from_analysis, language_labels
 from text_sanitize import NO_DASH_RULE, NO_DASH_RULE_EN, strip_dashes
 
 console = Console()
+
+
+def _is_retryable_api_error(err: Exception) -> bool:
+    """Erreur transitoire Anthropic (surcharge / rate limit / 5xx)."""
+    status = getattr(err, "status_code", None)
+    if status in (408, 409, 429, 500, 502, 503, 504, 529):
+        return True
+    msg = str(err).lower()
+    return "overloaded" in msg or "rate limit" in msg or "529" in msg
+
+
+def create_message_with_retry(client, *, max_attempts: int = 4, **kwargs):
+    """Appelle messages.create avec backoff exponentiel sur erreurs transitoires."""
+    last_err: Optional[Exception] = None
+    for attempt in range(max_attempts):
+        try:
+            return client.messages.create(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if attempt == max_attempts - 1 or not _is_retryable_api_error(e):
+                raise
+            delay = min(2 ** attempt, 8) + random.uniform(0, 0.75)
+            console.print(
+                f"[yellow]  API surchargée, nouvelle tentative dans {delay:.1f}s "
+                f"({attempt + 1}/{max_attempts - 1})…[/yellow]"
+            )
+            time.sleep(delay)
+    if last_err:
+        raise last_err
 
 COVER_LETTER_USER = """Rédige une lettre de motivation courte pour {name}. Personnalisée pour CETTE offre précise.
 
@@ -321,7 +351,8 @@ class CoverLetterGenerator:
             )
 
         try:
-            response = self.client.messages.create(
+            response = create_message_with_retry(
+                self.client,
                 model=self.model,
                 max_tokens=1024,
                 temperature=1.0,

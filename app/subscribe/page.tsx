@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import BrandName from "@/components/BrandName";
+import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/lib/useAuth";
 import {
-  MONTHLY_DISCOUNT_PERCENT,
+  FREE_DISCOVERY_OFFER,
   displayPrice,
-  parseBillingInterval,
   PLANS_LIST,
   type BillingInterval,
   type PlanId,
@@ -15,28 +17,129 @@ import { getOrCreateDraftId, loadDraft, saveDraft } from "@/lib/onboarding-draft
 import { parseApiJson } from "@/lib/parse-api-json";
 import {
   getStoredReferralCode,
-  persistReferralCode,
   resolveReferralCode,
 } from "@/lib/referral-storage";
 import { trackEvent } from "@/lib/umami";
+import CurrentDiscoveryPlanCard from "@/components/CurrentDiscoveryPlanCard";
 
 export default function SubscribePage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { uid, loading: authLoading } = useAuth();
   const [loadingPlanId, setLoadingPlanId] = useState<PlanId | null>(null);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [error, setError] = useState("");
+  const [trialNotice, setTrialNotice] = useState(false);
+
+  // Si l'utilisateur arrive ici depuis l'onboarding déjà rempli, on a un brouillon
+  // avec au moins les postes visés : dans ce cas on lance direct le scan découverte
+  // plutôt que de le renvoyer se re-taper l'onboarding depuis le début.
+  const existingDraft = loadDraft();
+  const hasOnboardingDraft = !!existingDraft?.target_roles?.length;
+
+  async function startDiscovery() {
+    setDiscoveryLoading(true);
+    setError("");
+    try {
+      trackEvent("pricing_plan_click", {
+        plan: FREE_DISCOVERY_OFFER.id,
+        billing: "free",
+        source: "subscribe_page",
+        cta_label: FREE_DISCOVERY_OFFER.cta,
+      });
+
+      const supabase = createClient();
+      const draft = existingDraft ?? loadDraft() ?? {};
+      let userId = uid;
+      if (!userId) {
+        const { data: anon, error: anonError } = await supabase.auth.signInAnonymously();
+        if (anonError || !anon.user) throw anonError ?? new Error("Session anonyme refusée");
+        userId = anon.user.id;
+      }
+
+      let trialDraft = draft;
+      try {
+        const { uploadPendingCvForUser } = await import("@/lib/onboarding-cv");
+        const cv = await uploadPendingCvForUser(userId);
+        if (cv) {
+          trialDraft = saveDraft({ cv_url: cv.url, cv_filename: cv.filename, cv_path: cv.path });
+        }
+      } catch {
+        /* CV optionnel : le scan démarre sans */
+      }
+
+      const shouldPrepareBeforeScan = !trialDraft.cv_url || trialDraft.cv_url === "local";
+      const res = await fetch("/api/trial/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draft: trialDraft,
+          prepare_only: shouldPrepareBeforeScan,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.redirectTo === "/dashboard") {
+          router.push("/dashboard");
+          return;
+        }
+        if (data.trialUsed) {
+          setTrialNotice(true);
+          setError(data.error || "Votre essai découverte a déjà été utilisé.");
+          setDiscoveryLoading(false);
+          router.replace("/subscribe?trial_used=1");
+          return;
+        }
+        throw new Error(data.error || "Recherche indisponible");
+      }
+      if (data.existingSession && data.redirectTo) {
+        router.push(data.redirectTo);
+        return;
+      }
+      trackEvent(
+        shouldPrepareBeforeScan ? "trial_scan_prepared_without_cv" : "trial_scan_started",
+        { plan: "test", source: "subscribe_page" }
+      );
+      router.push("/dashboard");
+    } catch (e) {
+      setError((e as Error).message || "Impossible de démarrer la recherche.");
+      setDiscoveryLoading(false);
+    }
+  }
 
   const cancelled = searchParams.get("cancelled") === "1";
+  const scanFallback = searchParams.get("fallback") === "1";
+  const trialUsedFromUrl = searchParams.get("trial_used") === "1";
   const refFromUrl = searchParams.get("ref")?.trim() || "";
 
-  const [billing, setBilling] = useState<BillingInterval>(
-    parseBillingInterval(searchParams.get("billing"))
-  );
+  const billing: BillingInterval = "monthly";
 
   useEffect(() => {
-    const draftCode = loadDraft()?.referral_code;
-    let code = resolveReferralCode(refFromUrl);
-    if (!code && draftCode) persistReferralCode(draftCode);
+    if (trialUsedFromUrl) setTrialNotice(true);
+  }, [trialUsedFromUrl]);
+
+  useEffect(() => {
+    // Parrainage limité au parcours en cours : on ne réinjecte pas un code issu
+    // d'un ancien brouillon persistant, uniquement le ?ref= / la session active.
+    resolveReferralCode(refFromUrl);
   }, [refFromUrl]);
+
+  useEffect(() => {
+    if (authLoading || !uid) return;
+    const supabase = createClient();
+    supabase
+      .from("profiles")
+      .select("subscription_status, trial_used, first_search_done")
+      .eq("id", uid)
+      .maybeSingle()
+      .then(({ data }) => {
+        setTrialNotice(
+          data?.subscription_status === "trial" ||
+            !!data?.trial_used ||
+            !!data?.first_search_done
+        );
+      });
+  }, [authLoading, uid]);
 
   function activeReferralCode(): string {
     return getStoredReferralCode() || "";
@@ -101,37 +204,28 @@ export default function SubscribePage() {
         <span className="paywall-card__badge">Étape 2 sur 3</span>
         <h1>Choisissez votre formule</h1>
 
-        <div className="paywall-card__billing" role="group" aria-label="Facturation">
-          <button
-            type="button"
-            className={billing === "weekly" ? "is-active" : ""}
-            onClick={() => {
-              setBilling("weekly");
-              trackEvent("pricing_billing_toggle", { billing: "weekly", source: "subscribe" });
-            }}
-          >
-            Hebdomadaire
-          </button>
-          <button
-            type="button"
-            className={billing === "monthly" ? "is-active" : ""}
-            onClick={() => {
-              setBilling("monthly");
-              trackEvent("pricing_billing_toggle", { billing: "monthly", source: "subscribe" });
-            }}
-          >
-            Mensuel <span className="pricing__discount">−{MONTHLY_DISCOUNT_PERCENT} %</span>
-          </button>
-        </div>
+        {scanFallback && (
+          <p className="paywall-card__fallback" role="status">
+            La recherche gratuite n&apos;a pas pu démarrer automatiquement. Choisissez une formule
+            ou réessayez sans payer ci-dessous.
+          </p>
+        )}
+
+        {trialNotice && (
+          <p className="paywall-card__trial-hint" role="status">
+            Passez à une formule payante pour débloquer la suite de votre recherche.
+          </p>
+        )}
 
         <div className="pricing__grid paywall-card__plans">
+          {trialNotice && <CurrentDiscoveryPlanCard />}
           {PLANS_LIST.map((plan) => {
             const price = displayPrice(
               plan,
               plan.kind === "one_time" ? "weekly" : billing
             );
             const loading = loadingPlanId === plan.id;
-            const busy = loadingPlanId !== null;
+            const busy = loadingPlanId !== null || discoveryLoading;
 
             return (
               <article
@@ -150,18 +244,14 @@ export default function SubscribePage() {
                   <span>{price.suffix}</span>
                 </div>
 
-                <div className="pricing-card__savings-slot">
-                  {price.billingSavings && (
-                    <p className="pricing-card__savings">{price.billingSavings}</p>
-                  )}
-                </div>
+                <div className="pricing-card__savings-slot" />
 
                 <p className="pricing-card__desc">{plan.description}</p>
 
                 <div className="pricing-card__cta-wrap">
                   <button
                     type="button"
-                    className="btn btn--outline pricing-card__cta"
+                    className={`btn pricing-card__cta${plan.featured ? " btn--accent" : " btn--outline"}`}
                     disabled={busy}
                     onClick={() => {
                       trackEvent("pricing_plan_click", {
@@ -172,7 +262,11 @@ export default function SubscribePage() {
                       subscribe(plan.id);
                     }}
                   >
-                    {loading ? "Redirection…" : `Choisir ${plan.name}`}
+                    {loading
+                      ? "Redirection…"
+                      : plan.kind === "one_time"
+                        ? "Choisir l'offre Start"
+                        : `Choisir ${plan.name}`}
                   </button>
                 </div>
 
@@ -190,6 +284,37 @@ export default function SubscribePage() {
           <p className="paywall-card__warn">Paiement annulé. Vous pouvez réessayer quand vous voulez.</p>
         )}
         {error && <p className="paywall-card__error">{error}</p>}
+
+        {!trialNotice && (
+          <p className="paywall-card__free-trial">
+            Pas envie de payer tout de suite ?{" "}
+            {hasOnboardingDraft ? (
+              <button
+                type="button"
+                className="paywall-card__free-trial-link"
+                disabled={discoveryLoading || loadingPlanId !== null}
+                onClick={startDiscovery}
+              >
+                {discoveryLoading ? "Lancement…" : "Essayez gratuitement"}
+              </button>
+            ) : (
+              <Link
+                href={FREE_DISCOVERY_OFFER.href}
+                className="paywall-card__free-trial-link"
+                onClick={() =>
+                  trackEvent("pricing_plan_click", {
+                    plan: FREE_DISCOVERY_OFFER.id,
+                    billing: "free",
+                    source: "subscribe_page_free_link",
+                  })
+                }
+              >
+                Essayez gratuitement
+              </Link>
+            )}
+          </p>
+        )}
+
         <p className="paywall-card__foot">
           Paiement sécurisé par Stripe · création de compte juste après
         </p>

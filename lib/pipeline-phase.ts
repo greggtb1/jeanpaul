@@ -1,6 +1,6 @@
 import type { PipelineRun } from "@/components/PipelineLog";
 
-export type PipelineRunMode = "full" | "autoapply" | "analyze" | "import";
+export type PipelineRunMode = "full" | "autoapply" | "analyze" | "import" | "unlock";
 
 export type PipelineSubPhase =
   | "boot"
@@ -47,18 +47,18 @@ export type PipelinePhase = {
 };
 
 const FULL_STEPS = [
-  { id: 1 as const, label: "Recherche + analyse" },
-  { id: 2 as const, label: "CV + lettres" },
+  { id: 1 as const, label: "Recherche et analyse" },
+  { id: 2 as const, label: "CV et lettre" },
 ];
 
 const ANALYZE_STEPS = [
   { id: 1 as const, label: "Analyse" },
-  { id: 2 as const, label: "CV + lettres" },
+  { id: 2 as const, label: "CV et lettre" },
 ];
 
 const IMPORT_STEPS = [
-  { id: 1 as const, label: "Import + score" },
-  { id: 2 as const, label: "CV + lettres" },
+  { id: 1 as const, label: "Import et score" },
+  { id: 2 as const, label: "CV et lettre" },
 ];
 
 const AUTOAPPLY_STEPS = [
@@ -67,9 +67,15 @@ const AUTOAPPLY_STEPS = [
   { id: 3 as const, label: "Validation" },
 ];
 
+const UNLOCK_STEPS = [
+  { id: 1 as const, label: "Déblocage" },
+  { id: 2 as const, label: "CV et lettre" },
+];
+
 export function getPipelineSteps(mode: PipelineRunMode = "full") {
   if (mode === "autoapply") return AUTOAPPLY_STEPS;
   if (mode === "import") return IMPORT_STEPS;
+  if (mode === "unlock") return UNLOCK_STEPS;
   if (mode === "analyze") return ANALYZE_STEPS;
   return FULL_STEPS;
 }
@@ -144,13 +150,17 @@ export function parsePipelinePhase(
   const autoapply = isAutoapplyRun(run);
   const analyzeOnly = /Reprise\s*:\s*analyse|sans scraping|mode.*analyze/i.test(log);
   const importOnly = run?.result?.mode === "import" || /Import d'une offre|Import d'offre/i.test(log);
+  const unlockOnly =
+    run?.result?.mode === "unlock" || /Déblocage de vos dossiers|dossier\(s\) débloqué/i.test(log);
   const mode: PipelineRunMode = autoapply
     ? "autoapply"
     : importOnly
       ? "import"
-      : analyzeOnly || run?.result?.mode === "analyze"
-      ? "analyze"
-      : "full";
+      : unlockOnly
+        ? "unlock"
+        : analyzeOnly || run?.result?.mode === "analyze"
+          ? "analyze"
+          : "full";
 
   const {
     autoapplyCurrent,
@@ -188,7 +198,7 @@ export function parsePipelinePhase(
     } else if (run?.status === "running" || run?.status === "pending") {
       step = 1;
     }
-  } else if (mode === "analyze" || mode === "import") {
+  } else if (mode === "analyze" || mode === "import" || mode === "unlock") {
     if (step3) step = 2;
     else if (step2) step = 1;
     else if (run?.status === "running" || run?.status === "pending") step = 1;
@@ -204,7 +214,9 @@ export function parsePipelinePhase(
     ? reqMatch[1].split(",").map((s) => s.trim()).filter(Boolean).length
     : 0;
 
-  const queryMatches = [...log.matchAll(/LinkedIn\s*->\s*([^\n]+)/gi)];
+  const queryMatches = [
+    ...log.matchAll(/(?:LinkedIn\+HelloWork|LinkedIn)\]\s*->\s*([^\n\[]+)/gi),
+  ];
   const queriesDone = queryMatches.length;
   const queriesTotal = queriesFromLog || queriesDone || 0;
   const currentQuery = queriesDone
@@ -268,7 +280,7 @@ export function parsePipelinePhase(
     else subPhase = "autoapply_boot";
   } else if (run?.status === "done") subPhase = "done";
   else if (syncing) subPhase = "sync";
-  else if (step === 2 && (step2Generate || step3 || step2SkipDocs || mode === "full" || mode === "analyze" || mode === "import"))
+  else if (step === 2 && (step2Generate || step3 || step2SkipDocs || mode === "full" || mode === "analyze" || mode === "import" || mode === "unlock"))
     subPhase = "generate";
   else if (step === 1 && huntFill && huntPipeline) subPhase = "hunt_fill";
   else if (step === 2) subPhase = huntFill ? "hunt_fill" : "analyze";
@@ -289,19 +301,19 @@ export function parsePipelinePhase(
     stepLabel = "Démarrage";
     detail = "Lancement du moteur Python";
   } else if (subPhase === "scrape_prepare") {
-    stepLabel = "Scraping LinkedIn";
+    stepLabel = "Scraping LinkedIn + HelloWork";
     detail = queriesTotal
       ? `${queriesTotal} requête${queriesTotal > 1 ? "s" : ""} · max ${maxPerQuery}/requête`
       : "Lecture de votre profil";
     subdetail = "Ouverture du scraper…";
   } else if (subPhase === "scrape_query") {
-    stepLabel = "Scraping LinkedIn";
+    stepLabel = "Scraping LinkedIn + HelloWork";
     detail = currentQuery ? `Recherche : ${currentQuery}` : "Pagination LinkedIn";
     subdetail = `Requête ${queriesDone}/${queriesTotal || "?"}${
       offersThisQuery ? ` · ${offersThisQuery} offres listées` : ""
     }`;
   } else if (subPhase === "scrape_desc") {
-    stepLabel = "Scraping LinkedIn";
+    stepLabel = "Scraping LinkedIn + HelloWork";
     detail = currentQuery ? `Descriptions : ${currentQuery}` : "Récupération des descriptions";
     subdetail = `Desc ${descCurrent}/${descTotal} · requête ${queriesDone}/${queriesTotal || "?"}`;
   } else if (subPhase === "scrape_done") {
@@ -319,7 +331,7 @@ export function parsePipelinePhase(
         : "Recherche intelligente en cours";
     subdetail = "Arrêt dès l'objectif atteint. Chaque offre est analysée.";
   } else if (subPhase === "analyze") {
-    stepLabel = mode === "import" ? "Import + scoring" : "Analyse BLOW MY JOB";
+    stepLabel = mode === "import" ? "Import + scoring" : mode === "unlock" ? "Déblocage" : "Analyse BLOW MY JOB";
     detail = analyzeTotal
       ? `${analyzeDone}/${analyzeTotal} offres scorées`
       : mode === "import"
@@ -332,7 +344,7 @@ export function parsePipelinePhase(
       : "Démarrage de l'analyse…";
   } else if (subPhase === "generate") {
     const skipDocs = /génération ignorée|Pas de CV, génération ignorée/i.test(log);
-    stepLabel = skipDocs ? "Dossiers repérés" : "Génération CV + lettres";
+    stepLabel = skipDocs ? "Dossiers repérés" : "Rédaction du CV et de la lettre";
     detail = generated
       ? `${generated}/${generateMax} dossier${generated > 1 ? "s" : ""} prêt${generated > 1 ? "s" : ""}`
       : skipDocs
@@ -348,7 +360,7 @@ export function parsePipelinePhase(
   } else if (subPhase === "sync") {
     stepLabel = "Synchronisation";
     detail = "Envoi vers le dashboard";
-    subdetail = "CV + lettres";
+    subdetail = "CV et lettre";
   } else if (subPhase === "autoapply_boot") {
     stepLabel = "Préparation Chromium";
     detail = "Ouverture du navigateur LinkedIn";

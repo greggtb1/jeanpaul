@@ -4,6 +4,7 @@ Profil candidat pour la génération CV / lettres — chargé depuis Supabase
 """
 import os
 import re
+import io
 from io import BytesIO
 from typing import Any, Dict, Optional
 from urllib.request import urlopen
@@ -162,14 +163,20 @@ def _storage_path_from_public_url(url: str) -> Optional[str]:
 
 def _pdf_bytes_to_text(data: bytes) -> str:
     try:
+        import logging
+        from contextlib import redirect_stderr
         from pypdf import PdfReader
 
-        reader = PdfReader(BytesIO(data))
-        parts = []
-        for page in reader.pages[:12]:
-            t = page.extract_text() or ""
-            if t.strip():
-                parts.append(t)
+        # Certains PDF (CV Word/LibreOffice) ont une xref cassée : pypdf loggue
+        # "Ignoring wrong pointing object…" sans bloquer l'extraction.
+        logging.getLogger("pypdf").setLevel(logging.ERROR)
+        with redirect_stderr(io.StringIO()):
+            reader = PdfReader(BytesIO(data), strict=False)
+            parts = []
+            for page in reader.pages[:12]:
+                t = page.extract_text() or ""
+                if t.strip():
+                    parts.append(t)
         return "\n".join(parts).strip()
     except Exception:
         return ""
@@ -233,17 +240,27 @@ _NAME_STOP_WORDS = {
     "jean", "paul", "email", "mail", "phone", "tel", "mobile", "address", "adresse",
     "experience", "expérience", "compétences", "competences", "skills", "summary",
     "about", "portfolio", "www", "http", "https", "generated", "powered",
+    "application", "for", "company", "pour", "entreprise", "lettre", "motivation",
+    "cover", "letter", "role", "poste",
 }
 
-def _looks_like_name_line(line: str) -> bool:
-    cleaned = re.sub(r"\s+", " ", (line or "").strip())
+_NAME_JUNK_PHRASES = (
+    "application for company",
+    "application for",
+    "candidature pour entreprise",
+    "candidature pour",
+)
+
+
+def is_plausible_person_name(name: Optional[str]) -> bool:
+    """Nom de personne réel — pas un label de template CV (ex. APPLICATION FOR COMPANY)."""
+    cleaned = re.sub(r"\s+", " ", (name or "").strip())
     if len(cleaned) < 4 or len(cleaned) > 55:
         return False
-    if _EMAIL_RE.search(cleaned) or _PHONE_RE.search(cleaned):
+    lower = cleaned.lower()
+    if lower in {"candidat", "candidate"}:
         return False
-    if re.search(r"\d{2,}", cleaned):
-        return False
-    if re.match(r"^(cv|curriculum|vitae|profil|expérience|experience|compétence|contact)", cleaned, re.I):
+    if any(phrase in lower for phrase in _NAME_JUNK_PHRASES):
         return False
     words = cleaned.split()
     if len(words) < 2 or len(words) > 5:
@@ -251,12 +268,26 @@ def _looks_like_name_line(line: str) -> bool:
     if not all(re.match(r"^[A-Za-zÀ-ÿ'’-]+$", w) for w in words):
         return False
     lower_words = [w.lower() for w in words]
+    junk_count = sum(1 for w in lower_words if w in _NAME_STOP_WORDS)
+    if junk_count >= 2:
+        return False
     if any(w in _NAME_STOP_WORDS for w in lower_words):
-        return False
-    if all(len(w) <= 4 for w in lower_words):
-        return False
+        # Un seul stop-word (ex. particule) ok, sauf si tout le reste est aussi suspect
+        if junk_count >= 1 and len(words) <= 3 and junk_count == len(words):
+            return False
     return True
 
+
+def sanitize_person_name(*candidates: Optional[str]) -> str:
+    for raw in candidates:
+        cleaned = re.sub(r"\s+", " ", (raw or "").strip())
+        if is_plausible_person_name(cleaned):
+            return cleaned
+    return ""
+
+
+def _looks_like_name_line(line: str) -> bool:
+    return is_plausible_person_name(line)
 
 def _collect_emails(text: str) -> list:
     seen = set()
@@ -408,7 +439,10 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
     )
 
     has_upload = bool(cv_text.strip())
-    name = (p.get("full_name") or cv_identity.get("name") or "").strip()
+    name = sanitize_person_name(
+        p.get("full_name"),
+        cv_identity.get("name"),
+    )
     cv_email = (cv_identity.get("email") or "").strip()
     profile_email = (p.get("email") or "").strip()
     if has_upload:
@@ -429,6 +463,7 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
     # le profil de Greg (DEFAULT_PROFILE) ne doit jamais contaminer un autre user.
     base = _empty_user_structured()
 
+    account_name = sanitize_person_name(p.get("full_name"))
     _cache = {
         **base,
         "name": name,
@@ -439,7 +474,10 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
         "cv_text": cv_text,
         "cv_url": cv_url,
         "target_roles": roles,
+        "target_sectors": p.get("target_sectors") or [],
         "target_locations": locs,
+        "location_search_mode": p.get("location_search_mode") or "city",
+        "location_radius_km": p.get("location_radius_km"),
         "contract_type": p.get("contract_type"),
         "remote_pref": p.get("remote_pref"),
         "salary_min": p.get("salary_min"),
@@ -451,7 +489,7 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
         "_uid": uid,
         # Identité du compte : filet de sécurité pour l'autofill (jamais pour les CV générés)
         "_account_email": profile_email,
-        "_account_name": (p.get("full_name") or "").strip(),
+        "_account_name": account_name,
         "_account_phone": (p.get("phone") or "").strip(),
     }
     return _cache
@@ -478,10 +516,25 @@ def candidate_block_for_letter(profile: Dict[str, Any]) -> str:
         lines.append(
             f"Postes visés : {', '.join(roles) if isinstance(roles, list) else roles}"
         )
+    if profile.get("target_sectors"):
+        sectors = profile["target_sectors"]
+        if isinstance(sectors, list) and sectors:
+            lines.append(f"Secteurs visés : {', '.join(sectors)}")
+            lines.append(
+                "Priorité aux offres dans ces secteurs. Fortement pénaliser le fit si l'offre "
+                "est clairement hors secteur (ex. banque, CPAM, administration publique pour un "
+                "profil culture/médias)."
+            )
     if profile.get("target_locations"):
         locs = profile["target_locations"]
         if isinstance(locs, list) and locs:
             lines.append(f"Lieux recherchés : {', '.join(locs)}")
+            if profile.get("location_search_mode") == "city":
+                lines.append("Précision localisation : ville uniquement, ne pas élargir.")
+            elif profile.get("location_radius_km"):
+                lines.append(
+                    f"Précision localisation : rayon de {profile.get('location_radius_km')} km autour du lieu principal."
+                )
     if profile.get("salary_min"):
         lines.append(f"Salaire minimum souhaité : {profile['salary_min']}k€/an")
     cv = profile.get("cv_text") or ""

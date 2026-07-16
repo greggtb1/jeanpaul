@@ -406,8 +406,9 @@ def upload_app_documents(user_id: str, output_dir: Path) -> int:
                 q = client().table("jobs").update(upd).eq("url", job_url)
                 if user_id:
                     q = q.eq("user_id", user_id)
-                q.execute()
-                updated += 1
+                res = q.execute()
+                if res.data:
+                    updated += 1
             except Exception:
                 pass
 

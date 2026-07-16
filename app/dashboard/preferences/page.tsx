@@ -5,7 +5,7 @@ export default function PreferencesPage() {
     <main className="db__main db__main--narrow db__main--prefs">
       <div className="db-page-head db-page-head--compact">
         <h1>Critères de recherche</h1>
-        <p>Postes visés, CV, critères et ton de vos lettres.</p>
+        <p>Affinez postes, lieux et style, enregistré automatiquement.</p>
       </div>
       <SearchPreferencesForm />
     </main>

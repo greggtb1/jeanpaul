@@ -42,6 +42,7 @@ from utils.helpers import (
     filter_jobs, dedup_jobs, make_app_dir,
     job_key, filter_new_jobs,
     sort_by_freshness, filter_by_age,
+    mark_job_seen, job_fingerprint, sort_jobs_by_score,
 )
 # Persistance branchée sur Supabase (mêmes signatures que les helpers JSON)
 from store import (
@@ -58,6 +59,7 @@ from store import (
 from dashboard import generate as generate_dashboard
 from scrapers.wttj import WTTJScraper
 from scrapers.linkedin import LinkedInScraper
+from scrapers.hellowork import HelloWorkScraper
 from scrapers.indeed import IndeedScraper, INDEED_TIERS
 from scrapers.wttj_startups import WTTJStartupScraper
 from scrapers.autofill import AutoFiller, detect_ats
@@ -185,11 +187,12 @@ def cli():
 @cli.command()
 @click.option("--query", "-q", multiple=True)
 @click.option("--location", "-l", default=None)
+@click.option("--distance", default=None, type=int, help="Rayon autour de la localisation (LinkedIn)")
 @click.option("--max", "-m", "max_per_query", default=None, type=int)
 @click.option("--max-total", default=None, type=int, help="Plafond global d'offres brutes à récupérer")
 @click.option("--platforms", "-p", default=None)
 @click.option("--fetch-descriptions/--no-descriptions", default=True)
-def scrape(query, location, max_per_query, max_total, platforms, fetch_descriptions):
+def scrape(query, location, distance, max_per_query, max_total, platforms, fetch_descriptions):
     """Scrape les offres LinkedIn selon ta config."""
     config = load_config(CONFIG_FILE)
     search_cfg = config.get("search", {})
@@ -259,7 +262,7 @@ def scrape(query, location, max_per_query, max_total, platforms, fetch_descripti
                 break
             qmax = min(max_r, left) if left is not None else max_r
             console.print(f"[blue]LinkedIn[/blue] -> [italic]{q}[/italic]")
-            jobs = li.search(q, location=loc, max_results=qmax, recent_days=recent_days)
+            jobs = li.search(q, location=loc, max_results=qmax, recent_days=recent_days, distance_km=distance)
             if left is not None:
                 jobs = jobs[:left]
             console.print(f"   {len(jobs)} offres trouvees")
@@ -401,9 +404,18 @@ def apply(apply_all, ids, min_score, max_apply, language, skip_cv, skip_analysis
     if only_url:
         selected = [j for j in selected if _urls_overlap(j.get("url", ""), only_url)]
 
+    selected = [
+        j
+        for j in selected
+        if not j.get("trial_decoy")
+        and not str(j.get("url", "")).startswith("https://trial.blowmyjob.fr/decoy/")
+    ]
+
     if not selected:
         console.print("[yellow]Aucune offre selectionnee.[/yellow]")
         return
+
+    selected = sort_jobs_by_score(selected)
 
     applied = load_applied(APPLIED_FILE)
     already_done = [j for j in selected if job_key(j) in applied]
@@ -689,7 +701,9 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
               niche_queries: list = None,
               pme_mode: bool = False,
               find_only: bool = False,
-              max_analyzed: int = 0) -> int:
+              max_analyzed: int = 0,
+              distance_km: int | None = None,
+              extra_sources: list | None = None) -> int:
     """
     Logique commune de chasse (LinkedIn ou Indeed).
     Pagine les tiers de requetes, filtre les offres deja vues,
@@ -697,7 +711,7 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
     find_only=True : scrape + analyse jusqu'a `target` offres >= min_score (sans CV).
     Retourne le nombre de candidatures generees ou d'offres qualifiantes.
     """
-    from utils.helpers import INTERNSHIP_TITLE_KEYWORDS, _wants_internship
+    from utils.helpers import INTERNSHIP_TITLE_KEYWORDS, linkedin_job_type_params, contract_intent
     exclude_kw = [k.lower() for k in config.get("filters", {}).get("exclude_keywords", [])]
     # Exclure stage/alternance du titre sauf si le profil les cherche explicitement
     try:
@@ -708,8 +722,13 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
     except Exception:
         _roles = []
         _contracts = []
-    if not _wants_internship(_roles, _contracts):
+    _intent = contract_intent(_contracts, _roles)
+    if not _intent["wants_internship"]:
         exclude_kw = list(set(exclude_kw) | set(INTERNSHIP_TITLE_KEYWORDS))
+    if _intent["employment_only"]:
+        from utils.helpers import FREELANCE_TITLE_KEYWORDS
+        exclude_kw = list(set(exclude_kw) | set(FREELANCE_TITLE_KEYWORDS))
+    _li_contract_params = linkedin_job_type_params(_contracts, _roles)
 
     # Protège les offres supprimées : leurs URLs rejoignent seen.json + applied.json
     # avant tout crawl, pour qu'elles ne soient jamais re-scrapées ni re-générées
@@ -720,25 +739,120 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
     jobs = load_jobs(JOBS_FILE)
     applied = load_applied(APPLIED_FILE)
 
-    # Cache de pagination : memorise le dernier start par query
-    starts: dict = {}
-    if starts_file.exists():
-        try:
-            starts = json.loads(starts_file.read_text(encoding="utf-8"))
-        except Exception:
-            starts = {}
-
-    # Set complet d'URLs deja vues
+    # Set complet d'URLs / empreintes déjà vues (cross-source LinkedIn ↔ HelloWork)
     seen_urls: set = set()
     for j in jobs:
-        k = job_key(j)
-        if k:
-            seen_urls.add(k)
+        mark_job_seen(j, seen_urls)
     seen_urls.update(seen)
+    for j in jobs:
+        mark_job_seen(j, seen)
 
     analyzer = JobAnalyzer(api_key=api_key, model=ANALYSIS_MODEL)
     cl_gen = CoverLetterGenerator(api_key=api_key, model=model, pme_mode=pme_mode)
     cv_gen = CVBuilder(api_key=api_key, model=model, pme_mode=pme_mode)
+    location_kwargs = {}
+    if str(platform_label).lower().startswith("linkedin"):
+        if distance_km is not None:
+            location_kwargs["distance_km"] = distance_km
+        location_kwargs.update(_li_contract_params)
+
+    sources = [{
+        "scraper": scraper,
+        "starts_file": starts_file,
+        "label": platform_label,
+        "platform": str(platform_label).lower().split("/")[0],
+        "extra_kwargs": location_kwargs,
+    }]
+    if extra_sources:
+        sources.extend(extra_sources)
+
+    scrapers_by_platform = {}
+    for src in sources:
+        plat = src.get("platform") or src["label"].lower().split("/")[0]
+        scrapers_by_platform[plat] = src["scraper"]
+
+    starts_by_file: dict = {}
+    for src in sources:
+        sf = src["starts_file"]
+        if sf in starts_by_file:
+            continue
+        if sf.exists():
+            try:
+                starts_by_file[sf] = json.loads(sf.read_text(encoding="utf-8"))
+            except Exception:
+                starts_by_file[sf] = {}
+        else:
+            starts_by_file[sf] = {}
+
+    mix_label = "+".join(s["label"] for s in sources)
+    # Compteur de rotation : on alterne quelle source est interrogée en premier à
+    # chaque requête, pour que le mix ne soit jamais dominé par une seule plateforme.
+    mix_state = {"rot": 0}
+
+    def _persist_starts(sf: Path):
+        sf.write_text(json.dumps(starts_by_file[sf], ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _search_mixed(
+        query: str,
+        target_new: int,
+        max_pages: int,
+        *,
+        start_offset: int | None = None,
+        random_start: bool = False,
+        cache_prefix: str = "",
+        recent_days: int = 0,
+    ) -> list:
+        """Interroge toutes les sources pour une requête, fusionne, dédup, entrelace."""
+        console.print(f"  [{mix_label}] -> [italic]{query}[/italic]", end="")
+        # Rotation de l'ordre des sources (round-robin) pour équilibrer le mix.
+        rot = mix_state["rot"] % max(1, len(sources))
+        mix_state["rot"] += 1
+        ordered = sources[rot:] + sources[:rot]
+        per_source: list = []
+        for src in ordered:
+            s = src["scraper"]
+            label = src["label"]
+            sf = src["starts_file"]
+            starts = starts_by_file[sf]
+            cache_key = f"{cache_prefix}{query}"
+            if start_offset is not None:
+                offset = start_offset
+            else:
+                cached = starts.get(cache_key)
+                offset = cached if cached is not None else (random.randint(0, 5) * 25 if random_start else 0)
+            found, next_start = s.search_new(
+                query,
+                seen=seen_urls,
+                location=location,
+                target_new=target_new,
+                max_pages=max_pages,
+                exclude_keywords=exclude_kw,
+                start_offset=offset,
+                recent_days=recent_days,
+                **src.get("extra_kwargs", {}),
+            )
+            starts[cache_key] = next_start
+            _persist_starts(sf)
+            console.print(f" [{label}:{len(found)}]", end="")
+            for j in found:
+                mark_job_seen(j, seen_urls)
+                mark_job_seen(j, seen)
+            per_source.append(found)
+        console.print("")
+        # Entrelacement round-robin : on prend 1 offre de chaque source à tour de
+        # rôle, pour alterner les plateformes dans l'ordre d'analyse.
+        merged: list = []
+        for i in range(max((len(lst) for lst in per_source), default=0)):
+            for lst in per_source:
+                if i < len(lst):
+                    merged.append(lst[i])
+        merged = dedup_jobs(merged)
+        before_contract = len(merged)
+        merged = filter_jobs(merged, config, target_roles=_roles, contract_type=_contracts)
+        dropped = before_contract - len(merged)
+        if dropped:
+            console.print(f"  [dim]↳ {dropped} offre(s) écartée(s) (filtre contrat)[/dim]")
+        return merged
 
     generated = 0
     qualified = 0
@@ -804,8 +918,17 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
         title = job.get("title", "?")
         label = f"[{tag}] " if tag else ""
         console.print(f"\n  {label}[bold]{company}[/bold] -- {title[:50]}")
+        fp = job_fingerprint(job)
+        if fp and any(
+            job_fingerprint(j) == fp and isinstance(j.get("_fit_score"), int)
+            for j in jobs
+        ):
+            console.print(f"     [dim]Doublon déjà analysé — ignoré[/dim]")
+            return not should_stop_hunt()
+        plat = (job.get("platform") or "linkedin").lower()
+        job_scraper = scrapers_by_platform.get(plat, scraper)
         if not job.get("description") and job.get("id"):
-            job["description"] = scraper.fetch_description(job["id"])
+            job["description"] = job_scraper.fetch_description(job["id"])
             time.sleep(1)
         console.print(f"     [dim]Analyse...[/dim]", end="")
         analysis = analyzer.analyze(job)
@@ -815,7 +938,10 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
         console.print(f" [{color}]{score}/10[/{color}]  {analysis.get('fit_reasoning', '')[:80]}")
         job["_fit_score"] = score
         job["_analysis"] = analysis
-        jobs = [j for j in jobs if job_key(j) != job_key(job)]
+        mark_job_seen(job, seen_urls)
+        mark_job_seen(job, seen)
+        fp = job_fingerprint(job)
+        jobs = [j for j in jobs if job_key(j) != job_key(job) and (not fp or job_fingerprint(j) != fp)]
         jobs.append(job)
         for i, j in enumerate(jobs):
             j["_idx"] = i + 1
@@ -831,23 +957,13 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
     for q in tiers[0]:
         if len(quick_jobs) >= target * 2:
             break
-        console.print(f"  [{platform_label}] -> [italic]{q}[/italic] [dim](recent)[/dim]", end="")
-        found, _ = scraper.search_new(
+        found = _search_mixed(
             q,
-            seen=seen_urls,
-            location=location,
             target_new=max(5, target),
-            max_pages=2,          # rapide : 2 pages max
-            exclude_keywords=exclude_kw,
-            start_offset=0,       # toujours page 1 pour les recents
+            max_pages=2,
+            start_offset=0,
             recent_days=3,
         )
-        console.print(f" {len(found)} recentes")
-        for j in found:
-            k = job_key(j)
-            if k:
-                seen_urls.add(k)
-                seen.add(k)
         quick_jobs.extend(found)
         time.sleep(0.5)
 
@@ -868,26 +984,13 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
         for q in niche_queries:
             if len(niche_jobs) >= target * 2:
                 break
-            cached = starts.get(f"niche:{q}")
-            start_offset = cached if cached is not None else random.randint(0, 3) * 25
-            console.print(f"  [{platform_label}/niche] -> [italic]{q}[/italic] [dim](start={start_offset})[/dim]", end="")
-            found, next_start = scraper.search_new(
+            found = _search_mixed(
                 q,
-                seen=seen_urls,
-                location=location,
                 target_new=max(5, target),
                 max_pages=4,
-                exclude_keywords=exclude_kw,
-                start_offset=start_offset,
+                random_start=True,
+                cache_prefix="niche:",
             )
-            starts[f"niche:{q}"] = next_start
-            starts_file.write_text(json.dumps(starts, ensure_ascii=False, indent=2), encoding="utf-8")
-            console.print(f" {len(found)} nouvelles")
-            for j in found:
-                k = job_key(j)
-                if k:
-                    seen_urls.add(k)
-                    seen.add(k)
             niche_jobs.extend(found)
             time.sleep(0.8)
 
@@ -914,32 +1017,15 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
             progress = qualified if find_only else generated
             remaining = max(0, target - progress)
             needed = min(max(3, remaining * 2), 12)
-            cached = starts.get(q)
-            start_offset = cached if cached is not None else random.randint(0, 5) * 25
-            console.print(f"  [{platform_label}] -> [italic]{q}[/italic] [dim](start={start_offset})[/dim]")
-
-            found, next_start = scraper.search_new(
+            found = _search_mixed(
                 q,
-                seen=seen_urls,
-                location=location,
                 target_new=needed,
                 max_pages=8,
-                exclude_keywords=exclude_kw,
-                start_offset=start_offset,
+                random_start=True,
             )
-
-            starts[q] = next_start
-            starts_file.write_text(json.dumps(starts, ensure_ascii=False, indent=2), encoding="utf-8")
-
-            console.print(f"  {len(found)} nouvelles offres")
-            for j in found:
-                k = job_key(j)
-                if k:
-                    seen_urls.add(k)
-                    seen.add(k)
             save_seen(seen, SEEN_FILE)
 
-            for job in dedup_jobs(found):
+            for job in found:
                 if not process_one(job):
                     break
 
@@ -979,9 +1065,10 @@ def _run_hunt(scraper, tiers: list, starts_file: Path, platform_label: str,
 @click.option("--min-score", default=6, type=int)
 @click.option("--max-analyzed", default=0, type=int, help="Plafond d'analyses si objectif non atteint (0 = illimite)")
 @click.option("--location", "-l", default="Paris")
+@click.option("--distance", default=None, type=int, help="Rayon autour de la localisation (LinkedIn)")
 @click.option("--query", "-q", multiple=True, help="Requetes prioritaires (profil utilisateur)")
 @click.option("--no-dashboard", is_flag=True)
-def hunt_fill(target, min_score, max_analyzed, location, query, no_dashboard):
+def hunt_fill(target, min_score, max_analyzed, location, distance, query, no_dashboard):
     """Scrape pagine + analyse jusqu'a N offres >= min_score (sans generer de CV)."""
     config = load_config(CONFIG_FILE)
     api_key = get_api_key(config)
@@ -1007,7 +1094,7 @@ def hunt_fill(target, min_score, max_analyzed, location, query, no_dashboard):
         if not uid:
             niche_queries = _HUNT_NICHE
 
-    console.print(f"\n[bold cyan]Hunt-fill -- cible : {target} offres >= {min_score}/10[/bold cyan]\n")
+    console.print(f"\n[bold cyan]Hunt-fill -- cible : {target} offres >= {min_score}/10 (mix LinkedIn + HelloWork)[/bold cyan]\n")
     _run_hunt(
         scraper=LinkedInScraper(),
         tiers=tiers,
@@ -1024,6 +1111,16 @@ def hunt_fill(target, min_score, max_analyzed, location, query, no_dashboard):
         niche_queries=niche_queries,
         find_only=True,
         max_analyzed=max_analyzed,
+        distance_km=distance,
+        extra_sources=[
+            {
+                "scraper": HelloWorkScraper(),
+                "starts_file": BASE_DIR / "hellowork_starts.json",
+                "label": "HelloWork",
+                "platform": "hellowork",
+                "extra_kwargs": {},
+            }
+        ],
     )
 
 

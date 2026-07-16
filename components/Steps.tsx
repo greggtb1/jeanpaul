@@ -8,8 +8,6 @@ const steps = [
   {
     badge: "01",
     title: "Importe ton profil",
-    description:
-      "Tu déposes ton CV, tu précises ce que tu cherches. BLOW MY JOB a tout ce qu'il faut pour postuler à ta place.",
     descriptionShort: "Dépose ton CV et précise ta recherche.",
     image: "/profil-config.png",
     imageAlt: "Import de CV et configuration du profil avec expérience et préférences d'emploi",
@@ -17,17 +15,13 @@ const steps = [
   {
     badge: "02",
     title: "Recherche",
-    description:
-      "On scanne LinkedIn et on te remonte uniquement les offres qui matchent, avec un score de fit sur 10.",
-    descriptionShort: "Offres pertinentes, avec un score de fit sur 10.",
+    descriptionShort: "Offres pertinentes, score de fit sur 10.",
     image: "/radar-recherche.png",
     imageAlt: "BLOW MY JOB scanne LinkedIn, Welcome to the Jungle et Upwork pour trouver les offres pertinentes",
   },
   {
     badge: "03",
     title: "Préparation",
-    description:
-      "CV, lettre et formulaire sont générés pour chaque offre. Plus de copier-coller, plus de soirées perdues.",
     descriptionShort: "CV, lettre et formulaire générés pour chaque offre.",
     image: "/generation.png",
     imageAlt: "CV et lettre de motivation générés et adaptés à chaque offre",
@@ -35,8 +29,6 @@ const steps = [
   {
     badge: "04",
     title: "Remplissage automatique",
-    description:
-      "Tout est rempli automatiquement, tu n'as plus qu'à valider.",
     descriptionShort: "Tout est rempli, tu valides.",
     image: "/remplissage.png",
     imageAlt: "Formulaire Doctolib rempli automatiquement avec les informations de Grégoire Linee",
@@ -159,7 +151,7 @@ export default function Steps() {
             >
               <Link
                 href="/onboarding"
-                className="btn btn--outline btn--sm steps-video__cta"
+                className="btn btn--cta btn--sm steps-video__cta"
                 onClick={() =>
                   trackEvent("landing_cta_click", { source: "steps_video" })
                 }
@@ -197,30 +189,26 @@ export default function Steps() {
           </div>
         </div>
 
-        <div className="steps-showcase">
-          <div className="steps-rail step-reveal" aria-hidden="true" />
+        <div className="steps-grid">
           {steps.map((step, i) => (
-            <article
-              className={`step-row step-reveal${i % 2 === 1 ? " step-row--reverse" : ""}${i >= 2 ? " step-row--tall" : ""}`}
-              key={step.badge}
-              style={{ "--step-i": i } as React.CSSProperties}
-            >
-              <figure className="step-row__media">
-                <img src={step.image} alt={step.imageAlt} />
-              </figure>
-              <div className="step-row__copy">
-                <span className="step-row__num">{step.badge}</span>
+            <div className="steps-grid__item" key={step.badge}>
+              {i > 0 && (
+                <span className="steps-grid__arrow" aria-hidden="true">
+                  →
+                </span>
+              )}
+              <article
+                className="step-card step-reveal"
+                style={{ "--step-i": i } as React.CSSProperties}
+              >
+                <span className="step-card__num">{step.badge}</span>
+                <figure className="step-card__media">
+                  <img src={step.image} alt={step.imageAlt} />
+                </figure>
                 <h3>{step.title}</h3>
-                <p>
-                  <span className="step-row__desc step-row__desc--full">
-                    {step.description}
-                  </span>
-                  <span className="step-row__desc step-row__desc--short">
-                    {step.descriptionShort}
-                  </span>
-                </p>
-              </div>
-            </article>
+                <p>{step.descriptionShort}</p>
+              </article>
+            </div>
           ))}
         </div>
       </div>

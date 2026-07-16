@@ -15,8 +15,14 @@ export default function FinalCta() {
           </p>
           <Link
             href={`/onboarding${planQuery("test")}`}
-            className="btn btn--outline btn--lg"
-            onClick={() => trackEvent("landing_cta_click", { source: "final_cta", plan: "test" })}
+            className="btn btn--cta btn--lg"
+            onClick={() =>
+              trackEvent("landing_cta_click", {
+                source: "final_cta",
+                plan: "test",
+                cta_label: "Démarrer en 2 minutes",
+              })
+            }
           >
             Démarrer en 2 minutes
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">

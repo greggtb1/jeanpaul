@@ -1,3 +1,5 @@
+import { nameFileSuffix } from "@/lib/file-name";
+
 export type LetterSender = {
   name: string;
   email?: string | null;
@@ -30,7 +32,7 @@ export async function downloadLetterPdf(
 
   const blob = await res.blob();
   const safeCompany = company.replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 40);
-  const filename = `Lettre_${safeCompany || "motivation"}.pdf`;
+  const filename = `Lettre_${safeCompany || "motivation"}${nameFileSuffix(sender.name)}.pdf`;
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

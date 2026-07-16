@@ -16,8 +16,21 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+_BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+_RUN_ID_BOOT = os.environ.get("JA_RUN_ID", "")
+if _RUN_ID_BOOT:
+    try:
+        _boot_log = _BASE / "run-logs" / f"{_RUN_ID_BOOT}.log"
+        _boot_log.parent.mkdir(parents=True, exist_ok=True)
+        with _boot_log.open("a", encoding="utf-8") as _f:
+            _f.write("boot: interpreter started\n")
+    except Exception:
+        pass
+
+BASE = _BASE
 sys.path.insert(0, str(BASE))
+
+from utils.helpers import sort_jobs_by_score
 
 
 def _ensure_playwright_browsers_path() -> None:
@@ -37,15 +50,24 @@ def _ensure_playwright_browsers_path() -> None:
 
 _ensure_playwright_browsers_path()
 
-from store import (
-    set_user, pipeline_log, pipeline_set_status, pipeline_finish,
-    client, upload_app_documents, load_jobs,
-    pipeline_register_pid, pipeline_is_cancelled, pipeline_clear_cancel,
-    pipeline_cancel, pipeline_request_cancel,
-    load_autoapply_selection, clear_autoapply_selection,
-    mark_ready_without_cv,
-)
-from user_profile import clear_profile_cache
+try:
+    from store import (
+        set_user, pipeline_log, pipeline_set_status, pipeline_finish,
+        client, upload_app_documents, load_jobs,
+        pipeline_register_pid, pipeline_is_cancelled, pipeline_clear_cancel,
+        pipeline_cancel, pipeline_request_cancel,
+        load_autoapply_selection, clear_autoapply_selection,
+        mark_ready_without_cv,
+    )
+    from user_profile import clear_profile_cache
+except Exception as _import_err:
+    if _RUN_ID_BOOT:
+        try:
+            with (_BASE / "run-logs" / f"{_RUN_ID_BOOT}.log").open("a", encoding="utf-8") as _f:
+                _f.write(f"boot: import failed — {_import_err}\n")
+        except Exception:
+            pass
+    raise
 
 APPS_DIR = BASE / "applications"
 
@@ -58,6 +80,7 @@ def _env_int(name: str, default: int) -> int:
 
 MIN_SCORE = 6
 HUNT_TARGET = _env_int("JA_HUNT_TARGET", 15)  # arrêt dès N offres ≥ MIN_SCORE
+GEN_MAX = _env_int("JA_GEN_MAX", HUNT_TARGET)  # plafond de dossiers générés (mode essai)
 MAX_ANALYZED_POOR_FIT = 30  # plafond si objectif non atteint (fit faible)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -218,6 +241,7 @@ def build_scrape_args(user_id: str) -> list[str]:
 
     queries: list[str] = []
     loc = "Paris"
+    distance: int | None = None
     try:
         res = client().table("profiles").select("*").eq("id", user_id).maybe_single().execute()
         prof = res.data
@@ -237,6 +261,7 @@ def build_scrape_args(user_id: str) -> list[str]:
             queries = build_scrape_queries(roles, ai)
             if locs:
                 loc = locs[0]
+            _, distance = _location_scope_from_profile(prof)
     except Exception:
         pass
 
@@ -248,9 +273,26 @@ def build_scrape_args(user_id: str) -> list[str]:
         "--max-total", str(SCRAPE_TOTAL_MAX),
         "-l", loc,
     ]
+    if distance is not None:
+        args.extend(["--distance", str(distance)])
     for q in queries:
         args.extend(["-q", q])
     return args
+
+
+def _location_scope_from_profile(prof: dict) -> tuple[str, int | None]:
+    locs = prof.get("target_locations") or ["Paris"]
+    loc = locs[0] if isinstance(locs, list) and locs else "Paris"
+    if str(loc).strip().lower() == "remote":
+        return loc, None
+    if (prof.get("location_search_mode") or "city") == "city":
+        return loc, 0
+    radius = prof.get("location_radius_km")
+    try:
+        radius_int = int(radius)
+    except Exception:
+        radius_int = 25
+    return loc, max(0, min(radius_int, 200))
 
 
 def build_hunt_fill_args(user_id: str, target: int = HUNT_TARGET) -> list[str]:
@@ -265,10 +307,12 @@ def build_hunt_fill_args(user_id: str, target: int = HUNT_TARGET) -> list[str]:
         res = client().table("profiles").select("*").eq("id", user_id).maybe_single().execute()
         prof = res.data or {}
         roles = prof.get("target_roles") or []
-        locs = prof.get("target_locations") or ["Paris"]
+        loc, distance = _location_scope_from_profile(prof)
         for q in roles[:8]:
             args.extend(["-q", q])
-        args.extend(["-l", locs[0]])
+        args.extend(["-l", loc])
+        if distance is not None:
+            args.extend(["--distance", str(distance)])
     except Exception:
         args.extend(["-l", "Paris"])
     return args
@@ -340,7 +384,7 @@ def track_search_criteria(user_id: str, run_id: str):
     try:
         res = (
             client().table("profiles")
-            .select("target_roles,target_locations,contract_type,remote_pref,salary_min")
+            .select("target_roles,target_sectors,target_locations,location_search_mode,location_radius_km,contract_type,remote_pref,salary_min")
             .eq("id", user_id).maybe_single().execute()
         )
         prof = res.data or {}
@@ -375,12 +419,16 @@ def _urls_with_docs(user_id: str) -> set:
     try:
         res = (
             client().table("jobs")
-            .select("url,cv_url")
+            .select("url,cv_url,letter_url")
             .eq("user_id", user_id)
             .eq("deleted", False)
             .execute()
         )
-        return {r["url"] for r in (res.data or []) if r.get("url") and r.get("cv_url")}
+        return {
+            r["url"]
+            for r in (res.data or [])
+            if r.get("url") and (r.get("cv_url") or r.get("letter_url"))
+        }
     except Exception:
         return set()
 
@@ -394,23 +442,112 @@ def _has_cv(user_id: str) -> bool:
             .maybe_single()
             .execute()
         )
-        return bool(((res.data or {}).get("cv_url") or "").strip())
+        url = ((res.data or {}).get("cv_url") or "").strip()
+        return bool(url and url != "local")
     except Exception:
         return False
 
 
-def _qualifying_urls(user_id: str, urls_before: set | None = None, limit: int = HUNT_TARGET) -> list[str]:
-    out: list[str] = []
+def _has_letter_basis(user_id: str) -> bool:
+    """Texte de calibration / échantillon de lettre suffisant pour générer des lettres sans CV."""
+    try:
+        res = (
+            client().table("profiles")
+            .select("summary,letter_sample")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        p = res.data or {}
+        return bool((p.get("summary") or "").strip() or (p.get("letter_sample") or "").strip())
+    except Exception:
+        return False
+
+
+TRIAL_DISCOVERY_GEN_MAX = 4
+_TRIAL_DECOY_PREFIX = "https://trial.blowmyjob.fr/decoy/"
+
+
+def _is_trial_decoy_row(url: str | None, data: dict | None) -> bool:
+    if (data or {}).get("trial_decoy"):
+        return True
+    return str(url or "").startswith(_TRIAL_DECOY_PREFIX)
+
+
+def _count_trial_free_dossiers(user_id: str) -> int:
+    try:
+        res = (
+            client()
+            .table("jobs")
+            .select("url,data,cv_url,letter_url,fit_score")
+            .eq("user_id", user_id)
+            .eq("deleted", False)
+            .execute()
+        )
+        count = 0
+        for row in res.data or []:
+            url = row.get("url")
+            data = row.get("data") or {}
+            if _is_trial_decoy_row(url, data):
+                continue
+            if row.get("cv_url") or row.get("letter_url"):
+                count += 1
+                continue
+            if not data.get("ready_without_cv"):
+                continue
+            score = row.get("fit_score")
+            if score is None:
+                score = data.get("_fit_score")
+            if isinstance(score, (int, float)) and score >= MIN_SCORE:
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+def _mark_trial_discovery_complete_if_ready(user_id: str, run_id: str) -> None:
+    try:
+        res = (
+            client()
+            .table("profiles")
+            .select("subscription_status,is_trial")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        prof = res.data or {}
+        if prof.get("subscription_status") != "trial" and not prof.get("is_trial"):
+            return
+        if _count_trial_free_dossiers(user_id) < TRIAL_DISCOVERY_GEN_MAX:
+            return
+        from datetime import datetime, timezone
+
+        client().table("profiles").update(
+            {
+                "trial_used": True,
+                "first_search_done": True,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", user_id).execute()
+        pipeline_log(
+            run_id,
+            f"✓ Essai découverte terminé ({TRIAL_DISCOVERY_GEN_MAX} dossiers gratuits livrés)",
+        )
+    except Exception as e:
+        pipeline_log(run_id, f"⚠ Marquage essai : {str(e)[:80]}")
+
+
+def _qualifying_urls(user_id: str, urls_before: set | None = None, limit: int | None = None) -> list[str]:
+    cap = limit if limit is not None else min(GEN_MAX, HUNT_TARGET)
+    qualifying = []
     for j in load_jobs(user_id=user_id):
         url = j.get("url")
         if not url or (urls_before is not None and url in urls_before):
             continue
         s = j.get("_fit_score") if isinstance(j.get("_fit_score"), int) else j.get("fit_score")
         if isinstance(s, int) and s >= MIN_SCORE:
-            out.append(url)
-            if len(out) >= limit:
-                break
-    return out
+            qualifying.append(j)
+    return [j["url"] for j in sort_jobs_by_score(qualifying)[:cap] if j.get("url")]
 
 
 def _qualifying_import_url(user_id: str, target_url: str) -> list[str]:
@@ -435,16 +572,27 @@ def _run_generation_or_mark_ready(
     progress_after: int = 92,
     target_url: str | None = None,
 ) -> list[str]:
-    """Génère CV+lettres si CV présent, sinon marque les offres qualifiantes comme prêtes."""
-    if _has_cv(user_id):
-        pipeline_log(
-            run_id,
-            "\n── Étape 2 : Génération CV + lettres ──"
-            if target_url
-            else "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──",
-        )
-        max_docs = "1" if target_url else str(HUNT_TARGET)
+    """Génère CV+lettres si CV présent ; lettres seules si calibration ; sinon marque prêt."""
+    has_cv = _has_cv(user_id)
+    letter_only = not has_cv and _has_letter_basis(user_id)
+
+    if has_cv or letter_only:
+        if letter_only:
+            pipeline_log(
+                run_id,
+                "\n── Étape 2 : Pas de CV — génération des lettres (profil / calibration) ──",
+            )
+        else:
+            pipeline_log(
+                run_id,
+                "\n── Étape 2 : Génération CV + lettres ──"
+                if target_url
+                else "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──",
+            )
+        max_docs = "1" if target_url else str(min(GEN_MAX, HUNT_TARGET))
         args = ["apply", "--max", max_docs, "--no-dashboard"]
+        if letter_only:
+            args.append("--skip-cv")
         if target_url:
             args.extend(["--all", "--url", target_url, "--skip-analysis"])
         else:
@@ -461,17 +609,30 @@ def _run_generation_or_mark_ready(
             return []
         pipeline_set_status(run_id, "running", progress=progress_after)
         sync_documents(user_id, run_id)
-        return list(_urls_with_docs(user_id) - docs_before)
+        generated = list(_urls_with_docs(user_id) - docs_before)
+        if letter_only:
+            ready_urls = (
+                _qualifying_import_url(user_id, target_url)
+                if target_url
+                else _qualifying_urls(user_id, urls_before)
+            )
+            if ready_urls:
+                mark_ready_without_cv(user_id, ready_urls)
+            pipeline_log(
+                run_id,
+                f"✓ {len(generated)} lettre(s) générée(s) — CV non généré (aucun CV de base fourni)",
+            )
+        return generated
 
     ready_urls = _qualifying_import_url(user_id, target_url) if target_url else _qualifying_urls(user_id, urls_before)
-    pipeline_log(run_id, "\n── Étape 2 : Pas de CV, génération ignorée ──")
+    pipeline_log(run_id, "\n── Étape 2 : Pas de CV ni texte de profil, génération ignorée ──")
     pipeline_log(
         run_id,
         f"✓ {len(ready_urls)} offre(s) repérée(s) comme dossiers prêts",
     )
     if ready_urls:
         n = mark_ready_without_cv(user_id, ready_urls)
-        pipeline_log(run_id, f"✓ {n} dossier(s) prêt(s) sans CV ni lettre (économie de tokens)")
+        pipeline_log(run_id, f"✓ {n} dossier(s) prêt(s) sans documents (économie de tokens)")
     pipeline_set_status(run_id, "running", progress=progress_after)
     return ready_urls
 
@@ -521,6 +682,96 @@ def run_import_offer(user_id: str, run_id: str, import_url: str):
         "generated_urls": generated_urls,
         "skip_docs": not _has_cv(user_id),
     })
+
+
+def _pending_unlock_jobs(user_id: str) -> list:
+    """Offres qualifiantes sans CV/lettre (cadenassées pendant l'essai)."""
+    pending = []
+    docs = _urls_with_docs(user_id)
+    for j in load_jobs(user_id=user_id):
+        url = j.get("url")
+        if not url or url in docs:
+            continue
+        data = j.get("data") or {}
+        if data.get("trial_decoy") or str(url).startswith("https://trial.blowmyjob.fr/decoy/"):
+            continue
+        s = j.get("_fit_score") if isinstance(j.get("_fit_score"), int) else j.get("fit_score")
+        if isinstance(s, int) and s >= MIN_SCORE:
+            pending.append(j)
+        elif data.get("ready_without_cv"):
+            pending.append(j)
+    return sort_jobs_by_score(pending)
+
+
+def _clear_trial_unlock_pending(user_id: str) -> None:
+    try:
+        client().table("app_state").delete().eq("id", f"trial_unlock_pending:{user_id}").execute()
+    except Exception:
+        pass
+
+
+def run_unlock_pending(user_id: str, run_id: str):
+    """Génère CV + lettres pour les offres verrouillées pendant l'essai."""
+    pipeline_set_status(run_id, "running", progress=8)
+
+    try:
+        from trial_decoy import delete_trial_decoy_jobs
+
+        delete_trial_decoy_jobs(user_id, run_id)
+    except Exception as e:
+        pipeline_log(run_id, f"⚠ Purge offres floutées : {str(e)[:80]}")
+
+    pending = _pending_unlock_jobs(user_id)
+
+    if not _has_cv(user_id):
+        pipeline_log(run_id, "⚠ Pas de CV : impossible de générer les dossiers débloqués.")
+        pipeline_finish(run_id, "done", {"mode": "unlock", "generated": 0, "skip_docs": True})
+        _clear_trial_unlock_pending(user_id)
+        return
+
+    if not pending:
+        pipeline_log(run_id, "✓ Tous vos dossiers sont déjà disponibles.")
+        pipeline_finish(run_id, "done", {"mode": "unlock", "generated": 0})
+        _clear_trial_unlock_pending(user_id)
+        return
+
+    max_docs = min(len(pending), GEN_MAX)
+    docs_before = _urls_with_docs(user_id)
+
+    pipeline_log(run_id, "🔓 Déblocage de vos dossiers après paiement")
+    pipeline_log(
+        run_id,
+        f"\n── Génération CV + lettres ({max_docs} dossier(s) ≥{MIN_SCORE}/10) ──",
+    )
+    pipeline_set_status(run_id, "running", progress=20)
+
+    rc = run_main(
+        ["apply", "--max", str(max_docs), "--min-score", str(MIN_SCORE), "--no-dashboard"],
+        user_id,
+        run_id,
+    )
+    if rc == 130:
+        _exit_if_cancelled(run_id, user_id)
+    if rc != 0:
+        pipeline_log(run_id, "⚠ La génération a échoué. Réessayez depuis le dashboard.")
+        pipeline_finish(run_id, "failed", {"mode": "unlock", "step": "apply"})
+        sys.exit(rc)
+
+    pipeline_set_status(run_id, "running", progress=88)
+    sync_documents(user_id, run_id)
+    generated_urls = list(_urls_with_docs(user_id) - docs_before)
+
+    pipeline_log(
+        run_id,
+        f"\n📊 {len(generated_urls)} dossier(s) débloqué(s) · CV + lettres prêts",
+    )
+    pipeline_log(run_id, "\n✅ Terminé. Rafraîchissez le dashboard pour télécharger vos documents.")
+    pipeline_finish(run_id, "done", {
+        "mode": "unlock",
+        "generated": len(generated_urls),
+        "generated_urls": generated_urls,
+    })
+    _clear_trial_unlock_pending(user_id)
 
 
 def sync_documents(user_id: str, run_id: str):
@@ -714,7 +965,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--user-id", required=True)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--mode", default="full", choices=["full", "autoapply", "analyze", "import", "test-chromium"])
+    parser.add_argument("--mode", default="full", choices=["full", "autoapply", "analyze", "import", "unlock", "test-chromium"])
     parser.add_argument("--import-url", default="")
     opts = parser.parse_args()
 
@@ -742,18 +993,32 @@ def main():
         run_import_offer(opts.user_id, run_id, opts.import_url)
         return
 
+    if opts.mode == "unlock":
+        run_unlock_pending(opts.user_id, run_id)
+        return
+
     pipeline_set_status(run_id, "running", progress=5)
     pipeline_log(run_id, "🚀 BLOW MY JOB : recherche lancée")
     track_search_criteria(opts.user_id, run_id)
 
     # Profil
     try:
-        res = client().table("profiles").select("target_roles,target_locations").eq("id", opts.user_id).maybe_single().execute()
+        res = (
+            client().table("profiles")
+            .select("target_roles,target_locations,location_search_mode,location_radius_km")
+            .eq("id", opts.user_id).maybe_single().execute()
+        )
         prof = res.data or {}
         roles = prof.get("target_roles") or []
         locs = prof.get("target_locations") or ["Paris"]
+        loc_mode = prof.get("location_search_mode") or "city"
+        loc_radius = prof.get("location_radius_km")
         pipeline_log(run_id, f"📋 Postes : {', '.join(roles) or 'config par défaut'}")
         pipeline_log(run_id, f"📍 Lieux : {', '.join(locs)}")
+        if loc_mode == "city":
+            pipeline_log(run_id, "📍 Rayon : ville uniquement")
+        elif loc_radius:
+            pipeline_log(run_id, f"📍 Rayon : {loc_radius} km")
     except Exception:
         pass
 
@@ -805,6 +1070,13 @@ def main():
         run_id,
         f"\n📊 {len(new_urls)} nouvelle(s) offre(s) · {qualifying} ≥{MIN_SCORE}/10 · {len(generated_urls)} dossier(s) prêt(s)",
     )
+    _mark_trial_discovery_complete_if_ready(opts.user_id, run_id)
+    try:
+        from trial_decoy import seed_trial_decoy_jobs
+
+        seed_trial_decoy_jobs(opts.user_id, run_id)
+    except Exception as e:
+        pipeline_log(run_id, f"⚠ Offres bonus : {str(e)[:80]}")
     pipeline_log(run_id, "\n✅ Terminé. Rafraîchissez le dashboard pour voir les offres.")
     pipeline_finish(run_id, "done", {
         "mode": "full",
@@ -822,6 +1094,12 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         if run_id:
+            try:
+                _boot_log = BASE / "run-logs" / f"{run_id}.log"
+                with _boot_log.open("a", encoding="utf-8") as _f:
+                    _f.write(f"boot: uncaught error — {e}\n")
+            except Exception:
+                pass
             try:
                 pipeline_log(run_id, f"❌ Erreur moteur : {e}")
                 pipeline_finish(run_id, "failed", {"error": str(e)[:200]})

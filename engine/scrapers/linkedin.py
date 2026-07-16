@@ -11,6 +11,8 @@ from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 from rich.console import Console
 
+from utils.helpers import is_job_seen
+
 console = Console()
 
 HEADERS = {
@@ -31,7 +33,16 @@ class LinkedInScraper:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
-    def search(self, query: str, location: str = "Paris", max_results: int = 10, recent_days: int = 0) -> List[Dict]:
+    def search(
+        self,
+        query: str,
+        location: str = "Paris",
+        max_results: int = 10,
+        recent_days: int = 0,
+        distance_km: Optional[int] = None,
+        f_JT: Optional[str] = None,
+        f_E: Optional[str] = None,
+    ) -> List[Dict]:
         """Scrape les offres LinkedIn via l'API publique guest."""
         results = []
         start = 0
@@ -49,6 +60,12 @@ class LinkedInScraper:
                 "pageNum": 0,
                 "start": start,
             }
+            if distance_km is not None:
+                params["distance"] = max(0, int(distance_km))
+            if f_JT:
+                params["f_JT"] = f_JT
+            if f_E:
+                params["f_E"] = f_E
 
             try:
                 resp = self.session.get(LI_SEARCH, params=params, timeout=15)
@@ -148,7 +165,10 @@ class LinkedInScraper:
                    max_pages: int = 8,
                    exclude_keywords: list = None,
                    start_offset: int = 0,
-                   recent_days: int = 0) -> tuple:
+                   recent_days: int = 0,
+                   distance_km: Optional[int] = None,
+                   f_JT: Optional[str] = None,
+                   f_E: Optional[str] = None) -> tuple:
         """
         Pagine LinkedIn jusqu'à trouver target_new offres absentes de seen.
         Repart depuis start_offset pour ne jamais re-fetcher des pages déjà traitées.
@@ -175,6 +195,12 @@ class LinkedInScraper:
                 "pageNum":   0,
                 "start":     start,
             }
+            if distance_km is not None:
+                params["distance"] = max(0, int(distance_km))
+            if f_JT:
+                params["f_JT"] = f_JT
+            if f_E:
+                params["f_E"] = f_E
             try:
                 resp = self.session.get(LI_SEARCH, params=params, timeout=15)
                 if resp.status_code == 429:
@@ -199,8 +225,7 @@ class LinkedInScraper:
             empty_pages = 0
 
             for job in batch_jobs:
-                url_key = job.get("url") or f"{job.get('title','')}|{job.get('company','')}".lower()
-                if url_key in seen:
+                if is_job_seen(job, seen):
                     skipped_seen += 1
                     continue   # déjà vu
                 title_low = job.get("title", "").lower()

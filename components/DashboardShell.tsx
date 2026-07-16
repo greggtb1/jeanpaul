@@ -2,25 +2,28 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import BrandName from "@/components/BrandName";
-import DashboardOnboarding from "@/components/DashboardOnboarding";
+import LogoutWarningModal from "@/components/LogoutWarningModal";
 
-const NAV = [
+const PRIMARY_NAV = [
   { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", mobileIcon: "⌂", exact: true },
-  { href: "/dashboard/compte", label: "Mon compte", mobileLabel: "Compte", mobileIcon: "◎" },
-  { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture", mobileIcon: "€" },
-  { href: "/dashboard/parrainage", label: "Parrainage", mobileLabel: "Parrain", mobileIcon: "%" },
   { href: "/dashboard/preferences", label: "Critères de recherche", mobileLabel: "Critères", mobileIcon: "⚙" },
+  { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture", mobileIcon: "€" },
+];
+
+const SECONDARY_NAV = [
   { href: "/dashboard/idees", label: "Boîte à idées", mobileLabel: "Idées", mobileIcon: "✦" },
+  { href: "/dashboard/parrainage", label: "Parrainage", mobileLabel: "Parrain", mobileIcon: "%" },
 ];
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { uid, loading } = useAuth();
+  const { uid, loading, user } = useAuth();
+  const [logoutWarnOpen, setLogoutWarnOpen] = useState(false);
 
   const isReferralPage = pathname.startsWith("/dashboard/parrainage");
 
@@ -40,7 +43,9 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           return;
         }
         const active =
-          data.subscription_status === "active" || data.subscription_status === "trialing";
+          data.subscription_status === "active" ||
+          data.subscription_status === "trialing" ||
+          data.subscription_status === "trial";
         if (!active) router.replace("/subscribe");
       });
   }, [router, uid, loading, isReferralPage]);
@@ -50,6 +55,14 @@ export default function DashboardShell({ children }: { children: React.ReactNode
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();
+  }
+
+  function requestLogout() {
+    if (user?.is_anonymous) {
+      setLogoutWarnOpen(true);
+      return;
+    }
+    void logout();
   }
 
   return (
@@ -72,7 +85,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <BrandName />
           </Link>
           <nav className="db-nav" aria-label="Navigation dashboard">
-            {NAV.map((item) => {
+            {PRIMARY_NAV.map((item) => {
               const active = item.exact
                 ? pathname === item.href
                 : pathname.startsWith(item.href);
@@ -81,6 +94,26 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                   key={item.href}
                   href={item.href}
                   className={`db-nav__link ${active ? "is-active" : ""}`}
+                  data-tour={
+                    item.href === "/dashboard/preferences" ? "prefs-link" : undefined
+                  }
+                >
+                  <span className="db-nav__icon" aria-hidden="true">
+                    {item.mobileIcon}
+                  </span>
+                  <span className="db-nav__label db-nav__label--full">{item.label}</span>
+                  <span className="db-nav__label db-nav__label--short">{item.mobileLabel}</span>
+                </Link>
+              );
+            })}
+            <div className="db-nav__divider" aria-hidden="true" />
+            {SECONDARY_NAV.map((item) => {
+              const active = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`db-nav__link db-nav__link--secondary ${active ? "is-active" : ""}`}
                 >
                   <span className="db-nav__icon" aria-hidden="true">
                     {item.mobileIcon}
@@ -92,14 +125,40 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             })}
           </nav>
           <div className="db-side__foot">
-            <button type="button" className="db-nav__link db-nav__logout" onClick={logout}>
+            <Link
+              href="/dashboard/compte"
+              className={`db-nav__link db-nav__account ${pathname.startsWith("/dashboard/compte") ? "is-active" : ""}`}
+            >
+              <span className="db-nav__avatar" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+                  <circle cx="12" cy="8" r="3.4" fill="currentColor" />
+                  <path
+                    d="M5 19.2c0-3.2 3.1-5.2 7-5.2s7 2 7 5.2"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                </svg>
+              </span>
+              <span className="db-nav__label db-nav__label--full">Mon compte</span>
+              <span className="db-nav__label db-nav__label--short">Compte</span>
+            </Link>
+            <button type="button" className="db-nav__link db-nav__logout" onClick={requestLogout}>
               Déconnexion
             </button>
           </div>
         </aside>
         <div className="db-content">{children}</div>
       </div>
-      {!isReferralPage && <DashboardOnboarding userId={uid} />}
+      <LogoutWarningModal
+        open={logoutWarnOpen}
+        onConfirm={() => {
+          setLogoutWarnOpen(false);
+          void logout();
+        }}
+        onCancel={() => setLogoutWarnOpen(false)}
+      />
     </div>
   );
 }

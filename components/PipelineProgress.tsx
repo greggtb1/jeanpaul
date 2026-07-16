@@ -8,7 +8,10 @@ const SCAN_PHASES = ["boot", "scrape_prepare", "scrape_query", "scrape_desc", "s
 const SCORE_PHASES = ["analyze", "hunt_fill"];
 const GEN_PHASES = ["generate", "sync", "done"];
 
-function getHero(phase: ReturnType<typeof parsePipelinePhase>): { value: string; label: string } {
+function getHero(
+  phase: ReturnType<typeof parsePipelinePhase>,
+  hideOfferQuota = false
+): { value: string; label: string } {
   const frac = phase.detail.match(/^(\d+)\s*\/\s*(\d+)/);
   if (frac) {
     const label =
@@ -19,7 +22,10 @@ function getHero(phase: ReturnType<typeof parsePipelinePhase>): { value: string;
           : phase.subPhase.startsWith("autoapply")
             ? "formulaires"
             : "progression";
-    return { value: `${frac[1]}/${frac[2]}`, label };
+    const hideDenom =
+      hideOfferQuota &&
+      (phase.subPhase === "hunt_fill" || phase.subPhase === "analyze");
+    return { value: hideDenom ? frac[1] : `${frac[1]}/${frac[2]}`, label };
   }
 
   if (phase.subPhase === "scrape_done" && phase.offersNew) {
@@ -27,6 +33,9 @@ function getHero(phase: ReturnType<typeof parsePipelinePhase>): { value: string;
   }
   if (SCAN_PHASES.includes(phase.subPhase) && phase.queriesTotal) {
     return { value: `${phase.queriesDone}/${phase.queriesTotal}`, label: "requêtes" };
+  }
+  if (GEN_PHASES.includes(phase.subPhase)) {
+    return { value: String(phase.generated || 0), label: "dossiers prêts" };
   }
   if (phase.subPhase === "boot") {
     return { value: "…", label: "démarrage" };
@@ -46,8 +55,8 @@ function getStatusLabel(
   if (importOnly) return "Import d'offre";
   if (analyzeOnly) return "Analyse des offres";
   if (SCORE_PHASES.includes(phase.subPhase)) return "Recherche & notation";
-  if (GEN_PHASES.includes(phase.subPhase)) return "Rédaction CV + lettre";
-  if (SCAN_PHASES.includes(phase.subPhase)) return "Scan LinkedIn";
+  if (GEN_PHASES.includes(phase.subPhase)) return "Rédaction du CV et de la lettre";
+  if (SCAN_PHASES.includes(phase.subPhase)) return "Scan LinkedIn + HelloWork";
   if (phase.subPhase === "done") return "Terminé";
   return "En cours";
 }
@@ -86,6 +95,7 @@ export default function PipelineProgress({
   stopping,
   launching = false,
   launchMode,
+  trialDiscovery = false,
 }: {
   run: PipelineRun | null;
   jobsFound?: number;
@@ -94,12 +104,14 @@ export default function PipelineProgress({
   onStop?: () => void;
   stopping?: boolean;
   launching?: boolean;
-  launchMode?: "full" | "analyze" | "import" | "autoapply" | null;
+  launchMode?: "full" | "analyze" | "import" | "autoapply" | "unlock" | null;
+  /** Mode découverte : n'affiche pas le plafond (/8) sur les offres retenues. */
+  trialDiscovery?: boolean;
 }) {
   const phase = useMemo(() => parsePipelinePhase(run, jobsFound), [run, jobsFound]);
   const hero = launching
-    ? { value: "…", label: "démarrage" }
-    : getHero(phase);
+    ? { value: "…", label: launchMode === "unlock" ? "déblocage" : "démarrage" }
+    : getHero(phase, trialDiscovery);
 
   const autoapply = run?.result?.mode === "autoapply" || /auto.?apply|auto.?postul/i.test(run?.log || "");
   const analyzeOnly = /Reprise\s*:\s*analyse|sans scraping/i.test(run?.log || "");
@@ -112,11 +124,14 @@ export default function PipelineProgress({
       ? "Import d'offre"
       : launchMode === "analyze"
         ? "Analyse des offres"
-        : "Démarrage"
+        : launchMode === "unlock"
+          ? "Déblocage des dossiers"
+          : "Démarrage"
     : getStatusLabel(phase, autoapply, analyzeOnly, importOnly);
   const showInlineLoader =
     launching || !["done", "autoapply_ready"].includes(phase.subPhase);
   const progressPct = launching ? 4 : phase.progress;
+  const showEta = showInlineLoader && !autoapply;
 
   const stopButton = onStop && !launching ? (
     <button
@@ -147,6 +162,7 @@ export default function PipelineProgress({
             <span style={{ width: `${progressPct}%` }} />
           </div>
         </div>
+        {showEta && <p className="db-run__eta">environ 1 min pour un scan complet</p>}
       </section>
     );
   }
@@ -174,6 +190,7 @@ export default function PipelineProgress({
           <span style={{ width: `${progressPct}%` }} />
         </div>
       </div>
+      {showEta && <p className="db-run__eta">environ 1 min pour un scan complet</p>}
     </section>
   );
 }

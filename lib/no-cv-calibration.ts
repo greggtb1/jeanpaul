@@ -104,8 +104,8 @@ export function hasAboutYouProfile(profile: Profile | null | undefined): boolean
   return experience.length >= 20;
 }
 
-export function needsPreScanNoCvModal(_profile: Profile | null | undefined): boolean {
-  return true;
+export function needsPreScanNoCvModal(profile: Profile | null | undefined): boolean {
+  return !hasUploadedCv(profile);
 }
 
 /** Questions sans CV : uniquement le profil perso si pas encore renseigné. */
@@ -128,9 +128,9 @@ export function needsNoCvScanCalibration(
 
 export function needsNoCvCalibration(
   profile: Profile | null | undefined,
-  draft?: CalibrationDraft | null
+  _draft?: CalibrationDraft | null
 ): boolean {
-  return needsPreScanNoCvModal(profile) || getCalibrationSteps(profile, draft).length > 0;
+  return !hasUploadedCv(profile);
 }
 
 export function calibrationPromptLabel(
@@ -141,7 +141,7 @@ export function calibrationPromptLabel(
     if (needsNoCvScanCalibration(profile, draft)) {
       return "Déposez votre CV pour des dossiers personnalisés, ou décrivez-vous en 2 phrases.";
     }
-    return "Déposez votre CV pour personnaliser vos dossiers à chaque offre.";
+    return "";
   }
   if (getCalibrationSteps(profile, draft).length) {
     return "1 question rapide sur votre profil.";
@@ -171,16 +171,22 @@ export function profileToCalibrationDefaults(
   return { experience, seniority };
 }
 
+export const CALIBRATION_MIN_EXPERIENCE_CHARS = 20;
+
 export function calibrationStepIsValid(
   step: CalibrationStepId,
   data: NoCvCalibrationData
 ): boolean {
   if (step === "about_you") {
-    return data.experience.trim().length >= 20;
+    return data.experience.trim().length >= CALIBRATION_MIN_EXPERIENCE_CHARS;
   }
   return false;
 }
 
 export function calibrationIsValid(data: NoCvCalibrationData): boolean {
-  return data.experience.trim().length >= 20;
+  return data.experience.trim().length >= CALIBRATION_MIN_EXPERIENCE_CHARS;
+}
+
+export function calibrationExperienceRemaining(data: NoCvCalibrationData): number {
+  return Math.max(0, CALIBRATION_MIN_EXPERIENCE_CHARS - data.experience.trim().length);
 }

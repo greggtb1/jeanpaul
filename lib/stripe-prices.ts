@@ -7,6 +7,7 @@ import {
   weeklyPriceCents,
   monthlyPriceCents,
   oneTimePriceCents,
+  planMonthlyPriceCents,
 } from "@/lib/plans";
 import type Stripe from "stripe";
 
@@ -32,7 +33,7 @@ export function resolveStripePriceId(
   return undefined;
 }
 
-/** Produit Stripe lié à un price configuré (ex. STRIPE_PRICE_TEST → produit Découverte). */
+/** Produit Stripe lié à un price configuré (ex. STRIPE_PRICE_TEST → produit Start). */
 export async function resolveStripeProductIdForPlan(
   stripe: Stripe,
   planId: PlanId
@@ -61,9 +62,10 @@ export function buildCheckoutLineItem(
   const id = parsePlanId(planId);
   const priceId = resolveStripePriceId(id, billing);
 
-  // Découverte est gérée en price_data inline pour éviter toute dérive
-  // si STRIPE_PRICE_TEST pointe encore vers un ancien price (ex: 2,99 €).
-  if (priceId && id !== "test") {
+  // Start et les abonnements à prix mensuel dédié sont gérés en price_data
+  // inline pour éviter toute dérive si un STRIPE_PRICE_* pointe encore vers un
+  // ancien montant (ex: Start 2,99 € ou Essentiel 51 €/mois).
+  if (priceId && id !== "test" && plan.priceMonthlyEur == null) {
     return { price: priceId, quantity: 1 };
   }
 
@@ -85,10 +87,13 @@ export function buildCheckoutLineItem(
     };
   }
 
-  const isMonthly = billing === "monthly";
-  const unitAmount = isMonthly
-    ? monthlyPriceCents(plan.priceWeeklyEur!)
-    : weeklyPriceCents(plan);
+  const monthlyDedicated = plan.priceMonthlyEur != null;
+  const isMonthly = monthlyDedicated || billing === "monthly";
+  const unitAmount = monthlyDedicated
+    ? planMonthlyPriceCents(plan)
+    : isMonthly
+      ? monthlyPriceCents(plan.priceWeeklyEur!)
+      : weeklyPriceCents(plan);
 
   return {
     price_data: {
@@ -123,7 +128,12 @@ export function checkoutMetadata(
   const plan = getPlan(planId);
   return {
     plan_id: plan.id,
-    billing_interval: plan.kind === "one_time" ? "one_time" : billing,
+    billing_interval:
+      plan.kind === "one_time"
+        ? "one_time"
+        : plan.priceMonthlyEur != null
+          ? "monthly"
+          : billing,
     applications_quota: String(plan.applicationsQuota),
     checkout_type: plan.kind === "one_time" ? "one_time" : "subscription",
     amount_cents: String(checkoutAmountCents(plan, billing)),

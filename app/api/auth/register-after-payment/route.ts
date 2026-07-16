@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckoutSessionInfo } from "@/lib/stripe-session";
+import { markTrialUnlockPending } from "@/lib/trial-unlock";
+import { deleteTrialDecoyJobs } from "@/lib/trial-decoy";
 
 const MIN_PASSWORD = 6;
 
@@ -77,13 +80,6 @@ export async function POST(req: Request) {
     const admin = createAdminClient();
     const userMeta = fullName ? { full_name: fullName } : undefined;
 
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: userMeta,
-    });
-
     const profileFromPayment = {
       plan_id: info.planId,
       subscription_status: "active" as const,
@@ -91,6 +87,73 @@ export async function POST(req: Request) {
       stripe_subscription_id: info.subscriptionId,
       updated_at: new Date().toISOString(),
     };
+
+    // Mode essai : si un utilisateur anonyme est en session et que le paiement
+    // lui appartient, on convertit son compte (offres et documents conservés).
+    try {
+      const supabase = await createClient();
+      const {
+        data: { user: sessionUser },
+      } = await supabase.auth.getUser();
+
+      const anonUser =
+        sessionUser?.is_anonymous && (!info.userId || info.userId === sessionUser.id)
+          ? sessionUser
+          : null;
+
+      if (anonUser) {
+        const { error: convertError } = await admin.auth.admin.updateUserById(anonUser.id, {
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            ...((anonUser.user_metadata as Record<string, unknown>) ?? {}),
+            ...(userMeta ?? {}),
+          },
+        });
+
+        if (!convertError) {
+          const { data: prevProfile } = await admin
+            .from("profiles")
+            .select("subscription_status,trial_used,is_trial")
+            .eq("id", anonUser.id)
+            .maybeSingle();
+
+          await admin.from("profiles").upsert({
+            id: anonUser.id,
+            email,
+            full_name: fullName || null,
+            is_trial: false,
+            ...profileFromPayment,
+          });
+
+          if (
+            prevProfile?.subscription_status === "trial" ||
+            prevProfile?.trial_used ||
+            prevProfile?.is_trial
+          ) {
+            await markTrialUnlockPending(admin, anonUser.id);
+            await deleteTrialDecoyJobs(admin, anonUser.id);
+          }
+
+          return NextResponse.json({ ok: true, user_id: anonUser.id, converted: true });
+        }
+
+        if (!isExistingUserError(convertError.message)) {
+          return NextResponse.json({ error: convertError.message }, { status: 400 });
+        }
+        // Email déjà associé à un autre compte → parcours classique ci-dessous.
+      }
+    } catch {
+      /* pas de session anonyme exploitable : parcours classique */
+    }
+
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: userMeta,
+    });
 
     if (!createError && created.user) {
       await admin.from("profiles").upsert({

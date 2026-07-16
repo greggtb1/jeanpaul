@@ -15,9 +15,12 @@ import { identityFromCvExtraction } from "@/lib/parse-cv-profile";
 import { getPendingCv } from "@/lib/onboarding-cv";
 import {
   ROLE_GROUPS,
+  ROLE_DOMAINS,
   LOCATION_SUGGESTIONS,
+  LOCATION_RADIUS_OPTIONS,
   CONTRACTS,
   REMOTE,
+  SALARY_QUICK_RANGES,
   asStringArray,
 } from "@/lib/profile-preferences";
 import {
@@ -29,6 +32,7 @@ import {
   CvDropzone,
 } from "@/components/ProfilePreferencesFields";
 import BrandName from "@/components/BrandName";
+import { queueDashboardProductTourAfterOnboarding } from "@/components/DashboardProductTour";
 import { trackEvent } from "@/lib/umami";
 import {
   appendRefToPath,
@@ -38,6 +42,19 @@ import {
 
 type Form = Omit<OnboardingDraft, "draft_id" | "plan_id">;
 
+const ROLE_TYPEWRITER_WORDS = [
+  "Growth Marketing",
+  "Product Manager",
+  "Business Developer",
+  "UX Designer",
+  "Data Analyst",
+  "Community Manager",
+  "Chef de projet digital",
+  "Développeur Full Stack",
+  "Consultant",
+  "Chargé de recrutement",
+];
+
 const EMPTY: Form = {
   full_name: "",
   email: "",
@@ -45,6 +62,8 @@ const EMPTY: Form = {
   location: "",
   target_roles: [],
   target_locations: [],
+  location_search_mode: "city",
+  location_radius_km: "",
   contract_type: [],
   remote_pref: [],
   salary_min: "",
@@ -77,7 +96,6 @@ export default function Onboarding() {
     }
   }, [referralCodeParam]);
   const { uid, user } = useAuth();
-  const supabase = createClient();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<Form>(EMPTY);
   const [uploading, setUploading] = useState(false);
@@ -106,6 +124,8 @@ export default function Onboarding() {
         location: draft.location ?? "",
         target_roles: draft.target_roles ?? [],
         target_locations: draft.target_locations ?? [],
+        location_search_mode: draft.location_search_mode ?? "city",
+        location_radius_km: draft.location_radius_km ?? "",
         contract_type: draft.contract_type ?? [],
         remote_pref: draft.remote_pref ?? [],
         salary_min: draft.salary_min ?? "",
@@ -120,35 +140,52 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (!uid) return;
+    const supabase = createClient();
+    let cancelled = false;
     supabase
       .from("profiles")
       .select("*")
       .eq("id", uid)
       .maybeSingle()
       .then(({ data }) => {
-        if (!data) return;
+        if (cancelled || !data) return;
         const paid =
           data.subscription_status === "active" ||
           data.subscription_status === "trialing";
         setAlreadyPaid(paid);
+        // Préférer ce que l'utilisateur a déjà saisi dans cette session :
+        // sinon un fetch profil (souvent letter_tone="pro") écrase le ton choisi.
         setForm((f) => ({
           ...f,
-          target_roles: data.target_roles ?? f.target_roles,
-          target_locations: data.target_locations ?? f.target_locations,
-          contract_type: asStringArray(data.contract_type).length
-            ? asStringArray(data.contract_type)
-            : f.contract_type,
-          remote_pref: asStringArray(data.remote_pref).length
-            ? asStringArray(data.remote_pref)
-            : f.remote_pref,
-          salary_min: data.salary_min ? String(data.salary_min) : f.salary_min,
-          cv_url: data.cv_url ?? f.cv_url,
-          cv_filename: data.cv_filename ?? f.cv_filename,
-          letter_tone: data.letter_tone ?? f.letter_tone,
-          letter_sample: data.letter_sample ?? f.letter_sample,
+          target_roles: f.target_roles.length ? f.target_roles : (data.target_roles ?? f.target_roles),
+          target_locations: f.target_locations.length
+            ? f.target_locations
+            : (data.target_locations ?? f.target_locations),
+          location_search_mode: f.location_search_mode || data.location_search_mode || "city",
+          location_radius_km:
+            f.location_radius_km ||
+            (data.location_radius_km != null ? String(data.location_radius_km) : ""),
+          contract_type: f.contract_type.length
+            ? f.contract_type
+            : asStringArray(data.contract_type).length
+              ? asStringArray(data.contract_type)
+              : f.contract_type,
+          remote_pref: f.remote_pref.length
+            ? f.remote_pref
+            : asStringArray(data.remote_pref).length
+              ? asStringArray(data.remote_pref)
+              : f.remote_pref,
+          salary_min: f.salary_min || (data.salary_min ? String(data.salary_min) : ""),
+          cv_url: f.cv_url || data.cv_url || "",
+          cv_filename: f.cv_filename || data.cv_filename || "",
+          letter_tone: f.letter_tone || data.letter_tone || "",
+          letter_sample: f.letter_sample || data.letter_sample || "",
         }));
       });
-  }, [uid, supabase]);
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
 
   async function applyCvIdentityFromFile(file: File) {
     const profile = await extractCvProfile(file);
@@ -277,6 +314,11 @@ export default function Onboarding() {
             location: form.location || undefined,
             target_roles: form.target_roles,
             target_locations: form.target_locations,
+            location_search_mode: form.location_search_mode,
+            location_radius_km:
+              form.location_search_mode === "city"
+                ? undefined
+                : Number(form.location_radius_km || 25),
             contract_type: form.contract_type,
             remote_pref: form.remote_pref,
             salary_min: form.salary_min ? Number(form.salary_min) : undefined,
@@ -291,6 +333,7 @@ export default function Onboarding() {
           already_paid: true,
           has_cv: !!form.cv_filename,
         });
+        queueDashboardProductTourAfterOnboarding();
         router.push("/dashboard");
         return;
       }
@@ -301,7 +344,7 @@ export default function Onboarding() {
         has_cv: !!form.cv_filename,
       });
       const refCode = getStoredReferralCode() || referralCodeParam;
-      saveDraft({
+      const draft = saveDraft({
         ...form,
         plan_id: planId,
         email,
@@ -313,8 +356,64 @@ export default function Onboarding() {
         already_paid: false,
         has_cv: !!form.cv_filename,
       });
+
+      // Scan découverte gratuit : session anonyme + premier scan bridé, paiement plus tard.
+      try {
+        let userId = uid;
+        if (!userId) {
+          const supabase = createClient();
+          const { data: anon, error: anonError } = await supabase.auth.signInAnonymously();
+          if (anonError || !anon.user) throw anonError ?? new Error("Session anonyme refusée");
+          userId = anon.user.id;
+        }
+
+        let trialDraft = draft;
+        try {
+          const { uploadPendingCvForUser } = await import("@/lib/onboarding-cv");
+          const cv = await uploadPendingCvForUser(userId);
+          if (cv) {
+            trialDraft = saveDraft({ cv_url: cv.url, cv_filename: cv.filename, cv_path: cv.path });
+          }
+        } catch {
+          /* CV optionnel : le scan démarre sans */
+        }
+
+        const shouldPrepareBeforeScan = !trialDraft.cv_url || trialDraft.cv_url === "local";
+        const res = await fetch("/api/trial/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            draft: trialDraft,
+            prepare_only: true,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (data.redirectTo) {
+            router.push(data.redirectTo);
+            return;
+          }
+          throw new Error(data.error || "Recherche indisponible");
+        }
+        if (data.existingSession && data.redirectTo) {
+          router.push(data.redirectTo);
+          return;
+        }
+        trackEvent("trial_scan_prepared", {
+          plan: planId,
+          has_cv: !!form.cv_filename,
+          cv_pending: shouldPrepareBeforeScan,
+        });
+        queueDashboardProductTourAfterOnboarding();
+        router.push("/dashboard");
+        return;
+      } catch {
+        trackEvent("trial_scan_unavailable", { plan: planId });
+        /* fallback : parcours paiement classique */
+      }
+
       const query = planQuery(planId);
-      router.push(appendRefToPath(`/subscribe${query}`, refCode));
+      router.push(appendRefToPath(`${query ? `/subscribe${query}&` : "/subscribe?"}fallback=1`, refCode));
     } catch (e) {
       trackEvent("onboarding_complete_error", { step: step + 1 });
       alert("Erreur : " + (e as Error).message);
@@ -374,7 +473,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Quel type de contrat ?"
-              subtitle="On commence par le cadre : contrat et mode de travail."
+              subtitle="On commence par le cadre : contrat et mode de travail. Plusieurs choix possibles."
             >
               <Field label="Type de contrat">
                 <MultiChoice
@@ -382,7 +481,6 @@ export default function Onboarding() {
                   value={form.contract_type}
                   onChange={(v) => set({ contract_type: v })}
                 />
-                <p className="ob__hint ob__hint--inline">Plusieurs choix possibles</p>
               </Field>
               <Field label="Présentiel">
                 <MultiChoice
@@ -390,7 +488,6 @@ export default function Onboarding() {
                   value={form.remote_pref}
                   onChange={(v) => set({ remote_pref: v })}
                 />
-                <p className="ob__hint ob__hint--inline">Plusieurs choix possibles</p>
               </Field>
             </Section>
           )}
@@ -399,15 +496,32 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Où souhaitez-vous travailler ?"
-              subtitle="Ville, région ou remote. Plusieurs choix possibles."
             >
               <Field label="Lieux">
-                <TagInput
-                  value={form.target_locations}
-                  onChange={(v) => set({ target_locations: v })}
-                  suggestions={LOCATION_SUGGESTIONS}
-                  placeholder="Paris, Remote, Lyon…"
-                />
+                <div className="ob__location-row">
+                  <TagInput
+                    value={form.target_locations}
+                    onChange={(v) => set({ target_locations: v })}
+                    suggestions={LOCATION_SUGGESTIONS}
+                    placeholder="Paris, Remote, Lyon…"
+                  />
+                  {form.target_locations.some(
+                    (l) => !/remote|t[ée]l[ée]travail|distanciel/i.test(l)
+                  ) && (
+                    <LocationRadiusPicker
+                      mode={form.location_search_mode}
+                      radiusKm={form.location_radius_km}
+                      onSelect={(option) =>
+                        option.value === "city"
+                          ? set({ location_search_mode: "city", location_radius_km: "" })
+                          : set({
+                              location_search_mode: "radius",
+                              location_radius_km: option.value,
+                            })
+                      }
+                    />
+                  )}
+                </div>
               </Field>
             </Section>
           )}
@@ -416,15 +530,17 @@ export default function Onboarding() {
             <Section
               kicker="Votre recherche"
               title="Que recherchez-vous ?"
-              subtitle="Les postes qui vous intéressent. Métier rare ou hybride accepté."
             >
               <Field label="Postes visés">
                 <TagInput
                   value={form.target_roles}
                   onChange={(v) => set({ target_roles: v })}
                   groups={ROLE_GROUPS}
+                  domains={ROLE_DOMAINS}
                   placeholder="Ex. Growth Marketing, Product Manager…"
-                  hint="Entrée pour valider."
+                  hint="Les suggestions sont optionnelles. ou insérer votre propre intitulé"
+                  autocomplete
+                  typewriterWords={ROLE_TYPEWRITER_WORDS}
                 />
               </Field>
             </Section>
@@ -433,19 +549,37 @@ export default function Onboarding() {
           {step === 3 && (
             <Section
               kicker="Votre recherche"
-              title="Salaire minimum ?"
-              subtitle="Optionnel. Utile pour filtrer les offres en dessous de vos attentes."
+              title="Un salaire minimum ?"
+              optional
             >
-              <Field label="Salaire minimum souhaité (k€/an)">
-                <input
-                  className="ob__input"
-                  type="number"
-                  placeholder="45"
-                  value={form.salary_min}
-                  onChange={(e) => set({ salary_min: e.target.value })}
-                />
-              </Field>
-              <p className="ob__hint">Laissez vide si vous n&apos;avez pas de seuil.</p>
+              <div className="ob__salary-grid">
+                {SALARY_QUICK_RANGES.map((v) => (
+                  <button
+                    type="button"
+                    key={v}
+                    className={`ob__salary-chip ${form.salary_min === v ? "is-active" : ""}`}
+                    onClick={() => set({ salary_min: form.salary_min === v ? "" : v })}
+                    aria-pressed={form.salary_min === v}
+                  >
+                    <strong>{v}</strong>
+                    <span>k€/an</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={`ob__salary-chip ob__salary-chip--unknown ${!form.salary_min ? "is-active" : ""}`}
+                  onClick={() => {
+                    set({ salary_min: "" });
+                    trackEvent("onboarding_salary_skip", { step: step + 1, plan: planId });
+                  }}
+                  aria-pressed={!form.salary_min}
+                >
+                  Je ne sais pas
+                </button>
+              </div>
+              <p className="ob__hint ob__hint--inline">
+                Vous pourrez préciser plus tard dans vos préférences.
+              </p>
             </Section>
           )}
 
@@ -453,7 +587,7 @@ export default function Onboarding() {
             <Section
               kicker="Votre CV"
               title="Déposez votre CV"
-              subtitle="Optionnel. Vous pouvez démarrer sans CV, on vous posera 3 questions rapides avant le premier scan."
+              optional
             >
               <CvDropzone
                 cvUrl={form.cv_url}
@@ -487,16 +621,18 @@ export default function Onboarding() {
 
           {step === 5 && (
             <Section
-              kicker="Vos lettres"
-              title="Quel ton pour vos lettres ?"
-              subtitle="Choisissez un style, c'est tout ce qu'il faut pour commencer. BLOW MY JOB l'adapte à chaque offre."
+              kicker="Dernière étape"
+              title="Sélectionnez le ton de vos lettres"
             >
-              <Field label="Ton">
-                <LetterTonePicker
-                  value={form.letter_tone}
-                  onChange={(v) => set({ letter_tone: v })}
-                />
-              </Field>
+              <LetterTonePicker
+                grid
+                value={form.letter_tone}
+                onChange={(v) => set({ letter_tone: v })}
+              />
+              <p className="ob__hint ob__hint--inline ob__hint--tight">
+                Chaque lettre sera adaptée à l&apos;offre. Le style reste modifiable à tout moment
+                dans vos préférences.
+              </p>
               <LetterSampleOptional
                 value={form.letter_sample}
                 onChange={(v) => set({ letter_sample: v })}
@@ -514,21 +650,24 @@ export default function Onboarding() {
                 <span />
               )}
               <button className="btn btn--coral" onClick={next} disabled={!canNext || busy}>
-                {saving
-                  ? "Un instant…"
-                  : step === STEPS.length - 1
-                    ? alreadyPaid
-                      ? "Accéder au dashboard"
-                      : "Continuer"
-                    : step === 3 && !form.salary_min
-                      ? "Passer"
-                      : step === 4 && !form.cv_filename
-                      ? "Continuer sans CV"
-                      : "Continuer"}
+                {saving ? (
+                  <span className="ob__btn-loading">
+                    <span className="ob__btn-spinner" aria-hidden="true" />
+                    Préparation en cours…
+                  </span>
+                ) : step === STEPS.length - 1 ? (
+                  "Lancer ma première recherche"
+                ) : step === 4 && !form.cv_filename ? (
+                  "Continuer sans CV"
+                ) : (
+                  "Continuer"
+                )}
               </button>
             </div>
-            {step === STEPS.length - 1 && !alreadyPaid && !busy && (
-              <p className="ob__actions-hint">Paiement sécurisé à l&apos;étape suivante.</p>
+            {saving && (
+              <p className="ob__actions-status" role="status" aria-live="polite">
+                On prépare votre espace et votre premier scan…
+              </p>
             )}
           </div>
         </div>
@@ -541,19 +680,100 @@ function Section({
   kicker,
   title,
   subtitle,
+  optional,
   children,
 }: {
   kicker: string;
   title: string;
-  subtitle: string;
+  subtitle?: string;
+  optional?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="ob__section">
-      <span className="ob__kicker">{kicker}</span>
-      <h1 className="ob__title">{title}</h1>
-      <p className="ob__subtitle">{subtitle}</p>
+      <div className="ob__section-head">
+        <span className="ob__kicker">{kicker}</span>
+      </div>
+      <h1 className="ob__title">
+        {title}
+        {optional && <span className="ob__step-badge">Optionnel</span>}
+      </h1>
+      {subtitle && <p className="ob__subtitle">{subtitle}</p>}
       <div className="ob__fields">{children}</div>
+    </div>
+  );
+}
+
+function LocationRadiusPicker({
+  mode,
+  radiusKm,
+  onSelect,
+}: {
+  mode: "city" | "radius";
+  radiusKm: string;
+  onSelect: (option: (typeof LOCATION_RADIUS_OPTIONS)[number]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current =
+    mode === "radius"
+      ? LOCATION_RADIUS_OPTIONS.find((o) => o.value === radiusKm) ?? LOCATION_RADIUS_OPTIONS[0]
+      : LOCATION_RADIUS_OPTIONS[0];
+
+  return (
+    <div className={`ob__radius${open ? " ob__radius--open" : ""}`}>
+      <button
+        type="button"
+        className="ob__radius-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label="Rayon autour de vos villes"
+      >
+        <svg className="ob__radius-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" strokeDasharray="3 3" />
+          <circle cx="12" cy="12" r="2.4" fill="currentColor" />
+        </svg>
+        <span className="ob__radius-value">{current.label}</span>
+        <svg className="ob__radius-caret" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            className="ob__radius-backdrop"
+            aria-hidden="true"
+            tabIndex={-1}
+            onClick={() => setOpen(false)}
+          />
+          <div className="ob__radius-pop" role="menu">
+            <p className="ob__radius-pop-title">Élargir autour de vos villes</p>
+            <div className="ob__radius-pop-opts">
+              {LOCATION_RADIUS_OPTIONS.map((option) => {
+                const active =
+                  option.value === "city"
+                    ? mode === "city"
+                    : mode === "radius" && radiusKm === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={active}
+                    className={`ob__radius-opt${active ? " is-active" : ""}`}
+                    onClick={() => {
+                      onSelect(option);
+                      setOpen(false);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

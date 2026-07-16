@@ -14,7 +14,7 @@ export function monthlyApplicationsQuota(plan: Plan): number {
 
 export function applicationsQuotaLabel(plan: Plan): string {
   if (plan.kind === "one_time") {
-    return `1 recherche · jusqu'à ${plan.applicationsQuota} candidatures envoyées`;
+    return `Jusqu'à ${plan.applicationsQuota} candidatures envoyées`;
   }
   return `${monthlyApplicationsQuota(plan)} candidatures envoyées / mois`;
 }
@@ -39,44 +39,52 @@ export type Plan = {
   monthlyQuotaMarketing?: number;
   priceOneTimeEur: number | null;
   priceWeeklyEur: number | null;
+  /** Prix mensuel dédié (abonnement facturé au mois, ex. Essentiel 39 €/mois). */
+  priceMonthlyEur?: number | null;
 };
 
 export const PLANS: Record<PlanId, Plan> = {
   test: {
     id: "test",
-    name: "Découverte",
-    tagline: "Une vraie recherche pour tester BLOW MY JOB jusqu'au bout",
-    description:
-      "Paiement unique : une recherche complète avec jusqu'à 25 candidatures envoyées.",
+    name: "Start",
+    tagline: "Un lancement one-shot pour débloquer vos premiers dossiers",
+    description: "25 candidatures complètes, envoyées pour vous.",
     features: [
-      "Jusqu'à 25 candidatures envoyées",
-      "CV + lettre adaptés pour chaque offre",
-      "Scan LinkedIn selon vos critères",
-      "Score de pertinence /10",
+      "25 CV + lettres sur-mesure pour chaque offre",
       "Auto-postulation sur les offres éligibles",
+      "Import d'offres par lien pour générer vos dossiers plus vite",
+      "40 retouches I.A de CV + 40 de lettres",
       "Sans abonnement",
     ],
     kind: "one_time",
     applicationsQuota: 25,
-    priceOneTimeEur: 7.99,
+    priceOneTimeEur: 8.99,
     priceWeeklyEur: null,
   },
   chill: {
     id: "chill",
     name: "Essentiel",
     tagline: "Votre prochain poste, sans passer vos soirées à postuler",
-    description: "Toutes les fonctionnalités de Découverte.",
-    features: ["Jusqu'à 180 candidatures envoyées par mois"],
+    description: "Toutes les fonctionnalités Start, avec un rythme continu.",
+    features: [
+      "Tout le plan Start",
+      "230 CV + lettres sur-mesure pour chaque offre",
+      "Retouche I.A des CV et lettres illimitée",
+      "Résiliable à tout moment",
+    ],
+    featured: true,
     kind: "subscription",
-    applicationsQuota: 45,
+    applicationsQuota: 58,
+    monthlyQuotaMarketing: 230,
     priceOneTimeEur: null,
-    priceWeeklyEur: 15,
+    priceWeeklyEur: null,
+    priceMonthlyEur: 39,
   },
   tryhard: {
     id: "tryhard",
-    name: "Intensif",
-    tagline: "Accélérez sans brûler vos nuits",
-    description: "Toutes les fonctionnalités de Découverte.",
+    name: "Ancien plan",
+    tagline: "Plan historique non proposé aux nouveaux clients",
+    description: "Plan historique conservé pour compatibilité.",
     features: [
       "Jusqu'à 350 candidatures envoyées par mois",
       "Vous trouvez un job en 2 mois ou on vous rembourse votre abonnement",
@@ -90,7 +98,26 @@ export const PLANS: Record<PlanId, Plan> = {
   },
 };
 
-export const PLANS_LIST: Plan[] = [PLANS.test, PLANS.chill, PLANS.tryhard];
+export const PLANS_LIST: Plan[] = [PLANS.test, PLANS.chill];
+
+export const FREE_DISCOVERY_OFFER = {
+  id: "discovery_free",
+  name: "Découverte",
+  tagline: "Lancez votre recherche d'emploi avec BLOW MY JOB",
+  description:
+    "Offres repérées, scoring de pertinence et dossiers CV + lettre adaptés pour avancer concrètement.",
+  priceLabel: "0 €",
+  priceSuffix: "",
+  cta: "Choisir l'offre Découverte",
+  href: `/onboarding${planQuery("test")}`,
+  features: [
+    "4 CV + lettres sur-mesure pour chaque offre",
+    "3 retouches I.A (CV + lettres)",
+    "Recherche LinkedIn selon vos critères",
+    "Offres classées avec note de pertinence /10",
+    "Sans carte bancaire",
+  ],
+} as const;
 
 const PLAN_RANK: Record<PlanId, number> = {
   test: 0,
@@ -104,6 +131,15 @@ export function getUpgradePlans(currentPlanId: string | null | undefined): Plan[
   return PLANS_LIST.filter(
     (p) => p.kind === "subscription" && PLAN_RANK[p.id] > PLAN_RANK[current]
   );
+}
+
+/** Formules proposées sur la page facturation (essai gratuit = Start + Essentiel). */
+export function getBillingOfferPlans(
+  currentPlanId: string | null | undefined,
+  isDiscovery: boolean
+): Plan[] {
+  if (isDiscovery) return PLANS_LIST;
+  return getUpgradePlans(currentPlanId);
 }
 
 export function isUpgradePlan(from: PlanId, to: PlanId): boolean {
@@ -162,6 +198,27 @@ export function oneTimePriceCents(plan: Plan): number {
   return Math.round(plan.priceOneTimeEur * 100);
 }
 
+/** Prix mensuel du plan : mensuel dédié si défini, sinon dérivé de l'hebdo (−15 %). */
+export function planMonthlyPriceEur(plan: Plan): number | null {
+  if (plan.priceMonthlyEur != null) return plan.priceMonthlyEur;
+  if (plan.priceWeeklyEur != null) return monthlyPriceEur(plan.priceWeeklyEur);
+  return null;
+}
+
+export function planMonthlyPriceCents(plan: Plan): number {
+  const eur = planMonthlyPriceEur(plan);
+  return eur == null ? 0 : Math.round(eur * 100);
+}
+
+/** Abonnement facturé au mois uniquement (pas de tarif hebdo). */
+export function isMonthlyOnlyPlan(plan: Plan): boolean {
+  return (
+    plan.kind === "subscription" &&
+    plan.priceMonthlyEur != null &&
+    plan.priceWeeklyEur == null
+  );
+}
+
 export function formatPriceEur(amount: number): string {
   return amount % 1 === 0 ? String(amount) : amount.toFixed(2).replace(".", ",");
 }
@@ -169,9 +226,12 @@ export function formatPriceEur(amount: number): string {
 export function displayPrice(
   plan: Plan,
   billing: BillingInterval = "weekly"
-): { amount: string; suffix: string; billingSavings?: string } {
+): { amount: string; suffix: string } {
   if (plan.kind === "one_time" && plan.priceOneTimeEur != null) {
     return { amount: formatPriceEur(plan.priceOneTimeEur), suffix: "une fois" };
+  }
+  if (plan.priceMonthlyEur != null) {
+    return { amount: formatPriceEur(plan.priceMonthlyEur), suffix: "/ mois" };
   }
   if (billing === "monthly" && plan.priceWeeklyEur != null) {
     const monthly = monthlyPriceEur(plan.priceWeeklyEur);
@@ -179,7 +239,6 @@ export function displayPrice(
     return {
       amount: formatPriceEur(perWeek),
       suffix: "/ semaine",
-      billingSavings: `−${MONTHLY_DISCOUNT_PERCENT} % · facturé ${formatPriceEur(monthly)} € / mois`,
     };
   }
   if (plan.priceWeeklyEur != null) {
@@ -193,6 +252,7 @@ export function checkoutAmountCents(
   billing: BillingInterval
 ): number {
   if (plan.kind === "one_time") return oneTimePriceCents(plan);
+  if (plan.priceMonthlyEur != null) return planMonthlyPriceCents(plan);
   if (billing === "monthly" && plan.priceWeeklyEur != null) {
     return monthlyPriceCents(plan.priceWeeklyEur);
   }

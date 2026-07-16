@@ -1,9 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPlan, PLANS, monthlyApplicationsQuota, type Plan, type PlanId } from "@/lib/plans";
+import type { PipelineRunMode as PipelineMode } from "@/lib/pipeline-phase";
 
 import { countQuotaJobs, countWeeklyQuotaJobs } from "@/lib/job-ready";
+import { countPendingUnlockJobs } from "@/lib/trial-unlock";
 
-export type PipelineMode = "full" | "autoapply" | "analyze" | "import";
+/** Dossiers CV+lettre générés en mode découverte (essai gratuit). */
+export const TRIAL_DISCOVERY_GEN_MAX = 4;
+
+export function isDiscoveryTrial(subscriptionStatus: string | null | undefined): boolean {
+  return subscriptionStatus === "trial";
+}
 
 /** Dossiers prêts générés max par scan (aligné sur HUNT_TARGET du moteur). */
 export const CREDITS_PER_RUN = 15;
@@ -73,7 +80,7 @@ function remainingBaseQuota(plan: Plan, opts: QuotaOpts): number {
 
 /**
  * Le quota de base du plan est-il épuisé pour ce mode ?
- * - Découverte : plafond total de dossiers prêts
+ * - Start : plafond total de dossiers prêts
  * - Abonnements : plafond hebdomadaire de dossiers prêts
  */
 function baseQuotaExhausted(plan: Plan, mode: PipelineMode, opts: QuotaOpts): boolean {
@@ -89,6 +96,7 @@ function baseQuotaExhausted(plan: Plan, mode: PipelineMode, opts: QuotaOpts): bo
 function creditsNeededForMode(mode: PipelineMode): number {
   if (mode === "autoapply") return 0;
   if (mode === "import") return 1;
+  if (mode === "unlock") return 1;
   return CREDITS_PER_RUN;
 }
 
@@ -98,7 +106,7 @@ export function isCreditFundedRun(
   mode: PipelineMode,
   opts: QuotaOpts
 ): boolean {
-  if (mode === "autoapply") return false;
+  if (mode === "autoapply" || mode === "unlock") return false;
   return baseQuotaExhausted(plan, mode, opts) && bonus(opts) >= creditsNeededForMode(mode);
 }
 
@@ -112,6 +120,10 @@ export function pipelineQuotaBlockReason(
   opts: QuotaOpts
 ): string | null {
   if (mode === "autoapply") return null;
+  if (mode === "unlock") {
+    if (!baseQuotaExhausted(plan, mode, opts)) return null;
+    return pipelineQuotaBlockReason(plan, "import", opts);
+  }
   if (!baseQuotaExhausted(plan, mode, opts)) return null;
   const needed = creditsNeededForMode(mode);
   if (bonus(opts) >= needed) return null;
@@ -127,7 +139,22 @@ export function pipelineQuotaBlockReason(
 }
 
 /** Consommation pour affichage (dashboard + facturation). */
-export function getQuotaUsage(plan: Plan, opts: QuotaOpts): QuotaUsage {
+export function getQuotaUsage(
+  plan: Plan,
+  opts: QuotaOpts,
+  subscriptionStatus?: string | null
+): QuotaUsage {
+  if (isDiscoveryTrial(subscriptionStatus)) {
+    const used = Math.min(opts.generatedCount, TRIAL_DISCOVERY_GEN_MAX);
+    return {
+      label: "Dossiers prêts (découverte)",
+      used,
+      limit: TRIAL_DISCOVERY_GEN_MAX,
+      exhausted: used >= TRIAL_DISCOVERY_GEN_MAX,
+      bonusCredits: 0,
+    };
+  }
+
   const bonusCredits = bonus(opts);
 
   if (plan.kind === "one_time") {
@@ -178,11 +205,13 @@ export function buildUpgradeOffer(
   const next = suggestedUpgradePlan(planId);
   if (next) {
     const priceHint =
-      next.priceWeeklyEur != null
-        ? `${next.priceWeeklyEur} €/sem`
-        : next.priceOneTimeEur != null
-          ? `${next.priceOneTimeEur} €`
-          : "";
+      next.priceMonthlyEur != null
+        ? `${next.priceMonthlyEur} €/mois`
+        : next.priceWeeklyEur != null
+          ? `${next.priceWeeklyEur} €/sem`
+          : next.priceOneTimeEur != null
+            ? `${next.priceOneTimeEur} €`
+            : "";
     return {
       href: upgradeSubscribePath(next.id),
       name: next.name,
@@ -299,6 +328,26 @@ export async function assertPipelineQuota(
     firstSearchDone: !!profile.first_search_done,
     bonusCredits: profile.bonus_credits ?? 0,
   };
+
+  if (mode === "unlock") {
+    const { data: jobs } = await admin
+      .from("jobs")
+      .select("url,cv_url,letter_url,fit_score,data")
+      .eq("user_id", userId)
+      .eq("deleted", false);
+    const pending = countPendingUnlockJobs(jobs ?? []);
+    if (pending === 0) {
+      return { ok: false, error: "Aucun dossier à débloquer." };
+    }
+    const reason = pipelineQuotaBlockReason(plan, mode, opts);
+    if (reason) return { ok: false, error: reason };
+    const baseRemaining = remainingBaseQuota(plan, opts);
+    const runTarget = Math.min(pending, baseRemaining || pending);
+    if (runTarget <= 0) {
+      return { ok: false, error: "Quota de dossiers épuisé pour le déblocage." };
+    }
+    return { ok: true, runTarget };
+  }
 
   const reason = pipelineQuotaBlockReason(plan, mode, opts);
   if (reason) return { ok: false, error: reason };

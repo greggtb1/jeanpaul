@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const REFERRAL_COOKIE = "aiapply_ref";
+const REFERRAL_COOKIE = "aiapply_ref_s";
 
 function appendRefToSubscribeUrl(url: URL, request: NextRequest) {
   const ref = request.cookies.get(REFERRAL_COOKIE)?.value?.trim();
@@ -67,7 +67,8 @@ export async function updateSession(request: NextRequest) {
   const isSubscribe = path === "/subscribe" || path.startsWith("/subscribe/");
   const isReferralDashboard = path === "/dashboard/parrainage";
 
-  if (user && (isSignup || isSubscribe) && !path.startsWith("/subscribe/success")) {
+  // Un utilisateur anonyme (mode essai) doit pouvoir finaliser /signup ou payer sur /subscribe
+  if (user && !user.is_anonymous && (isSignup || isSubscribe) && !path.startsWith("/subscribe/success")) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("subscription_status, onboarding_done")
@@ -98,7 +99,9 @@ export async function updateSession(request: NextRequest) {
     }
 
     const active =
-      profile.subscription_status === "active" || profile.subscription_status === "trialing";
+      profile.subscription_status === "active" ||
+      profile.subscription_status === "trialing" ||
+      profile.subscription_status === "trial";
     if (!active) {
       const url = request.nextUrl.clone();
       url.pathname = "/subscribe";
@@ -117,7 +120,9 @@ export async function updateSession(request: NextRequest) {
 
     if (profile?.onboarding_done) {
       const active =
-        profile.subscription_status === "active" || profile.subscription_status === "trialing";
+        profile.subscription_status === "active" ||
+        profile.subscription_status === "trialing" ||
+        profile.subscription_status === "trial";
       const url = request.nextUrl.clone();
       url.pathname = active ? "/dashboard" : "/subscribe";
       if (!active && profile.plan_id) url.searchParams.set("plan", profile.plan_id);

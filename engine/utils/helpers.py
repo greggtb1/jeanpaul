@@ -3,10 +3,11 @@
 import json
 import os
 import re
+import unicodedata
 import yaml
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 
 
 def slugify(text: str, max_len: int = 40) -> str:
@@ -81,52 +82,184 @@ INTERNSHIP_TITLE_KEYWORDS = [
     "intern", "internship", "apprentice", "apprenticeship",
 ]
 
+# Stage uniquement (sans alternance)
+STAGE_TITLE_KEYWORDS = [
+    "stage", "stagiaire", "intern", "internship",
+]
+
+ALTERNANCE_TITLE_KEYWORDS = [
+    "alternance", "alternant", "apprenti", "apprentissage", "apprentice", "apprenticeship",
+]
+
+FREELANCE_TITLE_KEYWORDS = [
+    "freelance", "freelancer", "indépendant", "independant", "mission freelance",
+    "portage salarial", "consultant indépendant", "consultant independant",
+    "self-employed", "contractor", "prestataire",
+]
+
+
+def _norm_contracts(contract_type: Optional[List[str]]) -> List[str]:
+    return [str(c).strip().lower() for c in (contract_type or []) if str(c).strip()]
+
+
+def contract_intent(contract_type: Optional[List[str]] = None,
+                    target_roles: Optional[List[str]] = None) -> Dict[str, bool]:
+    """Interprète les préférences de contrat du profil.
+
+    Retourne un dict de flags :
+      wants_stage, wants_alternance, wants_internship (stage|alternance),
+      wants_cdi, wants_cdd, wants_freelance,
+      employment_only (CDI/CDD sans stage/alternance/freelance),
+      internship_only, freelance_only
+    """
+    contracts = _norm_contracts(contract_type)
+    roles_blob = " ".join(target_roles or []).lower()
+
+    wants_stage = any("stage" in c for c in contracts) or any(
+        kw in roles_blob for kw in STAGE_TITLE_KEYWORDS
+    )
+    wants_alternance = any("alternance" in c for c in contracts) or any(
+        kw in roles_blob for kw in ALTERNANCE_TITLE_KEYWORDS
+    )
+    wants_internship = wants_stage or wants_alternance or any(
+        kw in roles_blob for kw in INTERNSHIP_TITLE_KEYWORDS
+    )
+    wants_cdi = any(c == "cdi" or c.startswith("cdi") for c in contracts)
+    wants_cdd = any(c == "cdd" or c.startswith("cdd") for c in contracts)
+    wants_freelance = any(
+        "freelance" in c or "indépendant" in c or "independant" in c for c in contracts
+    ) or any(kw in roles_blob for kw in ("freelance", "indépendant", "independant"))
+
+    has_employment = wants_cdi or wants_cdd
+    # CDI/CDD choisis sans stage/alternance/freelance → on bloque ces types
+    employment_only = has_employment and not wants_internship and not wants_freelance
+    # Uniquement stage et/ou alternance
+    internship_only = wants_internship and not has_employment and not wants_freelance
+    # Uniquement freelance
+    freelance_only = wants_freelance and not has_employment and not wants_internship
+
+    return {
+        "wants_stage": wants_stage,
+        "wants_alternance": wants_alternance,
+        "wants_internship": wants_internship,
+        "wants_cdi": wants_cdi,
+        "wants_cdd": wants_cdd,
+        "wants_freelance": wants_freelance,
+        "employment_only": employment_only,
+        "internship_only": internship_only,
+        "freelance_only": freelance_only,
+        "has_any_contract": bool(contracts) or wants_internship or wants_freelance,
+    }
+
 
 def _wants_internship(target_roles: List[str], contract_type: Optional[List[str]] = None) -> bool:
-    """Renvoie True si l'utilisateur cherche explicitement un stage/alternance.
+    """Renvoie True si l'utilisateur cherche explicitement un stage/alternance."""
+    return contract_intent(contract_type, target_roles)["wants_internship"]
 
-    Vérifie :
-    - Les postes visés (target_roles) : "alternance product", "stagiaire", etc.
-    - Le type de contrat sélectionné (contract_type) : ["Stage"], ["Alternance"], etc.
-    """
-    roles_lower = " ".join(target_roles).lower()
-    if any(kw in roles_lower for kw in INTERNSHIP_TITLE_KEYWORDS):
-        return True
-    if contract_type:
-        contracts_lower = " ".join(contract_type).lower()
-        if any(kw in contracts_lower for kw in INTERNSHIP_TITLE_KEYWORDS):
-            return True
-    return False
+
+def linkedin_job_type_params(
+    contract_type: Optional[List[str]] = None,
+    target_roles: Optional[List[str]] = None,
+) -> Dict[str, str]:
+    """Paramètres LinkedIn f_JT / f_E dérivés des contrats recherchés."""
+    intent = contract_intent(contract_type, target_roles)
+    jt: List[str] = []
+    params: Dict[str, str] = {}
+
+    if intent["internship_only"]:
+        jt.append("I")
+        params["f_E"] = "1"
+    elif intent["freelance_only"]:
+        jt.append("C")
+    elif intent["employment_only"]:
+        jt.append("F")
+        if intent["wants_cdd"]:
+            jt.append("T")
+    else:
+        # Mix explicite : on combine les filtres LinkedIn correspondants
+        if intent["wants_cdi"] or intent["wants_cdd"]:
+            jt.append("F")
+            if intent["wants_cdd"]:
+                jt.append("T")
+        if intent["wants_internship"]:
+            jt.append("I")
+        if intent["wants_freelance"]:
+            jt.append("C")
+
+    if jt:
+        # Déduplique en gardant l'ordre
+        seen: Set[str] = set()
+        ordered = []
+        for code in jt:
+            if code not in seen:
+                seen.add(code)
+                ordered.append(code)
+        params["f_JT"] = ",".join(ordered)
+    return params
+
+
+def _title_matches_any(title: str, keywords: List[str]) -> bool:
+    return any(kw in title for kw in keywords)
 
 
 def filter_jobs(jobs: List[Dict], config: Dict, target_roles: Optional[List[str]] = None,
                 contract_type: Optional[List[str]] = None) -> List[Dict]:
-    """Filtre les offres selon les règles de config.yaml.
+    """Filtre les offres selon config.yaml + gardes-fous de type de contrat.
 
-    Si target_roles est fourni et ne contient pas de stage/alternance
-    (ni dans contract_type), les offres dont le TITRE contient ces mots-clés
-    sont automatiquement exclues.
+    - CDI/CDD (sans stage/alternance) → exclut stage/alternance du titre
+    - Stage / Alternance seuls → n'accepte que les titres correspondants
+    - Freelance seul → n'accepte que les titres mission/freelance
     """
     filters = config.get("filters", {})
     exclude = [k.lower() for k in filters.get("exclude_keywords", [])]
     require = [k.lower() for k in filters.get("require_keywords", [])]
 
-    block_internships = target_roles is not None and not _wants_internship(target_roles, contract_type)
+    intent = contract_intent(contract_type, target_roles)
+    # Comportement historique : on ne bloque stage/alternance que si on a un
+    # contexte profil (rôles ou contrats). Sans info → pas de filtre contrat.
+    has_profile_context = target_roles is not None or bool(contract_type)
+    block_internships = has_profile_context and not intent["wants_internship"]
 
     filtered = []
     for job in jobs:
         text = f"{job.get('title', '')} {job.get('description', '')}".lower()
-
-        # Exclure si un mot interdit est présent dans le TITRE
         title_lower = job.get("title", "").lower()
+        contract_field = str(job.get("contract") or "").lower()
+        haystack = f"{title_lower} {contract_field}"
+
         if any(ex in title_lower for ex in exclude):
             continue
 
-        # Exclure les offres de stage/alternance si l'utilisateur n'en cherche pas
-        if block_internships and any(kw in title_lower for kw in INTERNSHIP_TITLE_KEYWORDS):
+        # ── Garde-fou : pas de stage/alternance si on cherche un emploi classique
+        if (block_internships or intent["employment_only"]) and _title_matches_any(
+            haystack, INTERNSHIP_TITLE_KEYWORDS
+        ):
             continue
 
-        # Inclure seulement si mot requis présent (si liste non vide)
+        # ── Garde-fou : stage/alternance uniquement
+        if intent["internship_only"]:
+            ok = False
+            if intent["wants_stage"] and _title_matches_any(haystack, STAGE_TITLE_KEYWORDS):
+                ok = True
+            if intent["wants_alternance"] and _title_matches_any(haystack, ALTERNANCE_TITLE_KEYWORDS):
+                ok = True
+            if not ok:
+                continue
+
+        # ── Garde-fou : freelance uniquement
+        if intent["freelance_only"]:
+            if not (
+                _title_matches_any(haystack, FREELANCE_TITLE_KEYWORDS)
+                or "freelance" in contract_field
+                or "indépend" in contract_field
+                or "independ" in contract_field
+            ):
+                continue
+
+        # ── CDI/CDD : aussi écarter les titres clairement freelance
+        if intent["employment_only"] and _title_matches_any(haystack, FREELANCE_TITLE_KEYWORDS):
+            continue
+
         if require and not any(req in text for req in require):
             continue
 
@@ -135,15 +268,57 @@ def filter_jobs(jobs: List[Dict], config: Dict, target_roles: Optional[List[str]
     return filtered
 
 
+def normalize_job_text(text: str) -> str:
+    """Normalise titre/entreprise pour dédup cross-source (LinkedIn ↔ HelloWork)."""
+    text = unicodedata.normalize("NFKD", (text or "").strip().lower())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def job_fingerprint(job: Dict) -> str:
+    """Empreinte titre+entreprise — détecte la même offre sur plusieurs plateformes."""
+    title = normalize_job_text(job.get("title", ""))
+    company = normalize_job_text(job.get("company", ""))
+    if not title or not company or company in ("n a", "na", "?"):
+        return ""
+    return f"fp:{title}|{company}"
+
+
+def is_job_seen(job: Dict, seen: Set[str]) -> bool:
+    """True si l'offre est déjà connue (URL ou doublon cross-source)."""
+    key = job_key(job)
+    if key and key in seen:
+        return True
+    fp = job_fingerprint(job)
+    return bool(fp and fp in seen)
+
+
+def mark_job_seen(job: Dict, seen: Set[str]) -> None:
+    """Enregistre URL + empreinte titre/entreprise."""
+    key = job_key(job)
+    if key:
+        seen.add(key)
+    fp = job_fingerprint(job)
+    if fp:
+        seen.add(fp)
+
+
 def dedup_jobs(jobs: List[Dict]) -> List[Dict]:
-    """Déduplique les offres par URL ou (titre + entreprise)."""
-    seen = set()
+    """Déduplique les offres par URL ou empreinte titre+entreprise."""
+    seen_keys: Set[str] = set()
+    seen_fps: Set[str] = set()
     unique = []
     for job in jobs:
-        key = job.get("url") or f"{job.get('title', '')}|{job.get('company', '')}".lower()
-        if key not in seen:
-            seen.add(key)
-            unique.append(job)
+        key = job_key(job)
+        fp = job_fingerprint(job)
+        if (key and key in seen_keys) or (fp and fp in seen_fps):
+            continue
+        if key:
+            seen_keys.add(key)
+        if fp:
+            seen_fps.add(fp)
+        unique.append(job)
     return unique
 
 
@@ -169,6 +344,23 @@ def save_seen(seen: set, seen_file: Path):
 def job_key(job: Dict) -> str:
     """Clé unique d'une offre (URL ou titre+entreprise)."""
     return job.get("url") or f"{job.get('title', '')}|{job.get('company', '')}".lower()
+
+
+def job_score(job: Dict) -> int:
+    """Score de fit normalisé (-1 si absent)."""
+    s = job.get("_fit_score")
+    if isinstance(s, int):
+        return s
+    s = job.get("fit_score")
+    return s if isinstance(s, int) else -1
+
+
+def sort_jobs_by_score(jobs: List[Dict]) -> List[Dict]:
+    """Tri décroissant par score, puis ordre d'apparition (_idx) — aligné dashboard."""
+    return sorted(
+        jobs,
+        key=lambda j: (-job_score(j), j.get("_idx") if isinstance(j.get("_idx"), int) else 10**9),
+    )
 
 
 def filter_new_jobs(jobs: List[Dict], seen: set) -> List[Dict]:

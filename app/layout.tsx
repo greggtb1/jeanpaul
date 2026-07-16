@@ -53,11 +53,24 @@ export const metadata: Metadata = {
     siteName: "BLOW MY JOB",
     title: siteTitle,
     description: siteDescription,
+    images: [
+      {
+        url: "/logo.png",
+        width: 156,
+        height: 156,
+        alt: "BLOW MY JOB",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: siteTitle,
     description: siteDescription,
+    images: ["/logo.png"],
+  },
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
   },
 };
 
@@ -87,6 +100,18 @@ export default function RootLayout({
           data-domain="blowmyjob.fr"
           strategy="afterInteractive"
         />
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=AW-18275211435"
+          strategy="afterInteractive"
+        />
+        <Script id="google-ads-gtag" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'AW-18275211435');
+          `}
+        </Script>
         <ReferralCapture />
         {children}
       </body>

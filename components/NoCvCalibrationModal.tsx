@@ -8,6 +8,7 @@ import { loadDraft } from "@/lib/onboarding-draft";
 import { uploadPendingCvForUser, resolveProfileCv } from "@/lib/onboarding-cv";
 import {
   SENIORITY_LEVELS,
+  calibrationExperienceRemaining,
   calibrationIsValid,
   formatProfileSummary,
   getCalibrationSteps,
@@ -19,8 +20,8 @@ import {
 } from "@/lib/no-cv-calibration";
 
 const ABOUT_YOU_COPY = {
-  title: "Et vous, c'est quoi votre profil ?",
-  lead: "2–3 phrases sur qui vous êtes pro. On s'en sert pour noter les offres à votre place.",
+  title: "Pas de CV ? Dites-nous juste qui vous êtes",
+  lead: "2 phrases suffisent pour mieux scorer les offres (20 caractères minimum).",
 };
 
 type Props = {
@@ -98,7 +99,13 @@ export default function NoCvCalibrationModal({
   }, [userId, cvUrl, cvFilename]);
 
   const canSubmitQuestions = phase === "questions" && calibrationIsValid(form);
+  const experienceRemaining = calibrationExperienceRemaining(form);
   const busy = submitting || saving || uploadingCv;
+
+  const launchHintMessage =
+    experienceRemaining > 0
+      ? `Encore ${experienceRemaining} caractère${experienceRemaining > 1 ? "s" : ""} pour enregistrer votre profil.`
+      : null;
 
   const set = (patch: Partial<NoCvCalibrationData>) =>
     setForm((f) => ({ ...f, ...patch }));
@@ -230,15 +237,14 @@ export default function NoCvCalibrationModal({
   }
 
   async function handleLaunchScan() {
-    if (phase === "questions") {
-      await finishWithQuestions();
-    }
+    if (busy || !calibrationIsValid(form)) return;
+    await finishWithQuestions();
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (phase !== "questions" || busy || !canSubmitQuestions) return;
-    await finishWithQuestions();
+    await handleLaunchScan();
   }
 
   if (phase === "questions" && !questionSteps.length) return null;
@@ -264,12 +270,12 @@ export default function NoCvCalibrationModal({
           <>
             <p className="ncv-calib__eyebrow">Avant le scan</p>
             <h2 id="ncv-title" className="dob__title">
-              Personnalisez vos dossiers
+              Ajoutez votre CV
             </h2>
             <p className="ncv-calib__lead">
               {hasCvOnFile(profile) || hasCv
-                ? "Votre CV sera utilisé pour adapter chaque dossier à chaque offre."
-                : "Déposez votre CV pour qu'on l'adapte à chaque offre. À la fin du scan, vos dossiers seront prêts avec CV et lettre personnalisés."}
+                ? "On s'en sert pour scorer les offres selon votre profil, et préparer un CV + une lettre adaptés à chacune."
+                : "Pour mieux scorer les offres et trouver celles qui collent à votre profil. On en tire aussi un CV et une lettre adaptés à chaque offre."}
             </p>
 
             <div className="ncv-calib__fields">
@@ -280,9 +286,9 @@ export default function NoCvCalibrationModal({
                 onFile={handleCvFile}
               />
               <ul className="ncv-calib__benefits">
-                <li>CV adapté offre par offre</li>
+                <li>Meilleur scoring selon votre profil</li>
+                <li>CV adapté à chaque offre</li>
                 <li>Lettre de motivation ciblée</li>
-                <li>Meilleur scoring avec votre vrai parcours</li>
               </ul>
             </div>
 
@@ -311,7 +317,7 @@ export default function NoCvCalibrationModal({
           </>
         ) : (
           <>
-            <p className="ncv-calib__eyebrow">Sans CV · 1 question</p>
+            <p className="ncv-calib__eyebrow">Sans CV · optionnel</p>
             <h2 id="ncv-title" className="dob__title">
               {ABOUT_YOU_COPY.title}
             </h2>
@@ -327,8 +333,13 @@ export default function NoCvCalibrationModal({
                   value={form.experience}
                   onChange={(e) => set({ experience: e.target.value })}
                 />
-                <p className="ncv-calib__hint">
-                  {form.experience.length}/320 · minimum 20 caractères
+                <p
+                  className={`ncv-calib__hint${experienceRemaining > 0 ? " ncv-calib__hint--short" : ""}`}
+                >
+                  {form.experience.length}/320
+                  {experienceRemaining > 0
+                    ? ` · encore ${experienceRemaining} caractère${experienceRemaining > 1 ? "s" : ""}`
+                    : " · c'est bon"}
                 </p>
               </PrefField>
               <PrefField label="Niveau (optionnel)">
@@ -362,14 +373,23 @@ export default function NoCvCalibrationModal({
               >
                 Retour
               </button>
-              <button
-                type="button"
-                className="dob__btn-next dob__btn-next--primary"
-                disabled={!canSubmitQuestions || busy}
-                onClick={() => void handleLaunchScan()}
+              <div
+                className={`ncv-calib__launch-wrap${!canSubmitQuestions && experienceRemaining > 0 ? " ncv-calib__launch-wrap--blocked" : ""}`}
               >
-                {busy ? "Enregistrement…" : "Lancer le scan"}
-              </button>
+                {!canSubmitQuestions && launchHintMessage && (
+                  <span className="ncv-calib__launch-tip" role="tooltip">
+                    {launchHintMessage}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="dob__btn-next dob__btn-next--primary"
+                  disabled={busy || !canSubmitQuestions}
+                  onClick={() => void handleLaunchScan()}
+                >
+                  {busy ? "Enregistrement…" : "Lancer le scan"}
+                </button>
+              </div>
             </div>
           </>
         )}

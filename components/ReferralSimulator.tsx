@@ -1,9 +1,7 @@
 "use client";
 
 import { useMemo, useState, type CSSProperties } from "react";
-import { PLANS, monthlyPriceEur } from "@/lib/plans";
-
-type PlanChoice = "chill" | "tryhard";
+import { PLANS, planMonthlyPriceEur } from "@/lib/plans";
 
 type Props = {
   discountPercent?: number;
@@ -33,14 +31,10 @@ export default function ReferralSimulator({
 }: Props) {
   const isDashboard = variant === "dashboard";
   const [referrals, setReferrals] = useState(defaultReferrals);
-  const [plan, setPlan] = useState<PlanChoice>("tryhard");
 
   const monthlyPrice = useMemo(
-    () =>
-      plan === "chill"
-        ? monthlyPriceEur(PLANS.chill.priceWeeklyEur!)
-        : monthlyPriceEur(PLANS.tryhard.priceWeeklyEur!),
-    [plan]
+    () => planMonthlyPriceEur(PLANS.chill) ?? 0,
+    []
   );
 
   const paidAfterDiscount = monthlyPrice * (1 - discountPercent / 100);
@@ -79,19 +73,8 @@ export default function ReferralSimulator({
         <div className="ref-sim__field">
           <span className="ref-sim__label">Formule moyenne</span>
           <div className="ref-sim__toggle" role="group" aria-label="Formule moyenne">
-            <button
-              type="button"
-              className={plan === "chill" ? "is-active" : ""}
-              onClick={() => setPlan("chill")}
-            >
+            <button type="button" className="is-active">
               Essentiel
-            </button>
-            <button
-              type="button"
-              className={plan === "tryhard" ? "is-active" : ""}
-              onClick={() => setPlan("tryhard")}
-            >
-              Intensif
             </button>
           </div>
           {!isDashboard && (

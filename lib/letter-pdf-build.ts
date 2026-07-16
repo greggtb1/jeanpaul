@@ -22,7 +22,8 @@ export function buildLetterPdfBuffer(
 
   const name = sender.name || "Candidat";
   const loc = sender.location || "Paris";
-  const contact = [sender.email, sender.phone, loc].filter(Boolean).join(" · ");
+  // La ville apparaît déjà dans la ligne de date, on ne la répète pas ici.
+  const contact = [sender.email, sender.phone].filter(Boolean).join(" · ");
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
@@ -35,13 +36,10 @@ export function buildLetterPdfBuffer(
   doc.setTextColor(120, 120, 130);
   if (contact) {
     doc.text(contact, margin, y);
-    y += 10;
+    y += 5;
   }
 
-  doc.setDrawColor(220, 220, 228);
-  doc.setLineWidth(0.3);
-  doc.line(margin, y, pageW - margin, y);
-  y += 10;
+  y += 8;
 
   const dateStr = new Date().toLocaleDateString("fr-FR", {
     day: "numeric",

@@ -8,14 +8,43 @@ import {
   recordReferralFromCheckoutSession,
   stripeCustomerIdFrom,
 } from "@/lib/referral-conversions";
+import { markTrialUnlockPending } from "@/lib/trial-unlock";
+import { deleteTrialDecoyJobs } from "@/lib/trial-decoy";
 
 export const runtime = "nodejs";
+
+async function maybeUnlockAfterTrial(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string
+) {
+  const { data: prevProfile } = await admin
+    .from("profiles")
+    .select("subscription_status,trial_used,is_trial")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (
+    prevProfile?.subscription_status === "trial" ||
+    prevProfile?.trial_used ||
+    prevProfile?.is_trial
+  ) {
+    await markTrialUnlockPending(admin, userId);
+    await deleteTrialDecoyJobs(admin, userId);
+  }
+}
 
 async function syncSubscription(subscription: Stripe.Subscription) {
   const userId = subscription.metadata?.supabase_user_id;
   if (!userId) return;
 
   const admin = createAdminClient();
+  const becameActive =
+    subscription.status === "active" || subscription.status === "trialing";
+
+  if (becameActive) {
+    await maybeUnlockAfterTrial(admin, userId);
+  }
+
   const updates: Record<string, string> = {
     subscription_status: subscription.status,
     stripe_subscription_id: subscription.id,
@@ -103,6 +132,15 @@ export async function POST(req: NextRequest) {
           } catch {
             /* ancien abo déjà résilié ou introuvable */
           }
+        }
+      }
+
+      const nextStatus = updates.subscription_status;
+      if (nextStatus === "active" || nextStatus === "trialing") {
+        try {
+          await maybeUnlockAfterTrial(admin, userId);
+        } catch (e) {
+          console.error("[stripe/webhook] trial unlock", e);
         }
       }
 

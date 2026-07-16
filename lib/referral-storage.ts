@@ -3,8 +3,19 @@ import { getPublicAppOrigin } from "@/lib/app-url";
 import { validateReferralCode } from "@/lib/referrals";
 
 const STORAGE_KEY = "aiapply_referral_code";
-const COOKIE_KEY = "aiapply_ref";
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 90;
+// Cookie renommé : les anciens cookies « aiapply_ref » (persistance 90 jours)
+// sont ainsi ignorés et ne s'appliquent plus.
+const COOKIE_KEY = "aiapply_ref_s";
+const LEGACY_COOKIE_KEY = "aiapply_ref";
+
+function sessionStore(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 function readReferralCookie(): string | null {
   if (typeof document === "undefined") return null;
@@ -15,23 +26,39 @@ function readReferralCookie(): string | null {
   return validateReferralCode(raw);
 }
 
+// Cookie de session (pas de max-age) → l'attribution est limitée au parcours
+// en cours et ne survit pas à la fermeture du navigateur.
 function writeReferralCookie(code: string) {
   if (typeof document === "undefined") return;
-  document.cookie = `${COOKIE_KEY}=${encodeURIComponent(code)}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`;
+  document.cookie = `${COOKIE_KEY}=${encodeURIComponent(code)}; path=/; SameSite=Lax`;
+}
+
+function clearLegacyStorage() {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (typeof document !== "undefined") {
+    document.cookie = `${LEGACY_COOKIE_KEY}=; path=/; max-age=0; SameSite=Lax`;
+  }
 }
 
 export function persistReferralCode(raw: string | null | undefined): string | null {
   if (typeof window === "undefined") return null;
   const code = validateReferralCode(raw ?? "");
   if (!code) return null;
-  window.localStorage.setItem(STORAGE_KEY, code);
+  sessionStore()?.setItem(STORAGE_KEY, code);
   writeReferralCookie(code);
+  clearLegacyStorage();
   return code;
 }
 
 export function getStoredReferralCode(): string | null {
   if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = sessionStore()?.getItem(STORAGE_KEY);
   if (stored) {
     const valid = validateReferralCode(stored);
     if (valid) return valid;
@@ -41,10 +68,11 @@ export function getStoredReferralCode(): string | null {
 
 export function clearStoredReferralCode() {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(STORAGE_KEY);
+  sessionStore()?.removeItem(STORAGE_KEY);
   if (typeof document !== "undefined") {
     document.cookie = `${COOKIE_KEY}=; path=/; max-age=0; SameSite=Lax`;
   }
+  clearLegacyStorage();
 }
 
 /** URL > localStorage > cookie */

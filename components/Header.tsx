@@ -3,9 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import BrandName from "./BrandName";
+import { trackEvent } from "@/lib/umami";
 
 const links = [
-  { href: "/", label: "Démo" },
   { href: "/#fonctionnement", label: "Fonctionnement" },
   { href: "/#tarifs", label: "Tarifs" },
   { href: "/ambassadeur", label: "Ambassadeurs" },
@@ -33,11 +33,20 @@ export default function Header() {
       </nav>
 
       <div className="header__actions">
-        <Link href="/login" className="btn btn--outline btn--sm header__login-btn">
+        <Link href="/login" className="header__login-link">
           Connexion
         </Link>
-        <Link href="/onboarding?plan=pro" className="btn btn--outline btn--sm header__cta-btn">
-          Démarrer
+        <Link
+          href="/onboarding"
+          className="btn btn--cta btn--sm header__cta-btn"
+          onClick={() =>
+            trackEvent("landing_cta_click", {
+              source: "header_desktop",
+              cta_label: "Commencer",
+            })
+          }
+        >
+          Commencer
         </Link>
 
         <button
@@ -68,11 +77,17 @@ export default function Header() {
             Connexion
           </Link>
           <Link
-            href="/onboarding?plan=pro"
-            className="btn btn--outline btn--sm nav--mobile__cta"
-            onClick={() => setOpen(false)}
+            href="/onboarding"
+            className="btn btn--cta btn--sm nav--mobile__cta"
+            onClick={() => {
+              setOpen(false);
+              trackEvent("landing_cta_click", {
+                source: "header_mobile",
+                cta_label: "Commencer",
+              });
+            }}
           >
-            Démarrer
+            Commencer
           </Link>
         </nav>
       )}

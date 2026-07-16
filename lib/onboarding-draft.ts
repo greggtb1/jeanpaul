@@ -8,6 +8,8 @@ export type OnboardingDraft = {
   location: string;
   target_roles: string[];
   target_locations: string[];
+  location_search_mode: "city" | "radius";
+  location_radius_km: string;
   contract_type: string[];
   remote_pref: string[];
   salary_min: string;
@@ -53,13 +55,15 @@ export function saveDraft(patch: Partial<OnboardingDraft>): OnboardingDraft {
     location: "",
     target_roles: [],
     target_locations: [],
+    location_search_mode: "city",
+    location_radius_km: "",
     contract_type: [],
     remote_pref: [],
     salary_min: "",
     cv_url: "",
     cv_filename: "",
     cv_path: "",
-    letter_tone: "pro",
+    letter_tone: "",
     letter_sample: "",
     plan_id: parsePlanId(null),
     ...current,
@@ -96,6 +100,13 @@ export function draftToProfilePayload(draft: OnboardingDraft, userId: string) {
     location: draft.location || null,
     target_roles: draft.target_roles ?? [],
     target_locations: draft.target_locations ?? [],
+    location_search_mode: draft.location_search_mode || "city",
+    location_radius_km:
+      draft.location_search_mode === "city"
+        ? null
+        : draft.location_radius_km
+          ? parseInt(draft.location_radius_km, 10)
+          : 25,
     contract_type: draft.contract_type ?? [],
     remote_pref: draft.remote_pref ?? [],
     salary_min: draft.salary_min ? parseInt(draft.salary_min, 10) : null,
@@ -117,13 +128,15 @@ export function emptyDraft(draftId = ""): OnboardingDraft {
     location: "",
     target_roles: [],
     target_locations: [],
+    location_search_mode: "city",
+    location_radius_km: "",
     contract_type: [],
     remote_pref: [],
     salary_min: "",
     cv_url: "",
     cv_filename: "",
     cv_path: "",
-    letter_tone: "pro",
+    letter_tone: "",
     letter_sample: "",
     plan_id: parsePlanId(null),
   };
@@ -146,6 +159,8 @@ export function normalizeDraft(
     cv_url: cvUrl,
     target_roles: stored.target_roles ?? [],
     target_locations: stored.target_locations ?? [],
+    location_search_mode: stored.location_search_mode ?? "city",
+    location_radius_km: stored.location_radius_km ?? "",
     contract_type: stored.contract_type ?? [],
     remote_pref: stored.remote_pref ?? [],
   };

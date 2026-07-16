@@ -20,7 +20,10 @@ MAX_SECONDARY = 6
 def _criteria_hash(prof: Dict[str, Any]) -> str:
     payload = {
         "target_roles": prof.get("target_roles") or [],
+        "target_sectors": prof.get("target_sectors") or [],
         "target_locations": prof.get("target_locations") or [],
+        "location_search_mode": prof.get("location_search_mode") or "city",
+        "location_radius_km": prof.get("location_radius_km"),
         "summary": (prof.get("summary") or "").strip(),
         "contract_type": prof.get("contract_type"),
         "remote_pref": prof.get("remote_pref"),
@@ -64,21 +67,91 @@ def _fallback_queries(roles: List[str]) -> Dict[str, List[str]]:
     }
 
 
+def _contract_query_hint(prof: Dict[str, Any]) -> str:
+    contracts = prof.get("contract_type") or []
+    if not isinstance(contracts, list):
+        return ""
+    lowered = [str(c).strip().lower() for c in contracts if str(c).strip()]
+    if not lowered:
+        return ""
+    parts = []
+    if any("stage" in c for c in lowered) and not any("alternance" in c for c in lowered):
+        parts.append("uniquement des STAGES (pas d'alternance, pas de CDI)")
+    elif any("alternance" in c for c in lowered) and not any("stage" in c for c in lowered):
+        parts.append("uniquement des ALTERNANCES / apprentissages (pas de stage court, pas de CDI)")
+    elif any("stage" in c or "alternance" in c for c in lowered) and not any(
+        c in ("cdi", "cdd") or c.startswith("cdi") or c.startswith("cdd") for c in lowered
+    ):
+        parts.append("uniquement stages et/ou alternances (pas de CDI/CDD)")
+    if any(c in ("cdi", "cdd") or c.startswith("cdi") or c.startswith("cdd") for c in lowered) and not any(
+        "stage" in c or "alternance" in c for c in lowered
+    ):
+        parts.append("uniquement CDI/CDD — JAMAIS de stage ni d'alternance dans les requêtes")
+    if any("freelance" in c for c in lowered) and not any(
+        c in ("cdi", "cdd") or "stage" in c or "alternance" in c for c in lowered
+    ):
+        parts.append("uniquement missions freelance / contrat / indépendant")
+    if not parts:
+        parts.append(f"contrats recherchés : {', '.join(contracts)}")
+    return " ; ".join(parts)
+
+
+def _bias_queries_for_contract(queries: List[str], prof: Dict[str, Any]) -> List[str]:
+    """Ajoute un mot-clé contrat aux requêtes quand le profil est mono-contrat."""
+    from utils.helpers import contract_intent
+
+    intent = contract_intent(prof.get("contract_type") or [], prof.get("target_roles") or [])
+    suffix = ""
+    if intent["internship_only"]:
+        if intent["wants_alternance"] and not intent["wants_stage"]:
+            suffix = "alternance"
+        elif intent["wants_stage"] and not intent["wants_alternance"]:
+            suffix = "stage"
+        else:
+            suffix = "alternance"
+    elif intent["freelance_only"]:
+        suffix = "freelance"
+    if not suffix:
+        return queries
+    out: List[str] = []
+    for q in queries:
+        ql = q.lower()
+        if suffix in ql:
+            out.append(q)
+        else:
+            out.append(f"{q} {suffix}")
+    return _dedupe_queries(out)
+
+
 def _generate_with_ai(prof: Dict[str, Any], api_key: str) -> Dict[str, List[str]]:
     import anthropic
 
     roles = prof.get("target_roles") or []
+    sectors = prof.get("target_sectors") or []
     locs = prof.get("target_locations") or []
+    loc_mode = prof.get("location_search_mode") or "city"
+    loc_radius = prof.get("location_radius_km")
     summary = (prof.get("summary") or "").strip()[:600]
     roles_txt = ", ".join(roles) or "non précisé"
+    sectors_txt = ", ".join(sectors) if isinstance(sectors, list) and sectors else "non précisé"
     loc_txt = ", ".join(locs) if isinstance(locs, list) else str(locs or "France")
+    if loc_mode == "city":
+        loc_scope = "ville uniquement, ne pas élargir aux villes voisines"
+    elif loc_radius:
+        loc_scope = f"rayon souhaité : {loc_radius} km autour de la ville principale"
+    else:
+        loc_scope = "rayon standard autour de la ville principale"
+    contract_hint = _contract_query_hint(prof)
 
     prompt = f"""Tu génères des mots-clés de recherche d'offres LinkedIn pour un candidat.
 
 Profil :
 - Postes visés : {roles_txt}
+- Secteurs visés : {sectors_txt}
 - Résumé : {summary or "(non renseigné)"}
 - Localisation : {loc_txt}
+- Précision localisation : {loc_scope}
+- Contrats : {contract_hint or "non précisé"}
 
 Retourne UNIQUEMENT un JSON valide (pas de markdown) :
 {{
@@ -88,7 +161,12 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown) :
 }}
 
 Règles strictes :
-- Tout doit rester dans le domaine des postes visés (ex. customer success → client success, CSM, account manager B2B SaaS — PAS city launcher, PAS ops/marketing hors-sujet).
+- Tout doit rester dans le domaine des postes visés ET des secteurs visés quand ils sont renseignés.
+- Ex. culture/médias → musée, spectacle, production audiovisuelle, média culturel — PAS banque, PAS CPAM, PAS administration publique généraliste.
+- Ex. customer success → client success, CSM, account manager B2B SaaS — PAS city launcher, PAS ops/marketing hors-sujet.
+- Si le contrat est stage/alternance : INCLURE le mot stage ou alternance dans chaque requête.
+- Si le contrat est freelance : INCLURE freelance / mission freelance dans les requêtes.
+- Si le contrat est CDI/CDD : NE PAS mettre stage, alternance, freelance dans les requêtes.
 - Phrases courtes (2-5 mots), titres de poste LinkedIn réalistes.
 - Mélange français et anglais comme sur LinkedIn France.
 - Pas de noms d'entreprise, pas de guillemets dans les valeurs."""
@@ -106,14 +184,24 @@ Règles strictes :
         try:
             data = json.loads(chunk)
             return {
-                "primary": _dedupe_queries(data.get("primary") or [])[:MAX_PRIMARY],
-                "secondary": _dedupe_queries(data.get("secondary") or [])[:MAX_SECONDARY],
-                "niche": _dedupe_queries(data.get("niche") or [])[:MAX_NICHE],
+                "primary": _bias_queries_for_contract(
+                    _dedupe_queries(data.get("primary") or [])[:MAX_PRIMARY], prof
+                ),
+                "secondary": _bias_queries_for_contract(
+                    _dedupe_queries(data.get("secondary") or [])[:MAX_SECONDARY], prof
+                ),
+                "niche": _bias_queries_for_contract(
+                    _dedupe_queries(data.get("niche") or [])[:MAX_NICHE], prof
+                ),
             }
         except Exception:
             continue
-    return _fallback_queries(roles)
-
+    fb = _fallback_queries(roles)
+    return {
+        "primary": _bias_queries_for_contract(fb["primary"], prof),
+        "secondary": _bias_queries_for_contract(fb["secondary"], prof),
+        "niche": _bias_queries_for_contract(fb["niche"], prof),
+    }
 
 def _load_profile(user_id: str) -> Dict[str, Any]:
     try:
@@ -155,7 +243,9 @@ def load_hunt_queries_for_user(user_id: str, api_key: str, *, force: bool = Fals
         generated = _fallback_queries(roles)
 
     if not generated.get("primary") and roles:
-        generated["primary"] = _dedupe_queries(list(roles))[:MAX_PRIMARY]
+        generated["primary"] = _bias_queries_for_contract(
+            _dedupe_queries(list(roles))[:MAX_PRIMARY], prof
+        )
 
     payload = {**generated, "hash": h, "roles": roles}
     try:

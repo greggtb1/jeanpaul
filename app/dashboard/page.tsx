@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, type FormEvent } fro
 import { type Profile, type Job } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
-import { getPlan } from "@/lib/plans";
+import { getPlan, parsePlanId } from "@/lib/plans";
 import {
   buildUpgradeOffer,
   buyCreditsPath,
@@ -25,7 +25,10 @@ import CvModal from "@/components/CvModal";
 import AutoApplyTuto from "@/components/AutoApplyTuto";
 import AgentLaunchBanner from "@/components/AgentLaunchBanner";
 import { openAgentDeepLink } from "@/lib/agent-client";
-import FirstSearchDoneTuto, { hasSeenFirstSearchDoneTuto } from "@/components/FirstSearchDoneTuto";
+import DashboardProductTour, {
+  shouldOfferDashboardProductTour,
+  clearForcedDashboardProductTour,
+} from "@/components/DashboardProductTour";
 import DashboardGuide from "@/components/DashboardGuide";
 import NoCvCalibrationModal from "@/components/NoCvCalibrationModal";
 
@@ -47,11 +50,14 @@ import { loadDraft } from "@/lib/onboarding-draft";
 import { resolveProfileCv } from "@/lib/onboarding-cv";
 import { buildOnboardingPrefsPatch } from "@/lib/sync-onboarding-prefs";
 import { parseApiJson } from "@/lib/parse-api-json";
-import { isJobReady, isJobReadyWithoutCv } from "@/lib/job-ready";
+import { canToggleAppliedMark, isJobReady, isJobReadyWithoutCv } from "@/lib/job-ready";
+import { isTrialDecoyJob } from "@/lib/trial-decoy";
+import { isPlausiblePersonName } from "@/lib/file-name";
+import { isTrialDiscoveryComplete, shouldShowTrialPaywall } from "@/lib/trial-discovery";
 import { trackEvent } from "@/lib/umami";
 
 type TabId = "all" | "applied" | "generated";
-type PipelineStartMode = "full" | "autoapply" | "analyze" | "import";
+type PipelineStartMode = "full" | "autoapply" | "analyze" | "import" | "unlock";
 
 /** Compteur qui s'incrémente en douceur quand la valeur change. */
 function AnimatedCount({ value }: { value: number }) {
@@ -112,7 +118,7 @@ function StatFilterChips({
   const toggle = (id: TabId) => onChange(tab === id ? "all" : id);
 
   return (
-    <div className="db__stats-inline" role="group" aria-label="Filtrer les offres">
+    <div className="db__stats-inline" role="group" aria-label="Filtrer les offres" data-tour="stats-chips">
       <button
         type="button"
         className={`db__stat-chip db__stat-chip--btn${tab === "all" ? " is-active" : ""}`}
@@ -198,11 +204,11 @@ function getScoreDialStyle(score: number): React.CSSProperties {
     background: `linear-gradient(145deg, ${blue.from} 0%, ${blue.to} 100%)`,
     borderColor: blue.border,
     color: blue.text,
-    boxShadow: `1px 1px 0 0 ${blue.shadow}`,
   };
 }
 
 function isAutoApplyEligible(job: Job): boolean {
+  if (isTrialDecoyJob(job)) return false;
   if (job.applied || !job.cv_url || !job.letter_url) return false;
   if (isImportedJob(job)) return true;
   const s = getJobScore(job);
@@ -218,14 +224,29 @@ function isPriorityJob(job: Job): boolean {
   return s >= 6;
 }
 
+/**
+ * Rang d'affichage : dossiers générés (CV/lettre prêts) d'abord, puis vraies
+ * offres sans documents, enfin les offres factices (floutées) en dernier.
+ */
+function jobDisplayRank(job: Job): number {
+  if (isTrialDecoyJob(job)) return 2;
+  if (job.cv_url || job.letter_url) return 0;
+  return 1;
+}
+
 function sortByScore(jobs: Job[]): Job[] {
   return [...jobs].sort((a, b) => {
+    const da = isTrialDecoyJob(a) ? 1 : 0;
+    const db = isTrialDecoyJob(b) ? 1 : 0;
+    if (da !== db) return da - db;
     const sa = getJobScore(a);
     const sb = getJobScore(b);
-    if (sa == null && sb == null) return 0;
-    if (sa == null) return 1;
-    if (sb == null) return -1;
-    return sb - sa;
+    if (sa != null && sb != null && sa !== sb) return sb - sa;
+    if (sa == null && sb != null) return 1;
+    if (sb == null && sa != null) return -1;
+    const ra = jobDisplayRank(a);
+    const rb = jobDisplayRank(b);
+    return ra - rb;
   });
 }
 
@@ -303,7 +324,7 @@ function isPoorFitHealth(health: FitHealth): boolean {
 
 export default function Dashboard() {
   const router = useRouter();
-  const { uid, loading: authLoading } = useAuth();
+  const { uid, user, loading: authLoading } = useAuth();
   const isMobile = useMobileLayout();
   const supabase = createClient();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -318,15 +339,20 @@ export default function Dashboard() {
   const [showAutoTuto, setShowAutoTuto] = useState(false);
   const [agentDeepLink, setAgentDeepLink] = useState<string | null>(null);
   const [agentAwaiting, setAgentAwaiting] = useState(false);
-  const [showFirstDoneTuto, setShowFirstDoneTuto] = useState(false);
+  const [showProductTour, setShowProductTour] = useState(false);
   const [showNoCvCalib, setShowNoCvCalib] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [hidePoorFitAlert, setHidePoorFitAlert] = useState(false);
   const [sideTab, setSideTab] = useState<"terminal" | "guide">("terminal");
   const [selectMode, setSelectMode] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
+  const [paywallContext, setPaywallContext] = useState<PaywallContext | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const unlockTriggeredRef = useRef(false);
   const prevRunStatusRef = useRef<string | null>(null);
+  const productTourAutoOpenedRef = useRef(false);
+  const productTourEligiblePendingRef = useRef(false);
+  const pendingTourActionRef = useRef<(() => void) | null>(null);
   const pendingLaunchRef = useRef<{
     mode: Exclude<PipelineStartMode, "autoapply">;
     urls?: string[];
@@ -406,7 +432,10 @@ export default function Dashboard() {
     ) as PipelineRun | undefined;
     setLastSearch(lastSearchRun ?? null);
     setProfile(prof);
-    const incoming = (js as Job[]) || [];
+    const isTrialProfile = prof?.subscription_status === "trial";
+    const incoming = ((js as Job[]) || []).filter(
+      (j) => !isTrialDecoyJob(j) || isTrialProfile
+    );
     setJobs((prev) =>
       silent && !resort ? mergeJobsPreservingOrder(prev, incoming) : incoming
     );
@@ -550,15 +579,95 @@ export default function Dashboard() {
       urls?: string[],
       importUrl?: string
     ) => {
-      if (mode !== "import" && needsPreScanNoCvModal(profile)) {
+      const unlockBusy =
+        launchMode === "unlock" &&
+        (launching || run?.status === "running" || run?.status === "pending");
+      if (unlockBusy) {
+        alert(
+          "Patientez : génération des CV et lettres des offres débloquées en cours."
+        );
+        return;
+      }
+      if (mode !== "import" && !hasUploadedCv(profile)) {
         pendingLaunchRef.current = { mode, urls, importUrl };
         setShowNoCvCalib(true);
         return;
       }
       void startPipeline(mode, urls, importUrl);
     },
-    [profile, onboardingDraft, startPipeline]
+    [profile, onboardingDraft, startPipeline, launchMode, launching, run?.status]
   );
+
+  const startTrialScan = useCallback(async (profileOverride?: Profile) => {
+    if (!uid) return;
+    if (launchMode === "unlock" && (launching || run?.status === "running" || run?.status === "pending")) {
+      alert("Patientez : génération des CV et lettres des offres débloquées en cours.");
+      return;
+    }
+    const draft = loadDraft();
+    if (!draft) {
+      alert("Profil de découverte introuvable. Reprenez l'onboarding pour lancer le scan.");
+      return;
+    }
+    const effectiveProfile = profileOverride ?? profile;
+    const effectiveDraft = {
+      ...draft,
+      cv_url: hasUploadedCv(effectiveProfile) ? effectiveProfile?.cv_url || draft.cv_url : draft.cv_url,
+      cv_filename: effectiveProfile?.cv_filename || draft.cv_filename,
+    };
+
+    setLaunching(true);
+    setLaunchMode("full");
+    if (!isMobile) setSideTab("terminal");
+    trackEvent("trial_scan_start_clicked", {
+      has_cv: hasUploadedCv(effectiveProfile),
+      plan: effectiveProfile?.plan_id ?? null,
+    });
+
+    try {
+      const res = await fetch("/api/trial/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: effectiveDraft }),
+      });
+      const data = await parseApiJson<{
+        error?: string;
+        runId?: string;
+        alreadyRunning?: boolean;
+        existingSession?: boolean;
+        redirectTo?: string;
+      }>(res);
+      if (!res.ok || data.error) {
+        if (data.redirectTo && data.redirectTo !== "/dashboard") {
+          router.push(data.redirectTo);
+          return;
+        }
+        if (data.existingSession) {
+          await load(uid, false);
+          return;
+        }
+        throw new Error(data.error || "Recherche indisponible");
+      }
+      trackEvent("trial_scan_started", { already_running: !!data.alreadyRunning });
+      if (!data.alreadyRunning) setJobs([]);
+      await fetchRun();
+      await load(uid, false);
+    } catch (e) {
+      trackEvent("trial_scan_start_error");
+      setLaunchMode(null);
+      alert((e as Error).message);
+    } finally {
+      setLaunching(false);
+    }
+  }, [fetchRun, isMobile, launchMode, launching, load, profile, router, run?.status, uid]);
+
+  useEffect(() => {
+    if (!unlockTriggeredRef.current) return;
+    if (run?.status === "failed" || run?.status === "cancelled") {
+      unlockTriggeredRef.current = false;
+    }
+  }, [run?.status]);
 
   const handleCalibrationComplete = useCallback(
     (updated: Profile) => {
@@ -567,9 +676,13 @@ export default function Dashboard() {
       setProfile(updated);
       setShowNoCvCalib(false);
       window.dispatchEvent(new CustomEvent("ja:prefs-updated"));
+      if (updated.subscription_status === "trial" && !isTrialDiscoveryComplete(jobs)) {
+        void startTrialScan(updated);
+        return;
+      }
       if (pending) void startPipeline(pending.mode, pending.urls, pending.importUrl);
     },
-    [startPipeline]
+    [startPipeline, startTrialScan, jobs]
   );
 
   const stopPipeline = useCallback(async (finalizeFound = false) => {
@@ -622,6 +735,43 @@ export default function Dashboard() {
     return () => window.removeEventListener("ja:prefs-updated", onPrefs);
   }, [uid, load, fetchRun]);
 
+  useEffect(() => {
+    if (!uid || profile?.subscription_status !== "trial") return;
+    void fetch("/api/trial/start", {
+      method: "GET",
+      credentials: "same-origin",
+    });
+  }, [uid, profile?.subscription_status]);
+
+  useEffect(() => {
+    if (!uid || loading || !profile) return;
+    const isActive =
+      profile.subscription_status === "active" ||
+      profile.subscription_status === "trialing";
+    if (!isActive || !hasUploadedCv(profile)) return;
+    if (unlockTriggeredRef.current || launching) return;
+    if (run?.status === "running" || run?.status === "pending") return;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/trial/unlock-pending", { credentials: "same-origin" });
+        const data = await parseApiJson<{ pending?: boolean; lockedCount?: number }>(res);
+        if (!res.ok || !data.lockedCount) {
+          // Decoys éventuellement purgés même sans dossiers à générer
+          if (res.ok) await load(uid, true);
+          return;
+        }
+        unlockTriggeredRef.current = true;
+        await load(uid, true);
+        setLaunchMode("unlock");
+        if (!isMobile) setSideTab("terminal");
+        await startPipeline("unlock");
+      } catch {
+        unlockTriggeredRef.current = false;
+      }
+    })();
+  }, [uid, loading, profile, run?.status, launching, startPipeline, isMobile, load]);
+
   // Poll logs tant que le pipeline tourne
   useEffect(() => {
     if (!uid) return;
@@ -646,16 +796,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!run?.status) return;
-    const prev = prevRunStatusRef.current;
-    const wasRunning = prev === "running" || prev === "pending";
-    const mode = run.result?.mode;
-    const isFirstSearchRun = mode !== "autoapply" && mode !== "analyze" && mode !== "import";
-
-    if (wasRunning && run.status === "done" && isFirstSearchRun && !hasSeenFirstSearchDoneTuto()) {
-      setShowFirstDoneTuto(true);
-    }
     prevRunStatusRef.current = run.status;
-  }, [run?.status, run?.result?.mode]);
+  }, [run?.status]);
 
   const toggleApplied = useCallback(async (url: string) => {
     if (!uid) return;
@@ -751,7 +893,8 @@ export default function Dashboard() {
 
   const greeting = (() => {
     const name = (profile?.full_name || "").trim();
-    if (!name) return "Bonjour";
+    // Nom mal extrait du CV (ex. un intitulé de poste) : on salue sans prénom.
+    if (!isPlausiblePersonName(name)) return "Bonjour";
     const parts = name.split(/\s+/).filter(Boolean);
     // prénom seul si disponible, sinon nom complet
     const display = parts.length >= 2 ? parts[0] : name;
@@ -760,6 +903,70 @@ export default function Dashboard() {
   const runActive = run?.status === "running" || run?.status === "pending";
   const importLaunchPending = launching && launchMode === "import" && !runActive;
   const pipelineActive = !importLaunchPending && (launching || runActive);
+  const unlocking =
+    pipelineActive &&
+    (launchMode === "unlock" ||
+      run?.result?.mode === "unlock" ||
+      /Déblocage de vos dossiers|dossier\(s\) débloqué/i.test(run?.log || ""));
+  const isTrial = profile?.subscription_status === "trial";
+  const trialDiscoveryComplete = useMemo(
+    () => isTrial && isTrialDiscoveryComplete(jobs),
+    [isTrial, jobs]
+  );
+  const trialPaywallLocked = useMemo(
+    () => shouldShowTrialPaywall(profile?.subscription_status, jobs),
+    [profile?.subscription_status, jobs]
+  );
+  const alwaysShowProductTour = isTrial || user?.is_anonymous === true;
+  const trialSubscribeHref = upgradeSubscribePath(parsePlanId(profile?.plan_id));
+  const openPaywall = useCallback(
+    (context: PaywallContext) => {
+      trackEvent("trial_paywall_shown", { context });
+      setPaywallContext(context);
+    },
+    []
+  );
+  const jobsReadOnly =
+    pipelineActive && launchMode !== "autoapply" && !isAutoapplyRun(run);
+
+  useEffect(() => {
+    if (!uid || !profile || loading || authLoading || showProductTour) return;
+    if (productTourAutoOpenedRef.current) return;
+
+    const searchDone = isTrial ? trialDiscoveryComplete : !!profile.first_search_done;
+
+    if (pipelineActive) {
+      // Clic trop rapide : un scan a démarré avant l'ouverture auto. On abandonne
+      // le tuto pour cette session (pas de réouverture bizarre en fin de scan).
+      if (productTourEligiblePendingRef.current) {
+        productTourEligiblePendingRef.current = false;
+        productTourAutoOpenedRef.current = true;
+        clearForcedDashboardProductTour();
+      }
+      return;
+    }
+
+    if (!shouldOfferDashboardProductTour(searchDone)) return;
+
+    productTourEligiblePendingRef.current = true;
+    const t = window.setTimeout(() => {
+      productTourEligiblePendingRef.current = false;
+      productTourAutoOpenedRef.current = true;
+      clearForcedDashboardProductTour();
+      setShowProductTour(true);
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [
+    uid,
+    profile,
+    loading,
+    authLoading,
+    pipelineActive,
+    showProductTour,
+    profile?.first_search_done,
+    trialDiscoveryComplete,
+    isTrial,
+  ]);
 
   const stats = useMemo(() => {
     const scored = jobs.map(getJobScore).filter((s): s is number => s != null);
@@ -796,7 +1003,10 @@ export default function Dashboard() {
     }),
     [generatedCount, weeklyGeneratedCount, profile?.first_search_done, profile?.bonus_credits]
   );
-  const quotaUsage = useMemo(() => getQuotaUsage(plan, quotaOpts), [plan, quotaOpts]);
+  const quotaUsage = useMemo(
+    () => getQuotaUsage(plan, quotaOpts, profile?.subscription_status),
+    [plan, quotaOpts, profile?.subscription_status]
+  );
   const scanBlockReason = useMemo(
     () => pipelineQuotaBlockReason(plan, "full", quotaOpts),
     [plan, quotaOpts]
@@ -822,9 +1032,10 @@ export default function Dashboard() {
   const showFirstSearch =
     !loading &&
     !authLoading &&
-    !profile?.first_search_done &&
+    !(isTrial ? trialDiscoveryComplete : profile?.first_search_done) &&
     jobs.length === 0 &&
-    !pipelineActive;
+    !pipelineActive &&
+    !showProductTour;
 
   const pendingAnalysis = useMemo(
     () => jobs.filter((j) => !isImportedJob(j) && getJobScore(j) == null).length,
@@ -841,7 +1052,7 @@ export default function Dashboard() {
               {profile?.target_roles?.length
                 ? profile.target_roles.join(" · ")
                 : "Configurez votre recherche pour démarrer."}
-              {!loading && (
+              {!loading && !isTrial && (
                 <span
                   className={`db__quota-chip${quotaUsage.exhausted ? " db__quota-chip--full" : ""}`}
                   title={
@@ -868,33 +1079,47 @@ export default function Dashboard() {
               Votre premier scan
             </h2>
             <p className="db-first__lead">
-              LinkedIn est parcouru selon votre profil. Jusqu&apos;à 15 bons matchs reçoivent une note, un CV et une lettre prêts à soumettre.
+              {isTrial
+                ? "On passe le marché au crible. Vos meilleures offres arrivent avec CV et lettre déjà prêts."
+                : "LinkedIn est parcouru selon votre profil. Jusqu'à 15 bons matchs reçoivent une note, un CV et une lettre prêts à soumettre."}
             </p>
-            <div className="db-first__flow" aria-hidden="true">
-              <ol className="db-first__flow-steps">
-                <li className="db-first__flow-step is-active">Scan</li>
-                <li className="db-first__flow-step">Note /10</li>
-                <li className="db-first__flow-step">CV + lettre</li>
-              </ol>
-              <div className="db-first__flow-rail">
-                <span />
-              </div>
-            </div>
             <div className="db-first__foot">
               <button
                 type="button"
-                className="btn btn--accent db-first__cta"
+                className="db-first__cta"
                 disabled={launching}
-                onClick={() => uid && requestPipelineLaunch()}
+                onClick={() => {
+                  if (!uid) return;
+                  const launch = () => {
+                    if (isTrial) {
+                      if (!hasUploadedCv(profile)) {
+                        pendingLaunchRef.current = { mode: "full" };
+                        setShowNoCvCalib(true);
+                        return;
+                      }
+                      void startTrialScan();
+                      return;
+                    }
+                    requestPipelineLaunch();
+                  };
+                  // Tuto avant le 1er scan si l'utilisateur clique trop vite.
+                  if (
+                    !productTourAutoOpenedRef.current &&
+                    !showProductTour &&
+                    shouldOfferDashboardProductTour(false)
+                  ) {
+                    pendingTourActionRef.current = launch;
+                    productTourAutoOpenedRef.current = true;
+                    productTourEligiblePendingRef.current = false;
+                    clearForcedDashboardProductTour();
+                    setShowProductTour(true);
+                    return;
+                  }
+                  launch();
+                }}
               >
-                {launching ? "Lancement…" : "Lancer la recherche"}
+                {launching ? "Lancement…" : isTrial ? "Lancer ma recherche" : "Lancer la recherche"}
               </button>
-              <p className="db-first__hint">
-                {needsPreScanNoCvModal(profile)
-                  ? calibrationPromptLabel(profile, onboardingDraft) ||
-                    "Déposez votre CV pour personnaliser vos dossiers à chaque offre."
-                  : "Suivez l\u2019avancement dans le terminal."}
-              </p>
             </div>
           </section>
         )}
@@ -922,24 +1147,54 @@ export default function Dashboard() {
           />
         )}
 
+        {unlocking && (
+          <div className="db-unlock-banner" role="status" aria-live="polite">
+            <span className="db-unlock-banner__pulse" aria-hidden="true" />
+            <p className="db-unlock-banner__text">
+              Déblocage de vos dossiers… génération des CV et lettres en cours.
+            </p>
+          </div>
+        )}
+
         {pipelineActive ? (
-          <PipelineProgress
-            run={run}
-            jobsFound={jobs.length}
-            targetRoles={profile?.target_roles}
-            compact={isMobile}
-            onStop={requestStopPipeline}
-            stopping={stopping}
-            launching={launching}
-            launchMode={launchMode}
-          />
+          <>
+            <PipelineProgress
+              run={run}
+              jobsFound={jobs.length}
+              targetRoles={profile?.target_roles}
+              compact={isMobile}
+              onStop={requestStopPipeline}
+              stopping={stopping}
+              launching={launching}
+              launchMode={launchMode}
+              trialDiscovery={isTrial}
+            />
+            {unlocking && (
+              <DashboardActionsBar
+                launching
+                unlocking
+                onSearch={() =>
+                  alert(
+                    "Patientez : génération des CV et lettres des offres débloquées en cours."
+                  )
+                }
+                scanDisabled
+                scanDisabledReason="Génération des CV et lettres des offres débloquées en cours."
+                applyCount={autoApplyEligible.length}
+                totalJobs={jobs.length}
+                desktopOnly={isMobile}
+              />
+            )}
+          </>
         ) : (
           <>
             {pendingAnalysis > 0 && !analyzeBlockReason && (
               <AnalyzePendingCta
                 count={pendingAnalysis}
                 launching={launching}
-                onAnalyze={() => requestPipelineLaunch("analyze")}
+                onAnalyze={() =>
+                  trialPaywallLocked ? openPaywall("analyze") : requestPipelineLaunch("analyze")
+                }
               />
             )}
             {pendingAnalysis > 0 && analyzeBlockReason && (
@@ -958,16 +1213,27 @@ export default function Dashboard() {
             )}
             <DashboardActionsBar
               launching={launching}
-              onSearch={() => requestPipelineLaunch()}
-              scanDisabled={!!scanBlockReason}
-              scanDisabledReason={scanBlockReason}
-              scanUpgrade={scanUpgrade}
+              onSearch={() => {
+                if (isTrial) {
+                  if (trialPaywallLocked) openPaywall("scan");
+                  else void startTrialScan();
+                  return;
+                }
+                requestPipelineLaunch();
+              }}
+              scanDisabled={!isTrial && !!scanBlockReason}
+              scanDisabledReason={isTrial ? null : scanBlockReason}
+              scanUpgrade={isTrial ? null : scanUpgrade}
               applyCount={autoApplyEligible.length}
               totalJobs={jobs.length}
               desktopOnly={isMobile}
-              onStartApply={enterSelectMode}
+              onStartApply={trialPaywallLocked ? () => openPaywall("apply") : enterSelectMode}
             />
           </>
+        )}
+
+        {jobsReadOnly && filtered.length > 0 && (
+          <LiveJobsNotice count={filtered.length} run={run} launchMode={launchMode} />
         )}
 
         {isMobile && (
@@ -998,38 +1264,53 @@ export default function Dashboard() {
             <h2 className="db__jobs-title">Vos offres</h2>
             <StatFilterChips stats={stats} tab={tab} onChange={setTab} />
           </div>
+          {!pipelineActive && (
+            <ImportOfferCta
+              launching={launching}
+              disabled={!isTrial && !!importBlockReason}
+              disabledReason={isTrial ? null : importBlockReason}
+              onImport={(url) =>
+                trialPaywallLocked
+                  ? openPaywall("import")
+                  : requestPipelineLaunch("import", undefined, url)
+              }
+            />
+          )}
         </div>
-
-        {!pipelineActive && (
-          <ImportOfferCta
-            launching={launching}
-            disabled={!!importBlockReason}
-            disabledReason={importBlockReason}
-            onImport={(url) => requestPipelineLaunch("import", undefined, url)}
-          />
-        )}
 
         {loading || authLoading ? (
           <div className="db__empty">Chargement…</div>
         ) : pipelineActive && filtered.length === 0 ? (
           <ScanJobsWaiting />
-        ) : filtered.length === 0 ? (
-          <div className="db__empty">
-            <div className="db__empty-emoji">🛰️</div>
-            <h3>Aucune offre pour l&apos;instant</h3>
-            <p>Lancez une nouvelle recherche ci-dessus pour scanner LinkedIn selon vos critères.</p>
-          </div>
         ) : (
-          <JobList
-            jobs={filtered}
-            isFresh={isFresh}
-            onToggleApplied={toggleApplied}
-            pipelineActive={pipelineActive}
-            profile={profile}
-            selectMode={selectMode}
-            selectedUrls={selectedUrls}
-            onToggleSelect={toggleSelectUrl}
-          />
+          <div className="db__jobs-slot" data-tour="jobs-slot">
+            {filtered.length === 0 ? (
+              <div className="db__empty">
+                <div className="db__empty-emoji">🛰️</div>
+                <h3>Aucune offre pour l&apos;instant</h3>
+                <p>Lancez une nouvelle recherche ci-dessus pour scanner LinkedIn selon vos critères.</p>
+              </div>
+            ) : (
+              <div data-tour="jobs-section">
+                <JobList
+                  jobs={filtered}
+                  isFresh={isFresh}
+                  onToggleApplied={toggleApplied}
+                  pipelineActive={pipelineActive}
+                  readOnly={jobsReadOnly}
+                  profile={profile}
+                  selectMode={selectMode}
+                  selectedUrls={selectedUrls}
+                  onToggleSelect={toggleSelectUrl}
+                  trialLocked={trialPaywallLocked}
+                  onPaywall={openPaywall}
+                  onNameSaved={(fullName) =>
+                    setProfile((p) => (p ? { ...p, full_name: fullName } : p))
+                  }
+                />
+              </div>
+            )}
+          </div>
         )}
 
         {selectMode && (
@@ -1093,8 +1374,16 @@ export default function Dashboard() {
           onLaunch={launchAutoApply}
         />
       )}
-      {showFirstDoneTuto && (
-        <FirstSearchDoneTuto onClose={() => setShowFirstDoneTuto(false)} />
+      {showProductTour && (
+        <DashboardProductTour
+          onClose={() => {
+            setShowProductTour(false);
+            const pending = pendingTourActionRef.current;
+            pendingTourActionRef.current = null;
+            if (pending) pending();
+          }}
+          persistSeen={!alwaysShowProductTour}
+        />
       )}
       {showNoCvCalib && uid && (
         <NoCvCalibrationModal
@@ -1114,6 +1403,13 @@ export default function Dashboard() {
           onClose={() => setShowStopConfirm(false)}
           onStopNow={() => stopPipeline(false)}
           onFinalize={() => stopPipeline(true)}
+        />
+      )}
+      {paywallContext && (
+        <TrialPaywallModal
+          context={paywallContext}
+          subscribeHref={trialSubscribeHref}
+          onClose={() => setPaywallContext(null)}
         />
       )}
     </>
@@ -1191,6 +1487,7 @@ function Stat({ value, label, accent }: { value: number | string; label: string;
 
 function DashboardActionsBar({
   launching,
+  unlocking = false,
   onSearch,
   scanDisabled,
   scanDisabledReason,
@@ -1201,6 +1498,7 @@ function DashboardActionsBar({
   onStartApply,
 }: {
   launching: boolean;
+  unlocking?: boolean;
   onSearch: () => void;
   scanDisabled?: boolean;
   scanDisabledReason?: string | null;
@@ -1211,10 +1509,12 @@ function DashboardActionsBar({
   onStartApply?: () => void;
 }) {
   const total = applyCount ?? 0;
-  const canApply = total > 0 && !desktopOnly;
+  const canApply = total > 0 && !desktopOnly && !unlocking;
 
   // Message expliquant pourquoi l'auto-apply n'est pas disponible
-  const applyBlockReason = desktopOnly
+  const applyBlockReason = unlocking
+    ? "Patientez la fin du déblocage des dossiers."
+    : desktopOnly
     ? "Postuler est disponible uniquement sur ordinateur."
     : !canApply
       ? totalJobs === 0
@@ -1222,10 +1522,14 @@ function DashboardActionsBar({
       : "Aucune offre avec CV + lettre générés (score ≥ 6). Lancez une recherche."
       : null;
 
+  const scanBusy = launching || unlocking;
+  const scanLabel = unlocking ? "Déblocage…" : launching ? "Lancement…" : "Scanner";
+  const highlightScan = totalJobs > 0 && !scanBusy && !scanDisabled;
+
   return (
     <div className="db-acts-wrap">
       <div className="db-acts-btns">
-        {scanDisabled && scanUpgrade && !scanUpgrade.isMaxPlan ? (
+        {scanDisabled && scanUpgrade && !scanUpgrade.isMaxPlan && !unlocking ? (
           <Link
             href={scanUpgrade.href}
             className="db-big-btn db-big-btn--upgrade"
@@ -1234,20 +1538,32 @@ function DashboardActionsBar({
             Plus de dossiers
           </Link>
         ) : (
-          <button
-            type="button"
-            className="db-big-btn"
-            disabled={launching || scanDisabled}
-            onClick={onSearch}
-            title={scanDisabledReason ?? undefined}
-          >
-            {launching ? "Lancement…" : "Scanner"}
-          </button>
+          <div className="db-scan-wrap">
+            {highlightScan && (
+              <span className="db-scan-hint" aria-hidden="true">
+                Des centaines d&apos;autres offres vous attendent
+              </span>
+            )}
+            <button
+              type="button"
+              className={`db-big-btn${unlocking ? " db-big-btn--unlocking" : ""}${
+                highlightScan ? " db-big-btn--scan-hot" : ""
+              }`}
+              data-tour="scan-btn"
+              disabled={scanBusy || scanDisabled}
+              onClick={onSearch}
+              title={scanDisabledReason ?? undefined}
+            >
+              {highlightScan && <span className="db-big-btn__radar" aria-hidden="true" />}
+              <span className="db-big-btn__label">{scanLabel}</span>
+            </button>
+          </div>
         )}
 
         <button
           type="button"
           className="db-big-btn db-big-btn--apply"
+          data-tour="apply-btn"
           disabled={!canApply}
           onClick={canApply ? onStartApply : undefined}
           title={applyBlockReason ?? undefined}
@@ -1269,11 +1585,6 @@ function DashboardActionsBar({
           </Link>
         </p>
       )}
-
-      <a href="/dashboard/preferences" className="db-acts-config">
-        Modifier les critères de recherche
-      </a>
-
     </div>
   );
 }
@@ -1293,6 +1604,7 @@ function ImportOfferCta({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [url, setUrl] = useState("");
   const trimmed = url.trim();
   const canSubmit = !launching && !disabled && /^https?:\/\/\S+\.\S+/.test(trimmed);
@@ -1316,15 +1628,43 @@ function ImportOfferCta({
           <span>Préparation de l&apos;import…</span>
         </div>
       ) : !open ? (
-        <button
-          type="button"
-          className="db-import-offer__toggle"
-          disabled={disabled}
-          title={disabledReason ?? undefined}
-          onClick={() => setOpen(true)}
-        >
-          Importer une offre par lien
-        </button>
+        <div className="db-import-offer__toggle-wrap">
+          <button
+            type="button"
+            className="db-import-offer__toggle"
+            disabled={disabled}
+            title={disabledReason ?? undefined}
+            onClick={() => setOpen(true)}
+          >
+            Importer une offre par lien
+          </button>
+          <button
+            type="button"
+            className={`db-import-offer__help-btn${helpOpen ? " is-open" : ""}`}
+            aria-label="Comment ça marche ?"
+            aria-expanded={helpOpen}
+            onClick={() => setHelpOpen((v) => !v)}
+          >
+            ?
+          </button>
+          {helpOpen && (
+            <div className="db-import-offer__help" role="note">
+              <p className="db-import-offer__help-title">Importer une offre par lien</p>
+              <p>
+                Collez le lien d&apos;une offre trouvée ailleurs (LinkedIn, site d&apos;entreprise…).
+                On l&apos;analyse, on la note sur 10 et on prépare un CV + une lettre adaptés,
+                comme pour les offres trouvées automatiquement.
+              </p>
+              <button
+                type="button"
+                className="db-import-offer__help-close"
+                onClick={() => setHelpOpen(false)}
+              >
+                Compris
+              </button>
+            </div>
+          )}
+        </div>
       ) : (
         <form className="db-import-offer__form" onSubmit={submit}>
           <label className="db-import-offer__label" htmlFor={compact ? "first-import-url" : "import-url"}>
@@ -1343,7 +1683,7 @@ function ImportOfferCta({
             />
             <button
               type="submit"
-              className="btn btn--navy btn--sm"
+              className="db-import-offer__submit"
               disabled={!canSubmit}
               title={disabledReason ?? undefined}
             >
@@ -1527,24 +1867,182 @@ function ScanJobsWaiting() {
   );
 }
 
+type PaywallContext =
+  | "scan"
+  | "docs"
+  | "apply"
+  | "rewrite_letter"
+  | "rewrite_cv"
+  | "import"
+  | "analyze";
+
+const PAYWALL_COPY: Record<PaywallContext, { title: string; text: string }> = {
+  docs: {
+    title: "Ce dossier est prêt, il ne reste qu'à le débloquer",
+    text: "Le CV et la lettre adaptés à cette offre sont prêts. Choisissez une formule pour débloquer ce dossier et les suivants.",
+  },
+  scan: {
+    title: "Relancer un scan",
+    text: "Votre première recherche est terminée. Choisissez une formule pour relancer des recherches complètes illimitées.",
+  },
+  apply: {
+    title: "Postuler automatiquement",
+    text: "L'auto-apply envoie vos candidatures à votre place, CV et lettre inclus. Disponible dès que vous choisissez un plan.",
+  },
+  rewrite_letter: {
+    title: "Votre essai de retouche de lettre est terminé",
+    text: "Vous avez utilisé votre modification gratuite. Choisissez une formule pour retoucher toutes vos lettres à volonté.",
+  },
+  rewrite_cv: {
+    title: "Votre essai de modification de CV est terminé",
+    text: "Vous avez utilisé votre modification gratuite. Choisissez une formule pour adapter tous vos CV à volonté.",
+  },
+  import: {
+    title: "Importer une offre",
+    text: "L'import d'offres trouvées à la main est réservé aux membres. Débloquez-le avec toutes les autres options.",
+  },
+  analyze: {
+    title: "Analyser plus d'offres",
+    text: "L'analyse des offres en attente est réservée aux membres. Débloquez-la pour scorer tout ce qui a été trouvé.",
+  },
+};
+
+function TrialPaywallModal({
+  context,
+  subscribeHref,
+  onClose,
+}: {
+  context: PaywallContext;
+  subscribeHref: string;
+  onClose: () => void;
+}) {
+  const copy = PAYWALL_COPY[context];
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="trial-paywall__overlay" role="presentation" onClick={onClose}>
+      <div
+        className="trial-paywall"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="trial-paywall-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="trial-paywall__close"
+          aria-label="Fermer"
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <div className="trial-paywall__lock" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <rect x="4" y="10" width="16" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="12" cy="15.5" r="1.6" fill="currentColor" />
+          </svg>
+        </div>
+        <h2 id="trial-paywall-title" className="trial-paywall__title">
+          {copy.title}
+        </h2>
+        <p className="trial-paywall__text">{copy.text}</p>
+        <ul className="trial-paywall__perks">
+          <li>CV + lettre générés pour chaque bonne offre</li>
+          <li>Scan illimité</li>
+          <li>Auto-apply : candidatures envoyées pour vous</li>
+        </ul>
+        <div className="trial-paywall__actions">
+          <Link
+            href={subscribeHref}
+            className="btn btn--coral trial-paywall__cta"
+            onClick={() => trackEvent("trial_paywall_cta_clicked", { context })}
+          >
+            Débloquer maintenant
+          </Link>
+          <button type="button" className="trial-paywall__later" onClick={onClose}>
+            Plus tard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LiveJobsNotice({
+  count,
+  run,
+  launchMode,
+}: {
+  count: number;
+  run: PipelineRun | null;
+  launchMode?: PipelineStartMode | null;
+}) {
+  const phase = parsePipelinePhase(run, count);
+  const isGenerating =
+    launchMode === "unlock" ||
+    run?.result?.mode === "unlock" ||
+    ["generate", "sync", "done"].includes(phase.subPhase);
+  const isScoring = ["analyze", "hunt_fill"].includes(phase.subPhase);
+
+  const { title, text } = isGenerating
+    ? {
+        title: "Génération des CV et lettres",
+        text: `${count} offre${count > 1 ? "s" : ""} retenue${count > 1 ? "s" : ""}. Vos CV et lettres de motivation sont en cours de rédaction.`,
+      }
+    : isScoring
+      ? {
+          title: "Analyse des offres en cours",
+          text: `${count} offre${count > 1 ? "s" : ""} détectée${count > 1 ? "s" : ""}. Notation puis génération des CV et lettres à suivre.`,
+        }
+      : {
+          title: "Scan en cours, les offres arrivent",
+          text: `${count} offre${count > 1 ? "s" : ""} détectée${count > 1 ? "s" : ""}. Génération des CV et lettres de motivation à la fin du scan.`,
+        };
+
+  return (
+    <div className="db-live-lock" role="status" aria-live="polite">
+      <span className="db-live-lock__spinner" aria-hidden="true" />
+      <div>
+        <p className="db-live-lock__title">{title}</p>
+        <p className="db-live-lock__text">{text}</p>
+      </div>
+    </div>
+  );
+}
+
 function JobList({
   jobs,
   isFresh,
   onToggleApplied,
   pipelineActive,
+  readOnly,
   profile,
   selectMode,
   selectedUrls,
   onToggleSelect,
+  trialLocked,
+  onPaywall,
+  onNameSaved,
 }: {
   jobs: Job[];
   isFresh: (j: Job) => boolean;
   onToggleApplied: (url: string) => void;
   pipelineActive?: boolean;
+  readOnly?: boolean;
   profile: Profile | null;
   selectMode?: boolean;
   selectedUrls?: Set<string>;
   onToggleSelect?: (url: string) => void;
+  trialLocked?: boolean;
+  onPaywall?: (context: PaywallContext) => void;
+  onNameSaved?: (fullName: string) => void;
 }) {
   const entering = useEnteringJobs(jobs);
   const sorted = useMemo(() => sortByScore(jobs), [jobs]);
@@ -1567,9 +2065,13 @@ function JobList({
             entering={entering.has(j.url)}
             enterDelay={i * 65}
             analyzing={!isImportedJob(j) && getJobScore(j) == null}
-            onToggleApplied={() => onToggleApplied(j.url)}
+            readOnly={readOnly}
+            onToggleApplied={readOnly ? undefined : () => onToggleApplied(j.url)}
             profile={profile}
-            {...rowSelectProps(j)}
+            trialLocked={trialLocked}
+            onPaywall={onPaywall}
+            onNameSaved={onNameSaved}
+            {...(readOnly ? {} : rowSelectProps(j))}
           />
         ))}
       </div>
@@ -1590,6 +2092,9 @@ function JobList({
             enterDelay={i * 65}
             onToggleApplied={() => onToggleApplied(j.url)}
             profile={profile}
+            trialLocked={trialLocked}
+            onPaywall={onPaywall}
+            onNameSaved={onNameSaved}
             {...rowSelectProps(j)}
           />
         ))}
@@ -1600,8 +2105,12 @@ function JobList({
           isFresh={isFresh}
           entering={entering}
           onToggleApplied={onToggleApplied}
+          readOnly={readOnly}
           profile={profile}
-          selectMode={selectMode}
+          trialLocked={trialLocked}
+          onPaywall={onPaywall}
+          onNameSaved={onNameSaved}
+          selectMode={readOnly ? false : selectMode}
           selectedUrls={selectedUrls}
           onToggleSelect={onToggleSelect}
         />
@@ -1614,8 +2123,12 @@ function LowJobsFold({
   jobs,
   isFresh,
   onToggleApplied,
+  readOnly,
   entering,
   profile,
+  trialLocked,
+  onPaywall,
+  onNameSaved,
   selectMode,
   selectedUrls,
   onToggleSelect,
@@ -1623,8 +2136,12 @@ function LowJobsFold({
   jobs: Job[];
   isFresh: (j: Job) => boolean;
   onToggleApplied: (url: string) => void;
+  readOnly?: boolean;
   entering?: Set<string>;
   profile: Profile | null;
+  trialLocked?: boolean;
+  onPaywall?: (context: PaywallContext) => void;
+  onNameSaved?: (fullName: string) => void;
   selectMode?: boolean;
   selectedUrls?: Set<string>;
   onToggleSelect?: (url: string) => void;
@@ -1649,9 +2166,13 @@ function LowJobsFold({
               compact
               entering={entering?.has(j.url)}
               enterDelay={i * 50}
-              onToggleApplied={() => onToggleApplied(j.url)}
+              readOnly={readOnly}
+              onToggleApplied={readOnly ? undefined : () => onToggleApplied(j.url)}
               profile={profile}
-              selectMode={selectMode}
+              trialLocked={trialLocked}
+              onPaywall={onPaywall}
+              onNameSaved={onNameSaved}
+              selectMode={readOnly ? false : selectMode}
               selectable={isAutoApplyEligible(j)}
               selected={selectedUrls?.has(j.url) ?? false}
               onToggleSelect={onToggleSelect ? () => onToggleSelect(j.url) : undefined}
@@ -1670,12 +2191,16 @@ function JobRow({
   entering,
   enterDelay = 0,
   analyzing,
+  readOnly,
   onToggleApplied,
   profile,
   selectMode,
   selectable,
   selected,
   onToggleSelect,
+  trialLocked,
+  onPaywall,
+  onNameSaved,
 }: {
   job: Job;
   fresh?: boolean;
@@ -1683,12 +2208,16 @@ function JobRow({
   entering?: boolean;
   enterDelay?: number;
   analyzing?: boolean;
+  readOnly?: boolean;
   onToggleApplied?: () => void;
   profile: Profile | null;
   selectMode?: boolean;
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+  trialLocked?: boolean;
+  onPaywall?: (context: PaywallContext) => void;
+  onNameSaved?: (fullName: string) => void;
 }) {
   const d = job.data || {};
   const title = (d.title as string) || "Offre";
@@ -1696,16 +2225,39 @@ function JobRow({
   const location = (d.location as string) || "";
   const url = (d.url as string) || job.url;
   const imported = isImportedJob(job);
+  const isDecoy = isTrialDecoyJob(job);
   const score = getJobScore(job);
   const fitTier = getFitTier(score);
   const fitReasoning = getJobFitReasoning(job);
-  const canExpandDetail = !!fitReasoning && !analyzing;
   const docsUnavailable = isJobReadyWithoutCv(job) && !job.cv_url;
+  const profileHasCv = hasUploadedCv(profile);
+  const openDecoyPaywall = () => {
+    trackEvent("trial_decoy_clicked");
+    onPaywall?.("docs");
+  };
+  // Mode essai avec CV : offre qualifiante sans documents générés → dossier "prêt" mais verrouillé.
+  const trialTeaser =
+    (isDecoy && !!trialLocked) ||
+    (!!trialLocked &&
+      profileHasCv &&
+      !analyzing &&
+      !job.cv_url &&
+      !job.letter_url &&
+      ((score ?? 0) >= 6 || isJobReadyWithoutCv(job)));
+  const trialMissingCvDocs =
+    !!trialLocked &&
+    !profileHasCv &&
+    !analyzing &&
+    !job.cv_url &&
+    ((score ?? 0) >= 6 || isJobReadyWithoutCv(job));
 
   const [letterOpen, setLetterOpen] = useState(false);
   const [cvOpen, setCvOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [justSent, setJustSent] = useState(false);
+  const [noBaseCvOpen, setNoBaseCvOpen] = useState(false);
+  const canExpandDetail = !!fitReasoning && !analyzing;
+  const showDetail = canExpandDetail && (detailOpen || readOnly);
   useEffect(() => {
     if (job.applied) return;
     setJustSent(false);
@@ -1727,7 +2279,9 @@ function JobRow({
         entering ? "jr--enter" : "",
         analyzing ? "jr--analyzing" : "",
         imported ? "jr--imported" : "",
+        isDecoy ? "jr--decoy" : "",
         canExpandDetail ? "jr--expandable" : "",
+        readOnly ? "jr--readonly" : "",
         detailOpen ? "jr--open" : "",
         job.applied ? "jr--sent" : "",
         justSent ? "jr--just-sent" : "",
@@ -1738,6 +2292,19 @@ function JobRow({
         .filter(Boolean)
         .join(" ")}
       style={entering ? { animationDelay: `${enterDelay}ms` } : undefined}
+      onClick={isDecoy && trialLocked && !readOnly ? openDecoyPaywall : undefined}
+      onKeyDown={
+        isDecoy && trialLocked && !readOnly
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openDecoyPaywall();
+              }
+            }
+          : undefined
+      }
+      role={isDecoy && trialLocked && !readOnly ? "button" : undefined}
+      tabIndex={isDecoy && trialLocked && !readOnly ? 0 : undefined}
     >
       {selectMode && (
         <label
@@ -1762,11 +2329,12 @@ function JobRow({
       {canExpandDetail ? (
         <div
           className="jr__click"
-          role="button"
-          tabIndex={0}
-          aria-expanded={detailOpen}
-          onClick={() => setDetailOpen((open) => !open)}
+          role={readOnly ? undefined : "button"}
+          tabIndex={readOnly ? undefined : 0}
+          aria-expanded={readOnly ? undefined : detailOpen}
+          onClick={readOnly ? undefined : () => setDetailOpen((open) => !open)}
           onKeyDown={(e) => {
+            if (readOnly) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               setDetailOpen((open) => !open);
@@ -1780,6 +2348,12 @@ function JobRow({
               score == null && !imported ? "is-na" : "",
               compact ? "jr__dial--sm" : "",
               analyzing ? "jr__dial--loading" : "",
+              (fitTier === "10" || fitTier === "9") && score != null && !analyzing && !imported
+                ? "jr__dial--wow"
+                : "",
+              fitTier === "8" && score != null && !analyzing && !imported
+                ? "jr__dial--wow2"
+                : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -1810,19 +2384,23 @@ function JobRow({
           </div>
           <div className="jr__main">
             <div className="jr__head">
-              <h3 className="jr__title">{title}</h3>
-              {fresh && !compact && !job.applied && (
-                <span className="jr__pill jr__pill--new">new</span>
+              <h3 className={`jr__title${isDecoy ? " jr__decoy-blur" : ""}`}>{title}</h3>
+              {!readOnly && (
+                <span className="jr__chev" aria-hidden="true">
+                  ▾
+                </span>
               )}
-              {fitTier === "10" && !analyzing && !compact && (
-                <span className="jr__pill jr__pill--fit-perfect">Match parfait</span>
+              {isDecoy && !compact && (
+                <span className="jr__pill jr__pill--decoy">Dossier prêt</span>
               )}
-              {fitTier === "9" && !analyzing && !compact && (
-                <span className="jr__pill jr__pill--fit-top">Top match</span>
-              )}
-              {fitTier === "8" && !analyzing && !compact && (
-                <span className="jr__pill jr__pill--fit-great">Excellent fit</span>
-              )}
+              {fresh &&
+                !compact &&
+                !job.applied &&
+                !analyzing &&
+                fitTier !== "10" &&
+                fitTier !== "9" && (
+                  <span className="jr__pill jr__pill--new">new</span>
+                )}
               {analyzing && (
                 <span className="jr__pill jr__pill--analyzing">
                   <span className="jr__pill-dot" aria-hidden="true" />
@@ -1833,14 +2411,11 @@ function JobRow({
                 <span className="jr__pill jr__pill--imported">Importé</span>
               )}
             </div>
-            <p className="jr__meta">
+            <p className={`jr__meta${isDecoy ? " jr__decoy-blur" : ""}`}>
               {company}
               {location ? ` · ${location}` : ""}
             </p>
           </div>
-          <span className="jr__chev" aria-hidden="true">
-            ▾
-          </span>
         </div>
       ) : (
         <>
@@ -1852,6 +2427,12 @@ function JobRow({
           compact ? "jr__dial--sm" : "",
           analyzing ? "jr__dial--loading" : "",
           job.applied ? "jr__dial--sent" : "",
+          (fitTier === "10" || fitTier === "9") && score != null && !analyzing && !imported
+            ? "jr__dial--wow"
+            : "",
+          fitTier === "8" && score != null && !analyzing && !imported
+            ? "jr__dial--wow2"
+            : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1882,19 +2463,18 @@ function JobRow({
       </div>
       <div className="jr__main">
         <div className="jr__head">
-          <h3 className="jr__title">{title}</h3>
-          {fresh && !compact && !job.applied && (
-            <span className="jr__pill jr__pill--new">new</span>
+          <h3 className={`jr__title${isDecoy ? " jr__decoy-blur" : ""}`}>{title}</h3>
+          {isDecoy && !compact && (
+            <span className="jr__pill jr__pill--decoy">Dossier prêt</span>
           )}
-          {fitTier === "10" && !analyzing && !compact && (
-            <span className="jr__pill jr__pill--fit-perfect">Match parfait</span>
-          )}
-          {fitTier === "9" && !analyzing && !compact && (
-            <span className="jr__pill jr__pill--fit-top">Top match</span>
-          )}
-          {fitTier === "8" && !analyzing && !compact && (
-            <span className="jr__pill jr__pill--fit-great">Excellent fit</span>
-          )}
+          {fresh &&
+            !compact &&
+            !job.applied &&
+            !analyzing &&
+            fitTier !== "10" &&
+            fitTier !== "9" && (
+              <span className="jr__pill jr__pill--new">new</span>
+            )}
           {analyzing && (
             <span className="jr__pill jr__pill--analyzing">
               <span className="jr__pill-dot" aria-hidden="true" />
@@ -1905,29 +2485,79 @@ function JobRow({
             <span className="jr__pill jr__pill--imported">Importé</span>
           )}
         </div>
-        <p className="jr__meta">
+        <p className={`jr__meta${isDecoy ? " jr__decoy-blur" : ""}`}>
           {company}
           {location ? ` · ${location}` : ""}
         </p>
       </div>
         </>
       )}
+      {!readOnly && (
       <div className="jr__actions" onClick={(e) => canExpandDetail && e.stopPropagation()}>
-        {!compact && docsUnavailable && (
+        <div className="jr__actions-body">
+        {!compact && trialTeaser && (
           <>
-            <span
-              className="jr__doc jr__doc--cv jr__doc--disabled"
-              title="Scan lancé sans CV : ajoutez un CV à votre profil pour générer ce document"
+            <button
+              type="button"
+              className="jr__doc jr__doc--cv jr__doc--teaser"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPaywall?.("docs");
+              }}
+              title="CV prêt : débloquez pour le consulter"
             >
               CV
-            </span>
-            <span
-              className="jr__doc jr__doc--letter jr__doc--disabled"
-              title="Scan lancé sans CV : ajoutez un CV à votre profil pour générer ce document"
+              <svg className="jr__doc-lock" width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="4" y="10" width="16" height="11" rx="2.5" stroke="currentColor" strokeWidth="2.2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="jr__doc jr__doc--letter jr__doc--teaser"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPaywall?.("docs");
+              }}
+              title="Lettre prête : débloquez pour la consulter"
             >
               Lettre
-            </span>
+              <svg className="jr__doc-lock" width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="4" y="10" width="16" height="11" rx="2.5" stroke="currentColor" strokeWidth="2.2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              </svg>
+            </button>
           </>
+        )}
+        {!compact && !trialTeaser && !profileHasCv && !job.cv_url && (docsUnavailable || trialMissingCvDocs || !!job.letter_url) && (
+          <span className="jr__doc-wrap">
+            <button
+              type="button"
+              className="jr__doc jr__doc--cv"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNoBaseCvOpen((v) => !v);
+              }}
+              aria-expanded={noBaseCvOpen}
+            >
+              CV
+            </button>
+            {noBaseCvOpen && (
+              <span className="jr__doc-pop" role="status">
+                La personnalisation du CV n&apos;a pas pu se faire : aucun CV de base fourni.
+                <button
+                  type="button"
+                  className="jr__doc-pop-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNoBaseCvOpen(false);
+                  }}
+                >
+                  OK
+                </button>
+              </span>
+            )}
+          </span>
         )}
         {!compact && job.cv_url && (
           <button
@@ -1949,26 +2579,94 @@ function JobRow({
             Lettre
           </button>
         )}
-        {url && (
+        {!isDecoy && url && (
           <a className="jr__link" href={url} target="_blank" rel="noopener">
             {compact ? "Voir" : "voir l'offre"}
           </a>
         )}
-        {!compact && isJobReady(job) && onToggleApplied && (
+        {isDecoy && (
           <button
             type="button"
-            className={`jr__mark ${job.applied ? "jr__mark--done" : ""}`}
+            className="jr__link"
+            onClick={(e) => {
+              e.stopPropagation();
+              openDecoyPaywall();
+            }}
+          >
+            {compact ? "Voir" : "voir l'offre"}
+          </button>
+        )}
+        </div>
+        {!compact && onToggleApplied && (
+          <button
+            type="button"
+            className={[
+              "jr__mark",
+              job.applied ? "jr__mark--done" : "",
+              isDecoy ? "jr__mark--locked" : "",
+              !isDecoy && !canToggleAppliedMark(job) ? "jr__mark--idle" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             onClick={handleToggleApplied}
-            title={job.applied ? "Marquer comme non candidaté" : "Marquer comme candidaté"}
+            disabled={!canToggleAppliedMark(job)}
+            title={
+              !canToggleAppliedMark(job)
+                ? undefined
+                : job.applied
+                  ? "Marquer comme non candidaté"
+                  : "Marquer comme candidaté"
+            }
             aria-pressed={!!job.applied}
+            aria-hidden={!canToggleAppliedMark(job)}
+            tabIndex={!canToggleAppliedMark(job) ? -1 : 0}
           >
             ✓
           </button>
         )}
       </div>
-      {canExpandDetail && detailOpen && (
-        <div className={`jr__detail${compact ? "" : " jr__detail--full"}`}>
+      )}
+      {readOnly && (
+        <div className="jr__actions jr__actions--locked" aria-hidden="true">
+          <span className="jr__locked-pill">Actions disponibles après le scan</span>
+        </div>
+      )}
+      {showDetail && (
+        <div
+          className={[
+            "jr__detail",
+            compact ? "" : "jr__detail--full",
+            readOnly && !detailOpen ? "jr__detail--clamped" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           <p className="jr__detail-text">{fitReasoning}</p>
+          {readOnly && !detailOpen && (
+            <button
+              type="button"
+              className="jr__detail-more"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDetailOpen(true);
+              }}
+              aria-label="Voir toute l'analyse"
+            >
+              …
+            </button>
+          )}
+          {readOnly && detailOpen && (
+            <button
+              type="button"
+              className="jr__detail-less"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDetailOpen(false);
+              }}
+            >
+              Réduire
+            </button>
+          )}
         </div>
       )}
       {letterOpen && job.letter_url && (
@@ -1977,6 +2675,15 @@ function JobRow({
           title={title}
           letterUrl={job.letter_url}
           profile={profile}
+          onLockedRefine={
+            trialLocked
+              ? () => {
+                  setLetterOpen(false);
+                  onPaywall?.("rewrite_letter");
+                }
+              : undefined
+          }
+          onNameSaved={onNameSaved}
           onClose={() => setLetterOpen(false)}
         />
       )}
@@ -1985,6 +2692,15 @@ function JobRow({
           company={company}
           title={title}
           cvUrl={job.cv_url}
+          fullName={profile?.full_name ?? null}
+          onLockedRefine={
+            trialLocked
+              ? () => {
+                  setCvOpen(false);
+                  onPaywall?.("rewrite_cv");
+                }
+              : undefined
+          }
           onClose={() => setCvOpen(false)}
         />
       )}

@@ -7,8 +7,10 @@ Adapte le contenu via Claude : tagline, bullets, compétences.
 import anthropic
 import json
 import os
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.request import urlopen
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
@@ -16,7 +18,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+    SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle, Image
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -24,7 +26,8 @@ from reportlab.platypus.flowables import HRFlowable
 
 from rich.console import Console
 from profile import PROFILE
-from user_profile import load_user_profile, _extract_pdf_text
+from user_profile import load_user_profile, _extract_pdf_text, sanitize_person_name
+from generators.cover_letter import create_message_with_retry
 from job_language import language_from_analysis, language_labels
 from text_sanitize import NO_DASH_RULE, NO_DASH_RULE_EN, strip_dashes, strip_dashes_deep
 
@@ -132,6 +135,67 @@ def _parse_llm_json(text: str) -> Dict:
         raise last_err
     raise json.JSONDecodeError("No valid JSON object in response", text, 0)
 
+
+def _storage_path_from_public_url(url: str) -> Optional[str]:
+    for marker in ("/storage/v1/object/public/cvs/", "/storage/v1/object/sign/cvs/"):
+        if marker in url:
+            return url.split(marker, 1)[1].split("?")[0]
+    return None
+
+
+def _download_cv_bytes(profile: Dict) -> bytes:
+    cv_url = (profile.get("cv_url") or "").strip()
+    if cv_url:
+        try:
+            with urlopen(cv_url, timeout=30) as resp:
+                data = resp.read()
+                if data:
+                    return data
+        except Exception:
+            pass
+
+    cv_path = (profile.get("cv_path") or "").strip()
+    if not cv_path and cv_url:
+        cv_path = _storage_path_from_public_url(cv_url) or ""
+    if cv_path:
+        try:
+            from store import client
+
+            data = client().storage.from_("cvs").download(cv_path)
+            if data:
+                return data
+        except Exception:
+            pass
+    return b""
+
+
+def _extract_cv_photo(profile: Dict) -> Optional[BytesIO]:
+    """Best effort : récupère une photo depuis le PDF source, sans bloquer le CV."""
+    data = _download_cv_bytes(profile)
+    if not data:
+        return None
+    try:
+        import logging
+        from contextlib import redirect_stderr
+        from io import StringIO
+        from pypdf import PdfReader
+
+        logging.getLogger("pypdf").setLevel(logging.ERROR)
+        with redirect_stderr(StringIO()):
+            reader = PdfReader(BytesIO(data), strict=False)
+            for page in reader.pages[:2]:
+                for img in getattr(page, "images", []):
+                    raw = getattr(img, "data", None)
+                    if not raw:
+                        continue
+                    # Évite de reprendre de petites icônes/logos du CV.
+                    if len(raw) < 8_000:
+                        continue
+                    return BytesIO(raw)
+    except Exception:
+        return None
+    return None
+
 # ── Couleurs ──────────────────────────────────────────────────────────────────
 DARK        = colors.HexColor("#1A1A2E")
 GRAY        = colors.HexColor("#555555")
@@ -141,54 +205,61 @@ ACCENT_PALE = colors.HexColor("#EEF3FD")
 LINE        = colors.HexColor("#DDDDDD")
 
 # ── Styles ────────────────────────────────────────────────────────────────────
-def make_styles():
+def make_styles(density: int = 0):
+    """density 0 = normal, 1 = compact, 2 = très compact (priorité 1 page)."""
+    d = max(0, min(2, density))
+    name_sz = (22, 19, 17)[d]
+    body_sz = (9.5, 9, 8.5)[d]
+    section_before = (14, 9, 6)[d]
+    job_before = (8, 5, 3)[d]
+    lead = (13, 12, 11)[d]
     return {
         "name": ParagraphStyle("name",
-            fontName="Helvetica-Bold", fontSize=22,
-            textColor=DARK, spaceAfter=4, leading=26),
+            fontName="Helvetica-Bold", fontSize=name_sz,
+            textColor=DARK, spaceAfter=3 if d else 4, leading=name_sz + 4),
 
         "tagline": ParagraphStyle("tagline",
-            fontName="Helvetica-Oblique", fontSize=10,
-            textColor=GRAY, spaceAfter=3, leading=14),
+            fontName="Helvetica-Oblique", fontSize=(10, 9, 8.5)[d],
+            textColor=GRAY, spaceAfter=2, leading=(14, 12, 11)[d]),
 
         "website": ParagraphStyle("website",
-            fontName="Helvetica-Bold", fontSize=10.5,
-            textColor=ACCENT, spaceAfter=2, leading=13),
+            fontName="Helvetica-Bold", fontSize=(10.5, 9.5, 9)[d],
+            textColor=ACCENT, spaceAfter=1, leading=lead),
 
         "contact": ParagraphStyle("contact",
-            fontName="Helvetica", fontSize=9,
-            textColor=LIGHT, spaceAfter=0, leading=13),
+            fontName="Helvetica", fontSize=(9, 8.5, 8)[d],
+            textColor=LIGHT, spaceAfter=0, leading=lead),
 
         "section": ParagraphStyle("section",
             fontName="Helvetica-Bold", fontSize=9,
-            textColor=DARK, spaceBefore=14, spaceAfter=4,
+            textColor=DARK, spaceBefore=section_before, spaceAfter=3 if d else 4,
             leading=12, letterSpacing=0.8),
 
         "job_title": ParagraphStyle("job_title",
-            fontName="Helvetica-Bold", fontSize=10.5,
-            textColor=DARK, spaceBefore=8, spaceAfter=1, leading=13),
+            fontName="Helvetica-Bold", fontSize=(10.5, 9.5, 9)[d],
+            textColor=DARK, spaceBefore=job_before, spaceAfter=1, leading=lead),
 
         "company": ParagraphStyle("company",
-            fontName="Helvetica-Oblique", fontSize=10,
-            textColor=GRAY, spaceAfter=2, leading=13),
+            fontName="Helvetica-Oblique", fontSize=(10, 9, 8.5)[d],
+            textColor=GRAY, spaceAfter=1 if d else 2, leading=lead),
 
         "bullet": ParagraphStyle("bullet",
-            fontName="Helvetica", fontSize=9.5,
+            fontName="Helvetica", fontSize=body_sz,
             textColor=colors.HexColor("#333333"),
-            leftIndent=12, spaceAfter=1, leading=13,
+            leftIndent=12, spaceAfter=0 if d else 1, leading=lead,
             bulletIndent=4, bulletText="•"),
 
         "skills_label": ParagraphStyle("skills_label",
-            fontName="Helvetica-Bold", fontSize=9.5,
-            textColor=DARK, spaceAfter=2, leading=12),
+            fontName="Helvetica-Bold", fontSize=body_sz,
+            textColor=DARK, spaceAfter=1, leading=12),
 
         "skills_value": ParagraphStyle("skills_value",
-            fontName="Helvetica", fontSize=9.5,
-            textColor=GRAY, spaceAfter=4, leading=12),
+            fontName="Helvetica", fontSize=body_sz,
+            textColor=GRAY, spaceAfter=2 if d else 4, leading=12),
 
         "lang": ParagraphStyle("lang",
-            fontName="Helvetica", fontSize=9.5,
-            textColor=GRAY, spaceAfter=0, leading=13),
+            fontName="Helvetica", fontSize=body_sz,
+            textColor=GRAY, spaceAfter=0, leading=lead),
 
         "candidature_label": ParagraphStyle("candidature_label",
             fontName="Helvetica", fontSize=8,
@@ -202,6 +273,26 @@ def make_styles():
         "candidature_banner": ParagraphStyle("candidature_banner",
             fontName="Helvetica", fontSize=8,
             textColor=LIGHT, spaceAfter=0, leading=11),
+    }
+
+
+def _cv_page_count(path: Path) -> int:
+    try:
+        from pypdf import PdfReader
+        return len(PdfReader(str(path)).pages)
+    except Exception:
+        return 1
+
+
+def _cv_content_caps(density: int) -> Dict[str, int]:
+    """Plafonds pour privilégier 1 page A4."""
+    d = max(0, min(2, density))
+    return {
+        "experiences": (4, 3, 3)[d],
+        "bullets": (3, 2, 2)[d],
+        "education": (2, 2, 1)[d],
+        "skills": (6, 5, 4)[d],
+        "tools": (6, 5, 4)[d],
     }
 
 
@@ -230,16 +321,17 @@ STRICT RULES:
 - Do NOT invent experiences or skills that are not in the profile
 - Use ONLY the companies listed in the profile's experience section
 - ALL output must be in {output_lang}
+- Le CV final doit TENIR SUR UNE SEULE PAGE A4 : soyez concis
 
 Retourne un JSON :
 {{
-  "tagline": "Tagline adapté au poste, 1 à 2 phrases max, sans tiret",
+  "tagline": "Tagline adapté au poste, 1 phrase max, sans tiret",
   "top_skills": ["3 à 5 compétences clés pour ce poste"],
   "top_tools": ["outils dev du profil triés par pertinence — NE PAS inclure les outils automation/IA"],
   "experience_highlights": [
-    {{"company": "<nom exact d'une entreprise du profil>", "bullets": ["2-3 bullets adaptés, sans tiret"]}}
+    {{"company": "<nom exact d'une entreprise du profil>", "bullets": ["2 bullets courts adaptés, sans tiret"]}}
   ],
-  "custom_note": "Optional note below tagline, empty if not needed"
+  "custom_note": ""
 }}
 
 Return ONLY the JSON. All text values must be in {output_lang}."""
@@ -268,16 +360,17 @@ RÈGLES STRICTES :
 - Framer le profil comme un profil de direction/management opérationnel, PAS comme un profil tech ou startup
 - Mettre en avant : pilotage P&L, gestion partenaires/équipes, structuration de processus, organisation, résultats business
 - Minimiser les références purement tech (code, React, etc.) — à ne mentionner que si pertinent pour l'offre
+- Le CV final doit TENIR SUR UNE SEULE PAGE A4 : soyez concis
 
 Retourne un JSON :
 {{
-  "tagline": "Accroche adaptée au poste, 1 à 2 phrases max, sans tiret, ton management pas tech",
+  "tagline": "Accroche adaptée au poste, 1 phrase max, sans tiret, ton management pas tech",
   "top_skills": ["3 à 5 compétences clés pour ce poste, orientées management/ops"],
   "top_tools": ["Outils pertinents pour ce poste — mettre en avant Excel/ERP/outils métier si mentionnés, garder les outils dev uniquement si vraiment pertinents"],
   "experience_highlights": [
-    {{"company": "<nom exact d'une entreprise du profil>", "bullets": ["2-3 bullets adaptés, sans tiret"]}}
+    {{"company": "<nom exact d'une entreprise du profil>", "bullets": ["2 bullets courts adaptés, sans tiret"]}}
   ],
-  "custom_note": "Note optionnelle sous l'accroche, vide si inutile"
+  "custom_note": ""
 }}
 
 Retourne UNIQUEMENT le JSON. Toutes les valeurs texte doivent être en {output_lang}."""
@@ -303,12 +396,14 @@ RÈGLES :
 - Ne pas inventer d'expériences absentes du CV source
 - Langue de sortie : {output_lang}
 - Mettre en avant ce qui matche le plus pour CETTE offre
-- Maximum 5 expériences (les plus pertinentes pour l'offre), 2 à 3 bullets courts par expérience
-- Bullets concis (≤ 15 mots), pas de copier-coller du CV source
+- Le CV final doit TENIR SUR UNE SEULE PAGE A4
+- Maximum 4 expériences (les plus pertinentes), 2 bullets courts par expérience
+- Bullets concis (≤ 12 mots), pas de copier-coller du CV source
+- Formation : 1 à 2 entrées max
 
 Retourne UNIQUEMENT un JSON :
 {{
-  "tagline": "Accroche adaptée au poste, 1-2 phrases",
+  "tagline": "Accroche adaptée au poste, 1 phrase",
   "top_skills": ["3-5 compétences clés pour ce poste"],
   "top_tools": ["outils pertinents mentionnés dans le CV"],
   "experiences": [
@@ -321,8 +416,6 @@ Retourne UNIQUEMENT un JSON :
 
 _CV_SECTIONS = {
     "fr": {
-        "application_for": "CANDIDATURE POUR",
-        "company": "ENTREPRISE",
         "experience": "Expérience",
         "education": "Formation",
         "skills_tools": "Compétences & outils",
@@ -332,8 +425,6 @@ _CV_SECTIONS = {
         "languages": "Langues",
     },
     "en": {
-        "application_for": "APPLICATION FOR",
-        "company": "COMPANY",
         "experience": "Experience",
         "education": "Education",
         "skills_tools": "Skills & Tools",
@@ -430,7 +521,8 @@ class CVBuilder:
             schema = CV_UPLOAD_SCHEMA if self._uses_uploaded_cv() else CV_PROFILE_SCHEMA
             max_tokens = 4096 if self._uses_uploaded_cv() else 2048
             try:
-                resp = self.client.messages.create(
+                resp = create_message_with_retry(
+                    self.client,
                     model=self.model,
                     max_tokens=max_tokens,
                     messages=[{"role": "user", "content": prompt}],
@@ -440,7 +532,8 @@ class CVBuilder:
                 )
             except Exception as schema_err:
                 console.print(f"[yellow]  CV adapt JSON schema fallback: {schema_err}[/yellow]")
-                resp = self.client.messages.create(
+                resp = create_message_with_retry(
+                    self.client,
                     model=self.model,
                     max_tokens=max_tokens,
                     messages=[{"role": "user", "content": prompt}],
@@ -460,7 +553,7 @@ class CVBuilder:
             return False
         story.append(Paragraph(section_label.upper(), S["section"]))
         story.append(HRFlowable(width="100%", thickness=1, color=DARK, spaceAfter=4))
-        for block in cv_text.split("\n\n")[:10]:
+        for block in cv_text.split("\n\n")[:6]:
             block = clean_text(block.strip())
             if len(block) < 4:
                 continue
@@ -493,34 +586,59 @@ class CVBuilder:
 
     def build_pdf(self, adaptation: Dict, output_path: Path,
                   company: str = "", job_title: str = "", lang: str = "fr") -> Path:
-        """Construit le CV en PDF avec reportlab."""
+        """Construit le CV en PDF — privilégie toujours 1 page A4."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        S = make_styles()
+        last_pages = 1
+        for density in (0, 1, 2):
+            self._build_pdf_once(
+                adaptation, output_path,
+                company=company, job_title=job_title, lang=lang, density=density,
+            )
+            last_pages = _cv_page_count(output_path)
+            if last_pages <= 1:
+                if density > 0:
+                    console.print(f"[dim]  CV compacté (densité {density}) pour tenir sur 1 page[/dim]")
+                break
+        if last_pages > 1:
+            console.print(f"[yellow]  CV sur {last_pages} pages (contenu trop dense pour 1 page)[/yellow]")
+        return output_path
+
+    def _build_pdf_once(
+        self,
+        adaptation: Dict,
+        output_path: Path,
+        company: str = "",
+        job_title: str = "",
+        lang: str = "fr",
+        density: int = 0,
+    ) -> Path:
+        """Construit le PDF à une densité donnée."""
+        S = make_styles(density)
+        caps = _cv_content_caps(density)
+        margin = (1.8, 1.5, 1.2)[density] * cm
+        side = (2.2, 1.9, 1.7)[density] * cm
 
         doc = SimpleDocTemplate(
             str(output_path),
             pagesize=A4,
-            topMargin=1.8*cm, bottomMargin=1.8*cm,
-            leftMargin=2.2*cm, rightMargin=2.2*cm,
+            topMargin=margin, bottomMargin=margin,
+            leftMargin=side, rightMargin=side,
         )
 
         story = []
         L = _CV_SECTIONS.get(lang if lang in _CV_SECTIONS else "fr", _CV_SECTIONS["fr"])
 
-        def hr():
-            story.append(Spacer(1, 2))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=LINE, spaceAfter=4))
-
         def section_title(text):
             story.append(Paragraph(text.upper(), S["section"]))
-            story.append(HRFlowable(width="100%", thickness=1, color=DARK, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1, color=DARK, spaceAfter=3 if density else 4))
 
         def add_exp(title, company, period, bullets, location=""):
             label = f"{company}   {location}".strip() if location else company
             title_table = Table(
                 [[Paragraph(title, S["job_title"]), Paragraph(period, ParagraphStyle(
-                    "period", fontName="Helvetica", fontSize=9.5,
-                    textColor=LIGHT, alignment=TA_RIGHT, leading=13, spaceBefore=8
+                    "period", fontName="Helvetica", fontSize=(9.5, 9, 8.5)[density],
+                    textColor=LIGHT, alignment=TA_RIGHT, leading=(13, 12, 11)[density],
+                    spaceBefore=(8, 5, 3)[density],
                 ))]],
                 colWidths=["70%", "30%"],
                 hAlign="LEFT",
@@ -543,15 +661,23 @@ class CVBuilder:
 
             if banner_line:
                 story.append(Paragraph(banner_line, S["candidature_banner"]))
-                story.append(Spacer(1, 8))
+                story.append(Spacer(1, 6 if density else 8))
 
         p = self.profile
         is_user = p.get("_source") == "user"
-        story.append(Paragraph(p.get("name") or ("" if is_user else PROFILE["name"]), S["name"]))
+        display_name = sanitize_person_name(
+            p.get("name"),
+            p.get("_account_name"),
+        )
+        if not display_name and not is_user:
+            display_name = PROFILE["name"]
+        header_story = []
+        if display_name:
+            header_story.append(Paragraph(display_name, S["name"]))
 
         website = p.get("website", "")
         if website:
-            story.append(Paragraph(website, S["website"]))
+            header_story.append(Paragraph(website, S["website"]))
 
         tagline = clean_text(
             adaptation.get(
@@ -559,28 +685,52 @@ class CVBuilder:
                 p.get("tagline") or ("" if (is_user or self._uses_uploaded_cv()) else PROFILE["tagline"]),
             )
         )
-        story.append(Paragraph(tagline, S["tagline"]))
+        header_story.append(Paragraph(tagline, S["tagline"]))
 
         custom = adaptation.get("custom_note", "")
-        if custom:
-            story.append(Paragraph(clean_text(custom), S["tagline"]))
+        if custom and density < 2:
+            header_story.append(Paragraph(clean_text(custom), S["tagline"]))
 
         loc = p.get("location", "Paris")
-        story.append(Paragraph(
+        header_story.append(Paragraph(
             f"{p.get('email', '')}   ·   {p.get('phone', '')}   ·   {loc}",
             S["contact"],
         ))
-        story.append(Spacer(1, 10))
+        photo = _extract_cv_photo(p) if self._uses_uploaded_cv() and lang == "fr" and density < 2 else None
+        if photo:
+            try:
+                photo_flow = Image(photo, width=2.2 * cm, height=2.2 * cm, kind="proportional")
+                header = Table(
+                    [[header_story, photo_flow]],
+                    colWidths=[13.0 * cm, 2.5 * cm],
+                    hAlign="LEFT",
+                )
+                header.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ]))
+                story.append(header)
+            except Exception:
+                story.extend(header_story)
+        else:
+            story.extend(header_story)
+        story.append(Spacer(1, 6 if density else 10))
 
         section_title(L["experience"])
         highlights = _experience_highlights_map(adaptation.get("experience_highlights", []))
         user_exps = adaptation.get("experiences") or []
         from_upload = self._uses_uploaded_cv()
         exp_added = False
+        max_exp = caps["experiences"]
+        max_bullets = caps["bullets"]
 
         if user_exps:
-            for exp in user_exps[:6]:
-                bullets = [clean_text(b) for b in exp.get("bullets", [])[:5] if b]
+            for exp in user_exps[:max_exp]:
+                bullets = [clean_text(b) for b in exp.get("bullets", [])[:max_bullets] if b]
                 if not exp.get("title") and not bullets:
                     continue
                 add_exp(
@@ -593,15 +743,15 @@ class CVBuilder:
                 exp_added = True
         elif not from_upload:
             default_exps = [] if is_user else PROFILE["experience"]
-            for exp in p.get("experience") or default_exps:
-                company = exp["company"]
-                adapted = highlights.get(company, highlights.get(exp["title"], []))
+            for exp in (p.get("experience") or default_exps)[:max_exp]:
+                company_name = exp["company"]
+                adapted = highlights.get(company_name, highlights.get(exp["title"], []))
                 bullets = [clean_text(b) for b in (adapted if adapted else exp["bullets"])]
                 add_exp(
                     title=exp["title"],
-                    company=company,
+                    company=company_name,
                     period=exp["period"],
-                    bullets=bullets[:5],
+                    bullets=bullets[:max_bullets],
                     location=exp.get("location", ""),
                 )
                 exp_added = True
@@ -610,19 +760,19 @@ class CVBuilder:
             exp_added = self._append_cv_text_fallback(story, S, L["experience"])
 
         if not exp_added and not from_upload and not is_user:
-            for exp in p.get("experience") or PROFILE["experience"]:
+            for exp in (p.get("experience") or PROFILE["experience"])[:max_exp]:
                 add_exp(
                     title=exp["title"],
                     company=exp["company"],
                     period=exp["period"],
-                    bullets=[clean_text(b) for b in exp.get("bullets", [])[:5]],
+                    bullets=[clean_text(b) for b in exp.get("bullets", [])[:max_bullets]],
                     location=exp.get("location", ""),
                 )
 
         section_title(L["education"])
         edu_list = adaptation.get("education") or []
         if edu_list:
-            for edu in edu_list[:3]:
+            for edu in edu_list[:caps["education"]]:
                 add_exp(
                     title=edu.get("degree", ""),
                     company=edu.get("school", ""),
@@ -643,11 +793,11 @@ class CVBuilder:
         section_title(L["skills_tools"])
         default_skills = [] if is_user else PROFILE["skills"]
         default_tools = {} if is_user else PROFILE["tools"]
-        top_skills = adaptation.get("top_skills") or ([] if from_upload else (p.get("skills") or default_skills))
-        top_tools = adaptation.get("top_tools") or (
+        top_skills = (adaptation.get("top_skills") or ([] if from_upload else (p.get("skills") or default_skills)))[:caps["skills"]]
+        top_tools = (adaptation.get("top_tools") or (
             [] if from_upload else (p.get("tools") or default_tools).get("dev", [])
-        )
-        auto_tools = [] if from_upload else (p.get("tools") or default_tools).get("automation", [])
+        ))[:caps["tools"]]
+        auto_tools = [] if from_upload or density >= 2 else (p.get("tools") or default_tools).get("automation", [])
 
         for label, items in [
             (L["skills"], top_skills),

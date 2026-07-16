@@ -46,9 +46,9 @@ const fmtDate = (iso: string) =>
   );
 
 const planLabel: Record<string, string> = {
-  test: "Découverte",
+  test: "Start",
   chill: "Essentiel",
-  tryhard: "Intensif",
+  tryhard: "Ancien plan",
 };
 
 export default function ParrainagePage() {

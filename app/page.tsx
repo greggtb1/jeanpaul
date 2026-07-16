@@ -1,5 +1,5 @@
 import Header from "@/components/Header";
-import AffiliateTopBanner from "@/components/AffiliateTopBanner";
+// import AffiliateTopBanner from "@/components/AffiliateTopBanner"; // masqué temporairement
 import Hero from "@/components/Hero";
 import LogoBanner from "@/components/LogoBanner";
 import Steps from "@/components/Steps";
@@ -12,7 +12,7 @@ import Footer from "@/components/Footer";
 export default function Home() {
   return (
     <>
-      <AffiliateTopBanner />
+      {/* <AffiliateTopBanner /> */}
       <div className="bg-decor" aria-hidden="true" />
       <div className="page">
         <Header />

@@ -9,7 +9,10 @@ export type Profile = {
   phone?: string | null;
   location?: string | null;
   target_roles?: string[] | null;
+  target_sectors?: string[] | null;
   target_locations?: string[] | null;
+  location_search_mode?: "city" | "radius" | null;
+  location_radius_km?: number | null;
   contract_type?: string[] | null;
   salary_min?: number | null;
   remote_pref?: string[] | null;
@@ -26,13 +29,14 @@ export type Profile = {
   stripe_subscription_id?: string | null;
   plan_id?: string | null;
   bonus_credits?: number | null;
+  is_trial?: boolean | null;
+  trial_used?: boolean | null;
 };
 
 export const LETTER_TONES = [
   { id: "pro", label: "Professionnel & posé", tagline: "Classique, rassurant" },
   { id: "direct", label: "Direct & efficace", tagline: "Court, sans détour" },
   { id: "enthousiaste", label: "Enthousiaste & énergique", tagline: "Motivé, pas forcé" },
-  { id: "story", label: "Personnel & narratif", tagline: "Accroche parcours" },
   { id: "concis", label: "Ultra-court & percutant", tagline: "3 phrases max" },
 ] as const;
 
@@ -45,6 +49,24 @@ export type Job = {
   cv_url?: string | null;
   letter_url?: string | null;
   user_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type BlogArticle = {
+  id: string;
+  author_id?: string | null;
+  slug: string;
+  title: string;
+  excerpt?: string | null;
+  content: string;
+  cover_image_url?: string | null;
+  cover_image_path?: string | null;
+  meta_title?: string | null;
+  meta_description?: string | null;
+  keywords?: string[] | null;
+  status: "draft" | "published";
+  published_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };

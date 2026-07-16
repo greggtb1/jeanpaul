@@ -21,6 +21,9 @@ export type CheckoutSessionInfo = {
   subscriptionId: string | null;
   pending: boolean;
   userId: string | null;
+  /** Montant payé en centimes (pour la valeur de conversion publicitaire). */
+  amountTotalCents: number | null;
+  currency: string | null;
 };
 
 function normalizeEmail(email: string | null | undefined): string | null {
@@ -28,7 +31,7 @@ function normalizeEmail(email: string | null | undefined): string | null {
   return normalized || null;
 }
 
-/** Paiement unique (mode payment) → toujours Découverte si aucun plan explicite. */
+/** Paiement unique (mode payment) → toujours Start si aucun plan explicite. */
 export function resolvePlanIdFromCheckoutSession(
   session: Stripe.Checkout.Session
 ): PlanId {
@@ -135,6 +138,8 @@ export async function getCheckoutSessionInfo(sessionId: string): Promise<Checkou
         : session.subscription?.id ?? null,
     pending,
     userId,
+    amountTotalCents: session.amount_total ?? null,
+    currency: session.currency ?? null,
   };
 }
 

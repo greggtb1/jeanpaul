@@ -6,12 +6,11 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import {
   CREDIT_PACKS_LIST,
-  MONTHLY_DISCOUNT_PERCENT,
-  applicationsQuotaLabel,
   displayPrice,
   formatPriceEur,
+  FREE_DISCOVERY_OFFER,
   getPlan,
-  getUpgradePlans,
+  getBillingOfferPlans,
   monthlyPriceCents,
   parseBillingInterval,
   parsePlanId,
@@ -24,9 +23,13 @@ import {
   countGeneratedJobs,
   countWeeklyGeneratedJobs,
   getQuotaUsage,
+  isDiscoveryTrial,
 } from "@/lib/plan-quota";
 import type { SubscriptionInfo } from "@/app/api/stripe/subscription/route";
 import { parseApiJson } from "@/lib/parse-api-json";
+import { trackAdsPurchase } from "@/lib/gads";
+import { trackEvent } from "@/lib/umami";
+import CurrentDiscoveryPlanCard from "@/components/CurrentDiscoveryPlanCard";
 
 function fmtDate(iso: string | null) {
   if (!iso) return null;
@@ -56,12 +59,12 @@ const STATUS_LABEL: Record<string, string> = {
 export default function FacturationPage() {
   const searchParams = useSearchParams();
   const { uid } = useAuth();
-  const supabase = createClient();
   const upgradeRef = useRef<HTMLElement>(null);
   const creditsRef = useRef<HTMLElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [planId, setPlanId] = useState(parsePlanId(null));
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [quotaUsage, setQuotaUsage] = useState<ReturnType<typeof getQuotaUsage> | null>(null);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -75,41 +78,81 @@ export default function FacturationPage() {
   const sessionId = searchParams.get("session_id");
   const creditsSessionId = searchParams.get("credits_session");
 
-  const [billing, setBilling] = useState<BillingInterval>(
+  const [billing] = useState<BillingInterval>(
     parseBillingInterval(searchParams.get("billing"))
+  );
+
+  const emptySub = useCallback(
+    (status: string | null, plan: string | null): SubscriptionInfo => ({
+      status: status || "none",
+      planId: plan,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      cancelAt: null,
+      amount: null,
+      currency: null,
+      lastInvoiceDate: null,
+      lastInvoiceAmount: null,
+      lastInvoicePdfUrl: null,
+      hasCustomer: false,
+      mode: "none",
+    }),
+    []
   );
 
   const loadData = useCallback(async () => {
     if (!uid) return;
-    const [profileRes, jobsRes, subRes] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("plan_id, first_search_done, bonus_credits")
-        .eq("id", uid)
-        .maybeSingle(),
-      supabase
-        .from("jobs")
-        .select("url,cv_url,fit_score,data,updated_at")
-        .eq("user_id", uid)
-        .eq("deleted", false),
-      fetch("/api/stripe/subscription").then((r) => r.json()),
-    ]);
-    const subInfo = subRes as SubscriptionInfo;
-    const effectivePlanId = parsePlanId(subInfo.planId ?? profileRes.data?.plan_id);
+    const supabase = createClient();
+
+    // 1) Profil d'abord → débloque l'UI (surtout en essai, sans Stripe).
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("plan_id, first_search_done, bonus_credits, subscription_status")
+      .eq("id", uid)
+      .maybeSingle();
+
+    const profileStatus = profile?.subscription_status ?? null;
+    const profilePlanId = parsePlanId(profile?.plan_id);
+    setSubscriptionStatus(profileStatus);
+    setPlanId(profilePlanId);
+
+    const discovery = isDiscoveryTrial(profileStatus);
+    // Débloque l'UI dès le profil — Stripe / jobs viennent enrichir ensuite.
+    setSub(emptySub(profileStatus, profile?.plan_id ?? null));
+    setLoading(false);
+
+    // Jobs légers + Stripe seulement hors essai (évite un aller-retour Stripe inutile).
+    const jobsPromise = supabase
+      .from("jobs")
+      .select("url,cv_url,fit_score,updated_at,data")
+      .eq("user_id", uid)
+      .eq("deleted", false);
+
+    const stripePromise = discovery
+      ? Promise.resolve(null as SubscriptionInfo | null)
+      : fetch("/api/stripe/subscription")
+          .then((r) => r.json() as Promise<SubscriptionInfo>)
+          .catch(() => null);
+
+    const [{ data: jobs }, subInfo] = await Promise.all([jobsPromise, stripePromise]);
+
+    const effectivePlanId = parsePlanId(subInfo?.planId ?? profile?.plan_id);
     setPlanId(effectivePlanId);
-    const jobs = jobsRes.data || [];
     const plan = getPlan(effectivePlanId);
     setQuotaUsage(
-      getQuotaUsage(plan, {
-        generatedCount: countGeneratedJobs(jobs),
-        weeklyGeneratedCount: countWeeklyGeneratedJobs(jobs),
-        firstSearchDone: !!profileRes.data?.first_search_done,
-        bonusCredits: profileRes.data?.bonus_credits ?? 0,
-      })
+      getQuotaUsage(
+        plan,
+        {
+          generatedCount: countGeneratedJobs(jobs || []),
+          weeklyGeneratedCount: countWeeklyGeneratedJobs(jobs || []),
+          firstSearchDone: !!profile?.first_search_done,
+          bonusCredits: profile?.bonus_credits ?? 0,
+        },
+        profileStatus
+      )
     );
-    setSub(subInfo);
-    setLoading(false);
-  }, [uid, supabase]);
+    if (subInfo) setSub(subInfo);
+  }, [uid, emptySub]);
 
   useEffect(() => {
     loadData();
@@ -119,10 +162,26 @@ export default function FacturationPage() {
     if (!sessionId || !uid) return;
     fetch(`/api/stripe/verify?session_id=${encodeURIComponent(sessionId)}`)
       .then(async (res) => {
-        const data = await parseApiJson<{ active?: boolean; error?: string }>(res);
+        const data = await parseApiJson<{
+          active?: boolean;
+          error?: string;
+          amount_total_cents?: number | null;
+          currency?: string | null;
+          email?: string | null;
+        }>(res);
         if (!res.ok) throw new Error(data.error || "Vérification échouée");
         if (data.active) {
           setFeedback({ type: "ok", text: "Plan mis à jour." });
+          trackEvent("premium_activated", { plan: planId, source: "facturation" });
+          trackAdsPurchase({
+            value:
+              typeof data.amount_total_cents === "number"
+                ? data.amount_total_cents / 100
+                : undefined,
+            currency: (data.currency ?? "eur").toUpperCase(),
+            transactionId: sessionId,
+            email: data.email ?? undefined,
+          });
           await loadData();
         }
       })
@@ -132,8 +191,9 @@ export default function FacturationPage() {
   useEffect(() => {
     if (searchParams.get("upgraded") === "1" && !sessionId) {
       setFeedback({ type: "ok", text: "Plan mis à jour." });
+      trackEvent("premium_activated", { plan: planId, source: "facturation" });
     }
-  }, [searchParams, sessionId]);
+  }, [searchParams, sessionId, planId]);
 
   useEffect(() => {
     if (!creditsSessionId || !uid) return;
@@ -164,7 +224,11 @@ export default function FacturationPage() {
     return () => clearTimeout(t);
   }, [showUpgrade, showCredits, loading]);
 
-  const upgradePlans = useMemo(() => getUpgradePlans(planId), [planId]);
+  const isDiscovery = isDiscoveryTrial(subscriptionStatus);
+  const offerPlans = useMemo(
+    () => getBillingOfferPlans(planId, isDiscovery),
+    [planId, isDiscovery]
+  );
 
   async function openPortal() {
     setFeedback(null);
@@ -183,11 +247,18 @@ export default function FacturationPage() {
   async function startUpgrade(targetPlanId: PlanId) {
     setCheckoutPlanId(targetPlanId);
     setFeedback(null);
+    const targetPlan = getPlan(targetPlanId);
+    const selectedBilling =
+      targetPlan.kind !== "subscription"
+        ? "weekly"
+        : targetPlan.priceMonthlyEur != null
+          ? "monthly"
+          : billing;
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: targetPlanId, billing, upgrade: true }),
+        body: JSON.stringify({ plan: targetPlanId, billing: selectedBilling, upgrade: true }),
       });
       const data = await parseApiJson<{
         url?: string;
@@ -233,6 +304,7 @@ export default function FacturationPage() {
   }
 
   const plan = getPlan(planId);
+  const displayPlanName = isDiscovery ? FREE_DISCOVERY_OFFER.name : plan.name;
   const priceBilling =
     sub?.mode === "one_time"
       ? "weekly"
@@ -242,17 +314,21 @@ export default function FacturationPage() {
           ? "monthly"
           : "weekly"
         : parseBillingInterval(null);
-  const price =
-    sub?.mode === "one_time"
+  const price = isDiscovery
+    ? { amount: "0", suffix: "" }
+    : sub?.mode === "one_time"
       ? displayPrice(getPlan("test"), "weekly")
       : displayPrice(plan, priceBilling);
   const isPeriodic = sub?.mode === "subscription";
   const canManage = !!sub?.hasCustomer;
   const isCancelling = sub?.cancelAtPeriodEnd && !sub?.cancelAt;
-  const statusLabel = STATUS_LABEL[sub?.status || "active"] ?? sub?.status ?? "Actif";
+  const statusLabel = isDiscovery
+    ? "Essai gratuit"
+    : STATUS_LABEL[sub?.status || "active"] ?? sub?.status ?? "Actif";
 
   const renewalLine = (() => {
     if (loading || !sub) return null;
+    if (isDiscovery) return "Gratuit · sans engagement";
     if (isPeriodic && sub.currentPeriodEnd && sub.status !== "canceled" && !sub.cancelAt) {
       return isCancelling
         ? `Jusqu'au ${fmtDate(sub.currentPeriodEnd)}`
@@ -293,7 +369,7 @@ export default function FacturationPage() {
             <div className="fact-sheet__hero">
               <div>
                 <p className="fact-sheet__label">Votre formule</p>
-                <h2 className="fact-sheet__plan">{plan.name}</h2>
+                <h2 className="fact-sheet__plan">{displayPlanName}</h2>
                 {renewalLine && <p className="fact-page__muted">{renewalLine}</p>}
               </div>
               <div className="fact-sheet__price-block">
@@ -327,7 +403,7 @@ export default function FacturationPage() {
                     ` · ${fmtAmount(sub.lastInvoiceAmount, sub.currency)}`}
                 </p>
               )}
-              {canManage ? (
+              {canManage && (
                 <button
                   type="button"
                   className="btn btn--outline btn--sm"
@@ -336,127 +412,146 @@ export default function FacturationPage() {
                 >
                   {portalLoading ? "Ouverture…" : "Factures & paiement"}
                 </button>
-              ) : (
-                <p className="fact-page__muted">
-                  <a href="mailto:hello@blowmyjob.fr">hello@blowmyjob.fr</a>
-                </p>
               )}
             </div>
           </>
         )}
       </section>
 
-      {upgradePlans.length > 0 && (
+      {!loading && offerPlans.length > 0 && (
         <section
           ref={upgradeRef}
-          className={`fact-sheet${showUpgrade ? " fact-sheet--focus" : ""}`}
+          className={`fact-sheet fact-upgrade${showUpgrade ? " fact-sheet--focus fact-upgrade--highlight" : ""}`}
         >
-          <div className="fact-sheet__section-head">
-            <div>
-              <h3>Changer de formule</h3>
-              <p className="fact-page__muted">
-                Besoin de plus de dossiers inclus ? Choisissez une formule supérieure.
+          <div className="fact-upgrade__head">
+            {isDiscovery && <p className="fact-upgrade__eyebrow">Débloquer la suite</p>}
+            <h3>{isDiscovery ? "Choisissez votre formule" : "Changer de formule"}</h3>
+            {!isDiscovery && (
+              <p className="fact-upgrade__lead">
+                Besoin de plus de dossiers inclus ? Passez à une formule supérieure.
               </p>
-            </div>
-            <div className="fact-sheet__toggle" role="group" aria-label="Facturation">
-              <button
-                type="button"
-                className={billing === "weekly" ? "is-active" : ""}
-                onClick={() => setBilling("weekly")}
-              >
-                Semaine
-              </button>
-              <button
-                type="button"
-                className={billing === "monthly" ? "is-active" : ""}
-                onClick={() => setBilling("monthly")}
-              >
-                Mois −{MONTHLY_DISCOUNT_PERCENT}%
-              </button>
-            </div>
+            )}
           </div>
 
-          <ul className="fact-plans">
-            {upgradePlans.map((p) => {
-              const pPrice = displayPrice(p, billing);
+          <div className="fact-upgrade__grid">
+            {isDiscovery && <CurrentDiscoveryPlanCard />}
+            {offerPlans.map((p) => {
+              const pPrice = displayPrice(p, p.kind === "one_time" ? "weekly" : billing);
               const busy = checkoutPlanId !== null;
               const isLoading = checkoutPlanId === p.id;
               const isSuggested = p.id === suggestedPlanId;
 
               return (
-                <li key={p.id} className={`fact-plans__row${isSuggested ? " is-suggested" : ""}`}>
-                  <div className="fact-plans__info">
-                    <strong>{p.name}</strong>
-                    <span className="fact-page__muted">
-                      {applicationsQuotaLabel(p)}
-                    </span>
+                <article
+                  key={p.id}
+                  className={`pricing-card fact-upgrade__card${p.featured ? " pricing-card--featured" : ""}${isSuggested ? " fact-upgrade__card--suggested" : ""}`}
+                >
+                  {p.kind === "one_time" && (
+                    <span className="pricing-card__badge">Pour démarrer</span>
+                  )}
+                  {p.featured && p.kind === "subscription" && (
+                    <span className="pricing-card__badge">Le plus populaire</span>
+                  )}
+                  {isSuggested && !p.featured && p.kind !== "one_time" && (
+                    <span className="fact-upgrade__suggested">Suggéré</span>
+                  )}
+
+                  <h4 className="pricing-card__title">{p.name}</h4>
+                  <p className="pricing-card__tagline">{p.tagline}</p>
+
+                  <div className="pricing-card__price">
+                    <strong>{pPrice.amount} €</strong>
+                    <span>{pPrice.suffix}</span>
                   </div>
-                  <div className="fact-plans__side">
-                    <div className="fact-plans__price-wrap">
-                      <span className="fact-plans__price">
-                        {pPrice.amount} €<small>{pPrice.suffix}</small>
-                      </span>
-                      {pPrice.billingSavings && (
-                        <span className="fact-plans__billing-note">{pPrice.billingSavings}</span>
-                      )}
-                    </div>
+
+                  <div className="pricing-card__savings-slot" />
+
+                  <p className="pricing-card__desc">{p.description}</p>
+
+                  <div className="pricing-card__cta-wrap">
                     <button
                       type="button"
-                      className="btn btn--outline btn--sm"
+                      className={`btn pricing-card__cta${p.featured ? " btn--accent" : " btn--outline"}`}
                       disabled={busy || loading}
                       onClick={() => startUpgrade(p.id)}
                     >
-                      {isLoading ? "…" : "Choisir"}
+                      {isLoading
+                        ? "Redirection…"
+                        : p.kind === "one_time"
+                          ? "Choisir l'offre Start"
+                          : `Choisir ${p.name}`}
                     </button>
                   </div>
-                </li>
+
+                  <ul className="pricing-card__features">
+                    {p.features.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                </article>
               );
             })}
-          </ul>
+          </div>
+
         </section>
       )}
 
-      <section
-        ref={creditsRef}
-        className={`fact-sheet${showCredits ? " fact-sheet--focus" : ""}`}
-      >
-        <div className="fact-sheet__section-head">
-          <div>
-            <h3>Ajouter des dossiers</h3>
-            <p className="fact-page__muted">
-              Pour débloquer quelques dossiers sans changer de formule.
-            </p>
-            {quotaUsage && quotaUsage.bonusCredits > 0 && (
-              <p className="fact-page__muted fact-page__bonus">
-                {quotaUsage.bonusCredits} bonus restant
-                {quotaUsage.bonusCredits > 1 ? "s" : ""}
+      {!loading && !isDiscovery && (
+        <section
+          ref={creditsRef}
+          className={`fact-sheet fact-credits${showCredits ? " fact-sheet--focus" : ""}`}
+        >
+          <div className="fact-credits__head">
+            <div>
+              <p className="fact-credits__eyebrow">Option complémentaire</p>
+              <h3 className="fact-credits__title">Ajouter des dossiers</h3>
+              <p className="fact-credits__lead">
+                Quelques dossiers en plus, sans changer de formule.
               </p>
+              {quotaUsage && quotaUsage.bonusCredits > 0 && (
+                <p className="fact-page__muted fact-page__bonus">
+                  {quotaUsage.bonusCredits} bonus restant
+                  {quotaUsage.bonusCredits > 1 ? "s" : ""}
+                </p>
+              )}
+            </div>
+            {quotaUsage && quotaUsage.bonusCredits > 0 && (
+              <span className="fact-credits__balance">
+                <strong>{quotaUsage.bonusCredits}</strong> bonus
+              </span>
             )}
           </div>
-        </div>
 
-        <div className="fact-packs">
-          {CREDIT_PACKS_LIST.map((pack) => {
-            const busy = checkoutPackId !== null;
-            const isLoading = checkoutPackId === pack.id;
-            return (
-              <button
-                key={pack.id}
-                type="button"
-                className={`fact-packs__item${pack.featured ? " is-featured" : ""}`}
-                disabled={busy || loading}
-                onClick={() => buyCredits(pack.id)}
-              >
-                <span className="fact-packs__count">{pack.credits}</span>
-                <span className="fact-packs__label">dossiers</span>
-                <span className="fact-packs__hint">{pack.hint}</span>
-                <span className="fact-packs__price">{formatPriceEur(pack.priceEur)} €</span>
-                {isLoading && <span className="fact-packs__loading">…</span>}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+          <div className="fact-credits__grid">
+            {CREDIT_PACKS_LIST.map((pack) => {
+              const busy = checkoutPackId !== null;
+              const isLoading = checkoutPackId === pack.id;
+              return (
+                <div
+                  key={pack.id}
+                  className={`fact-credits__card${pack.featured ? " fact-credits__card--featured" : ""}`}
+                >
+                  {pack.featured && (
+                    <span className="fact-credits__badge">Populaire</span>
+                  )}
+                  <span className="fact-credits__count">{pack.credits}</span>
+                  <span className="fact-credits__label">dossiers</span>
+                  <span className="fact-credits__hint">{pack.hint}</span>
+                  <span className="fact-credits__price">{formatPriceEur(pack.priceEur)} €</span>
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm fact-credits__cta"
+                    disabled={busy || loading}
+                    onClick={() => buyCredits(pack.id)}
+                  >
+                    {isLoading ? "…" : "Acheter"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

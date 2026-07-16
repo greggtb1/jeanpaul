@@ -58,7 +58,25 @@ const NAME_STOP_WORDS = new Set([
   "https",
   "generated",
   "powered",
+  "application",
+  "for",
+  "company",
+  "pour",
+  "entreprise",
+  "lettre",
+  "motivation",
+  "cover",
+  "letter",
+  "role",
+  "poste",
 ]);
+
+const NAME_JUNK_PHRASES = [
+  "application for company",
+  "application for",
+  "candidature pour entreprise",
+  "candidature pour",
+];
 
 const GENERIC_EMAIL_LOCALS = new Set([
   "contact",
@@ -141,9 +159,14 @@ function isPlausibleName(name: string, email?: string): boolean {
   const cleaned = normalizeName(name);
   if (!looksLikeNameStructure(cleaned)) return false;
 
+  const lower = cleaned.toLowerCase();
+  if (NAME_JUNK_PHRASES.some((phrase) => lower.includes(phrase))) return false;
+
   const words = cleaned.split(/\s+/).filter(Boolean);
   const lowerWords = words.map((w) => w.toLowerCase());
 
+  const junkCount = lowerWords.filter((w) => NAME_STOP_WORDS.has(w)).length;
+  if (junkCount >= 2) return false;
   if (lowerWords.some((w) => NAME_STOP_WORDS.has(w))) return false;
   if (lowerWords.some((w) => w === "apply" || w.endsWith("apply"))) return false;
 

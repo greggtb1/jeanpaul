@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildEngineSpawnEnv, getEngineServiceKey } from "@/lib/engine-env";
 import { engineUnavailableMessage, resolveEnginePaths } from "@/lib/engine-path";
+import { spawnEngineProcess } from "@/lib/engine-spawn";
 import { stopPipelineRun } from "@/lib/pipeline-stop";
 import { reconcileStalePipelineRun, trimPipelineLog } from "@/lib/pipeline-reconcile";
 import { assertPipelineQuota } from "@/lib/plan-quota";
@@ -82,9 +82,11 @@ export async function POST(req: NextRequest) {
         ? "autoapply"
         : body.mode === "import"
           ? "import"
-        : body.mode === "analyze"
-          ? "analyze"
-          : "full";
+          : body.mode === "analyze"
+            ? "analyze"
+            : body.mode === "unlock"
+              ? "unlock"
+              : "full";
     const urls = Array.isArray(body.urls)
       ? (body.urls as string[]).filter((u) => typeof u === "string" && u.trim())
       : [];
@@ -115,6 +117,15 @@ export async function POST(req: NextRequest) {
       profile?.subscription_status === "trialing";
 
     if (!subscribed) {
+      if (profile?.subscription_status === "trial") {
+        return NextResponse.json(
+          {
+            error: "Première recherche terminée. Choisissez un plan pour relancer une recherche.",
+            trialLocked: true,
+          },
+          { status: 403 }
+        );
+      }
       return NextResponse.json({ error: "Abonnement inactif" }, { status: 403 });
     }
 
@@ -260,10 +271,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const child = spawn(
-      engine.python,
+    const child = spawnEngineProcess(
+      engine,
+      runId,
       [
-        engine.script,
         "--user-id",
         userId,
         "--run-id",
@@ -273,14 +284,11 @@ export async function POST(req: NextRequest) {
         ...(mode === "import" ? ["--import-url", importUrl] : []),
       ],
       {
-      cwd: engine.engineDir,
-      detached: true,
-      stdio: "ignore",
-      env: {
         ...buildEngineSpawnEnv(userId, runId),
         JA_HUNT_TARGET: String(quota.runTarget),
-      },
-    });
+        ...(mode === "unlock" ? { JA_GEN_MAX: String(quota.runTarget) } : {}),
+      }
+    );
 
     if (child.pid) {
       const { error: pidErr } = await supabase.from("app_state").upsert(

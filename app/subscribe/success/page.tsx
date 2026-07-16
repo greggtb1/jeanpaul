@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { trackEvent } from "@/lib/umami";
+import { trackAdsPurchase } from "@/lib/gads";
 
 export default function SubscribeSuccessPage() {
   const router = useRouter();
@@ -21,6 +22,19 @@ export default function SubscribeSuccessPage() {
         if (!res.ok) throw new Error(data.error || "Vérification échouée");
         if (data.active) {
           trackEvent("payment_verified", { plan: data.plan_id ?? null });
+          trackEvent("premium_activated", {
+            plan: data.plan_id ?? null,
+            source: "subscribe_success",
+          });
+          trackAdsPurchase({
+            value:
+              typeof data.amount_total_cents === "number"
+                ? data.amount_total_cents / 100
+                : undefined,
+            currency: (data.currency ?? "eur").toUpperCase(),
+            transactionId: sessionId,
+            email: data.email ?? undefined,
+          });
           router.replace(`/signup?session_id=${encodeURIComponent(sessionId)}`);
         } else {
           trackEvent("payment_pending");
