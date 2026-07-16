@@ -281,7 +281,7 @@ export default function ProLanding() {
         <div className="pro-hero__inner">
           <div className="pro-hero__copy pro-reveal">
             <span className="pro-eyebrow pro-eyebrow--light">
-              Pour les écoles de commerce & l'enseignement supérieur
+              Pour les écoles de commerce & l&apos;enseignement supérieur
             </span>
             <h1 className="pro-hero__title">
               L&apos;employabilité de vos étudiants,
@@ -294,9 +294,9 @@ export default function ProLanding() {
             <p className="pro-hero__sub">
               Notre plateforme accompagne vos étudiants à trouver leurs stages et
               leurs alternances : repérage des offres, CV et lettres sur mesure,
-              candidatures envoyées pour eux. Vous l'offrez gratuitement à vos
-              promotions, ils décrochent plus d'entretiens, et vos indicateurs
-              d'insertion s'envolent.
+              candidatures envoyées pour eux. Vous l&apos;offrez gratuitement à vos
+              promotions, ils décrochent plus d&apos;entretiens, et vos indicateurs
+              d&apos;insertion s&apos;envolent.
             </p>
             <div className="pro-hero__cta">
               <a href="#demo" className="btn btn--accent btn--lg">
@@ -433,10 +433,10 @@ export default function ProLanding() {
       <section className="pro-section" id="benefices">
         <div className="pro-section__head pro-reveal">
           <span className="pro-eyebrow">Pourquoi votre établissement</span>
-          <h2 className="pro-h2">Un levier d'employabilité, clé en main.</h2>
+          <h2 className="pro-h2">Un levier d&apos;employabilité, clé en main.</h2>
           <p className="pro-lead">
             Vous investissez dans la réussite de vos étudiants, de la recherche de
-            stage à l'alternance puis au premier emploi. Nous transformons cet
+            stage à l&apos;alternance puis au premier emploi. Nous transformons cet
             investissement en résultats mesurables.
           </p>
         </div>
@@ -480,7 +480,7 @@ export default function ProLanding() {
             <h2 className="pro-h2">Un assistant de carrière, offert.</h2>
             <p className="pro-lead">
               Stages, alternances ou CDI : pendant que vos étudiants se concentrent
-              sur leurs études, la plateforme s'occupe de la recherche, de la
+              sur leurs études, la plateforme s&apos;occupe de la recherche, de la
               rédaction et de la postulation. Ils gardent le contrôle, valident, et
               candidatent 10× plus vite.
             </p>
@@ -501,7 +501,7 @@ export default function ProLanding() {
               <p className="pro-quote__text">
                 &ldquo;On cherchait un vrai plus employabilité à mettre en avant
                 auprès des candidats et des classements. Le déploiement a été bluffant
-                de simplicité, et l'engagement des étudiants au-dessus de nos
+                de simplicité, et l&apos;engagement des étudiants au-dessus de nos
                 attentes.&rdquo;
               </p>
               <div className="pro-quote__author">
@@ -525,10 +525,10 @@ export default function ProLanding() {
       {/* OFFER */}
       <section className="pro-section pro-section--alt" id="offre">
         <div className="pro-section__head pro-reveal">
-          <span className="pro-eyebrow">L'offre établissement</span>
+          <span className="pro-eyebrow">L&apos;offre établissement</span>
           <h2 className="pro-h2">Une licence, tous vos étudiants.</h2>
           <p className="pro-lead">
-            Un modèle simple : vous prenez une licence annuelle, l'accès est gratuit
+            Un modèle simple : vous prenez une licence annuelle, l&apos;accès est gratuit
             et illimité pour vos étudiants.
           </p>
         </div>
@@ -559,7 +559,7 @@ export default function ProLanding() {
             <span className="pro-offer__pilot-badge">Sans engagement</span>
             <h3>Programme pilote gratuit</h3>
             <p>
-              Testez la solution sur une promotion, mesurez l'adoption et l'impact
+              Testez la solution sur une promotion, mesurez l&apos;adoption et l&apos;impact
               réels, puis décidez. Zéro risque, zéro coût pour démarrer.
             </p>
             <a href="#demo" className="btn btn--navy btn--full">
@@ -573,14 +573,14 @@ export default function ProLanding() {
       <section className="pro-cta" id="demo">
         <div className="pro-cta__inner pro-reveal">
           <div className="pro-cta__copy">
-            <h2>Offrez à vos étudiants une longueur d'avance.</h2>
+            <h2>Offrez à vos étudiants une longueur d&apos;avance.</h2>
             <p>
-              20 minutes suffisent pour vous montrer la solution, l'espace
-              établissement et le potentiel sur vos indicateurs d'insertion.
+              20 minutes suffisent pour vous montrer la solution, l&apos;espace
+              établissement et le potentiel sur vos indicateurs d&apos;insertion.
             </p>
             <ul className="pro-cta__points">
               <li>Démo personnalisée à votre établissement</li>
-              <li>Estimation d'impact & devis sur mesure</li>
+              <li>Estimation d&apos;impact & devis sur mesure</li>
               <li>Programme pilote gratuit à la clé</li>
             </ul>
           </div>
@@ -594,7 +594,7 @@ export default function ProLanding() {
                 </svg>
                 <h3>Votre e-mail est prêt à partir</h3>
                 <p>
-                  Votre logiciel de messagerie s'est ouvert avec votre demande.
+                  Votre logiciel de messagerie s&apos;est ouvert avec votre demande.
                   Sinon, écrivez-nous à contact@blowmyjob.fr, on revient vers vous
                   sous 24 h.
                 </p>
@@ -616,7 +616,7 @@ export default function ProLanding() {
                     <input name="email" type="email" required placeholder="prenom@votre-ecole.fr" />
                   </label>
                   <label>
-                    Nombre d'étudiants
+                    Nombre d&apos;étudiants
                     <input name="students" type="text" inputMode="numeric" placeholder="ex. 1 200" />
                   </label>
                 </div>
@@ -628,7 +628,7 @@ export default function ProLanding() {
                   Envoyer ma demande
                 </button>
                 <p className="pro-form__legal">
-                  En envoyant, vous acceptez d'être recontacté au sujet de votre demande.
+                  En envoyant, vous acceptez d&apos;être recontacté au sujet de votre demande.
                 </p>
               </>
             )}

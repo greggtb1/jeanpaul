@@ -110,8 +110,15 @@ export async function POST(req: NextRequest) {
     const claimedByAnotherUser = (priorClaims ?? []).some(
       (claim) => claim.user_id !== user.id
     );
+    // La session courante est reconnue si elle appartient déjà au propriétaire de
+    // l'essai (statut, essai consommé, 1er scan) ou si l'appareil lui est rattaché.
+    // Objectif : toujours faire retrouver sa session à l'utilisateur ; le paywall
+    // n'apparaît que pour une session réellement nouvelle/tierce.
     const recognizedSession =
-      existing?.subscription_status === "trial" || claimedByCurrentUser;
+      existing?.subscription_status === "trial" ||
+      existing?.trial_used === true ||
+      existing?.first_search_done === true ||
+      claimedByCurrentUser;
     const claimRows = [
       {
         claim_type: "device",
@@ -147,7 +154,7 @@ export async function POST(req: NextRequest) {
             : "Votre essai gratuit est terminé",
           trialUsed: true,
           existingSession: recognizedSession,
-          redirectTo: recognizedSession ? "/dashboard" : "/subscribe?trial_used=1",
+          redirectTo: recognizedSession ? "/dashboard" : "/dashboard?trial_used=1",
         },
         409
       );
@@ -159,7 +166,7 @@ export async function POST(req: NextRequest) {
           error: "Un essai découverte a déjà été utilisé depuis cet appareil",
           trialUsed: true,
           existingSession: claimedByCurrentUser,
-          redirectTo: claimedByCurrentUser ? "/dashboard" : "/subscribe?trial_used=1",
+          redirectTo: claimedByCurrentUser ? "/dashboard" : "/dashboard?trial_used=1",
         },
         409
       );
@@ -220,7 +227,7 @@ export async function POST(req: NextRequest) {
           {
             error: "Un essai découverte a déjà été utilisé depuis cet appareil",
             trialUsed: true,
-            redirectTo: "/subscribe?trial_used=1",
+            redirectTo: "/dashboard?trial_used=1",
           },
           409
         );

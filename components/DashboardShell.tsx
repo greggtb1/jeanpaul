@@ -30,6 +30,14 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   useEffect(() => {
     if (loading || !uid) return;
     if (isReferralPage) return;
+    // Vue "essai déjà utilisé" : on reste sur le dashboard flouté + blocage,
+    // sans rebondir vers l'onboarding même si le profil est incomplet.
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("trial_used") === "1"
+    ) {
+      return;
+    }
 
     const supabase = createClient();
     supabase

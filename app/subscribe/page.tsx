@@ -50,7 +50,13 @@ export default function SubscribePage() {
 
       const supabase = createClient();
       const draft = existingDraft ?? loadDraft() ?? {};
+      // Toujours tenter de retrouver la session existante (cookie Supabase encore
+      // valide, même après plusieurs jours) avant d'en recréer une nouvelle.
       let userId = uid;
+      if (!userId) {
+        const { data: current } = await supabase.auth.getUser();
+        userId = current.user?.id ?? "";
+      }
       if (!userId) {
         const { data: anon, error: anonError } = await supabase.auth.signInAnonymously();
         if (anonError || !anon.user) throw anonError ?? new Error("Session anonyme refusée");
@@ -84,10 +90,7 @@ export default function SubscribePage() {
           return;
         }
         if (data.trialUsed) {
-          setTrialNotice(true);
-          setError(data.error || "Votre essai découverte a déjà été utilisé.");
-          setDiscoveryLoading(false);
-          router.replace("/subscribe?trial_used=1");
+          router.push(data.redirectTo || "/dashboard?trial_used=1");
           return;
         }
         throw new Error(data.error || "Recherche indisponible");

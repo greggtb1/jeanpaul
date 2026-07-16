@@ -49,7 +49,9 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthPage) {
+  // Un utilisateur anonyme (essai en cours) doit pouvoir accéder à /login pour
+  // se connecter à un vrai compte : on ne le renvoie pas vers le dashboard.
+  if (user && !user.is_anonymous && isAuthPage) {
     const url = request.nextUrl.clone();
     const next = request.nextUrl.searchParams.get("next");
     url.pathname = next?.startsWith("/dashboard") ? next : "/dashboard";
@@ -66,6 +68,10 @@ export async function updateSession(request: NextRequest) {
 
   const isSubscribe = path === "/subscribe" || path.startsWith("/subscribe/");
   const isReferralDashboard = path === "/dashboard/parrainage";
+  // Vue "essai déjà utilisé" : on laisse toujours atteindre le dashboard (flouté +
+  // blocage), sans rebondir vers l'onboarding ou l'abonnement.
+  const isTrialUsedView =
+    path === "/dashboard" && request.nextUrl.searchParams.get("trial_used") === "1";
 
   // Un utilisateur anonyme (mode essai) doit pouvoir finaliser /signup ou payer sur /subscribe
   if (user && !user.is_anonymous && (isSignup || isSubscribe) && !path.startsWith("/subscribe/success")) {
@@ -85,7 +91,7 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  if (user && path.startsWith("/dashboard") && !isReferralDashboard) {
+  if (user && path.startsWith("/dashboard") && !isReferralDashboard && !isTrialUsedView) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("onboarding_done, subscription_status, plan_id")

@@ -251,7 +251,7 @@ export default function BlogAdminPage() {
             </div>
 
             <label className="blog-admin__field">
-              <span>Titre de l'article</span>
+              <span>Titre de l&apos;article</span>
               <input
                 value={form.title}
                 onChange={(e) => set({ title: e.target.value })}
@@ -376,7 +376,7 @@ export default function BlogAdminPage() {
               </button>
               {form.slug && (
                 <Link href={previewUrl} className="blog-admin__preview-link">
-                  Voir l'URL
+                  Voir l&apos;URL
                 </Link>
               )}
             </div>
@@ -387,7 +387,7 @@ export default function BlogAdminPage() {
             {loading ? (
               <p className="blog-admin__muted">Chargement…</p>
             ) : articles.length === 0 ? (
-              <p className="blog-admin__muted">Aucun article pour l'instant.</p>
+              <p className="blog-admin__muted">Aucun article pour l&apos;instant.</p>
             ) : (
               articles.map((article) => (
                 <article className="blog-admin__item" key={article.id}>

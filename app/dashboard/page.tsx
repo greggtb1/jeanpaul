@@ -7,6 +7,7 @@ import { type Profile, type Job } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import { getPlan, parsePlanId } from "@/lib/plans";
+import TrialUsedBlock from "@/components/TrialUsedBlock";
 import {
   buildUpgradeOffer,
   buyCreditsPath,
@@ -347,6 +348,7 @@ export default function Dashboard() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [paywallContext, setPaywallContext] = useState<PaywallContext | null>(null);
+  const [trialUsedBlock, setTrialUsedBlock] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const unlockTriggeredRef = useRef(false);
   const prevRunStatusRef = useRef<string | null>(null);
@@ -636,9 +638,15 @@ export default function Dashboard() {
         runId?: string;
         alreadyRunning?: boolean;
         existingSession?: boolean;
+        trialUsed?: boolean;
         redirectTo?: string;
       }>(res);
       if (!res.ok || data.error) {
+        if (data.trialUsed) {
+          setTrialUsedBlock(true);
+          await load(uid, false);
+          return;
+        }
         if (data.redirectTo && data.redirectTo !== "/dashboard") {
           router.push(data.redirectTo);
           return;
@@ -734,6 +742,12 @@ export default function Dashboard() {
     window.addEventListener("ja:prefs-updated", onPrefs);
     return () => window.removeEventListener("ja:prefs-updated", onPrefs);
   }, [uid, load, fetchRun]);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("trial_used") === "1") {
+      setTrialUsedBlock(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!uid || profile?.subscription_status !== "trial") return;
@@ -1044,7 +1058,10 @@ export default function Dashboard() {
 
   return (
     <>
-      <main className="db__main db__main--with-terminal">
+      <main
+        className={`db__main db__main--with-terminal${trialUsedBlock ? " db__main--blocked" : ""}`}
+        aria-hidden={trialUsedBlock || undefined}
+      >
         <div className="db__hello">
           <h1>{greeting}</h1>
           {!showFirstSearch && (
@@ -1412,6 +1429,7 @@ export default function Dashboard() {
           onClose={() => setPaywallContext(null)}
         />
       )}
+      {trialUsedBlock && <TrialUsedBlock source="dashboard" />}
     </>
   );
 }

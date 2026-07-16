@@ -32,6 +32,7 @@ import {
   CvDropzone,
 } from "@/components/ProfilePreferencesFields";
 import BrandName from "@/components/BrandName";
+import TrialUsedBlock from "@/components/TrialUsedBlock";
 import { queueDashboardProductTourAfterOnboarding } from "@/components/DashboardProductTour";
 import { trackEvent } from "@/lib/umami";
 import {
@@ -102,6 +103,7 @@ export default function Onboarding() {
   const [parsingCv, setParsingCv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [alreadyPaid, setAlreadyPaid] = useState(false);
+  const [trialUsedBlock, setTrialUsedBlock] = useState(false);
   const parsedCvKey = useRef("");
 
   useEffect(() => {
@@ -359,9 +361,15 @@ export default function Onboarding() {
 
       // Scan découverte gratuit : session anonyme + premier scan bridé, paiement plus tard.
       try {
+        // Toujours tenter de retrouver la session existante (cookie Supabase encore
+        // valide, même après plusieurs jours) avant d'en recréer une nouvelle.
+        const supabase = createClient();
         let userId = uid;
         if (!userId) {
-          const supabase = createClient();
+          const { data: current } = await supabase.auth.getUser();
+          userId = current.user?.id ?? "";
+        }
+        if (!userId) {
           const { data: anon, error: anonError } = await supabase.auth.signInAnonymously();
           if (anonError || !anon.user) throw anonError ?? new Error("Session anonyme refusée");
           userId = anon.user.id;
@@ -389,6 +397,18 @@ export default function Onboarding() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          // Session reconnue : on renvoie l'utilisateur vers son dashboard existant.
+          if (data.existingSession && data.redirectTo) {
+            router.push(data.redirectTo);
+            return;
+          }
+          // Essai déjà utilisé : on affiche le blocage directement en fin d'onboarding.
+          if (data.trialUsed) {
+            trackEvent("onboarding_trial_used_blocked", { plan: planId });
+            setTrialUsedBlock(true);
+            setSaving(false);
+            return;
+          }
           if (data.redirectTo) {
             router.push(data.redirectTo);
             return;
@@ -457,7 +477,11 @@ export default function Onboarding() {
   return (
     <div className="ob">
       <div className="bg-decor" aria-hidden="true" />
-      <div className="ob__shell">
+      {trialUsedBlock && <TrialUsedBlock source="onboarding" />}
+      <div
+        className={`ob__shell${trialUsedBlock ? " db__main--blocked" : ""}`}
+        aria-hidden={trialUsedBlock || undefined}
+      >
         <header className="ob__top">
           <BrandName />
           <div className="ob__progress" aria-hidden="true">
