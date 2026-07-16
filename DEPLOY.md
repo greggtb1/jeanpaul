@@ -27,7 +27,6 @@ bash scripts/make-deploy-zip.sh
 ssh -p 65002 u705793670@82.25.113.153
 bash ~/blowmyjob/scripts/fix-hostinger-prod.sh
 ```
-ls ~/blowmyjob/engine/run_for_user.py && bash ~/domains/blowmyjob.fr/public_html/.builds/last-source/scripts/fix-hostinger-prod.sh
 
 
 Le script :
@@ -63,12 +62,34 @@ Attends 2 min. **Ne clique pas 5 fois** → 503 garanti.
 
 ## Récap 30 secondes
 
+### A. Déploiement normal (tu as touché au SITE : pages, dashboard, styles…)
+
 ```
 Mac:     npm run build && bash scripts/make-deploy-zip.sh
 hPanel:  upload deploy.zip
 SSH:     bash ~/blowmyjob/scripts/fix-hostinger-prod.sh
 hPanel:  Restart (1×)
 ```
+
+### B. En plus, SEULEMENT si tu as touché au MOTEUR Python (dossier `engine/`)
+
+Le déploiement normal **ne met pas à jour** le moteur Python (il vit dans `~/blowmyjob/engine`
+et l'upload hPanel ne l'écrit jamais). Après le déploiement normal, pousse le moteur depuis ton Mac :
+
+```bash
+cd /Users/gregoirelinee/dev/aiapply
+tar czf - \
+  --exclude='engine/venv' \
+  --exclude='engine/.env' \
+  --exclude='*/__pycache__' \
+  --exclude='engine/run-logs' \
+  engine | ssh -p 65002 u705793670@82.25.113.153 'tar xzf - -C ~/blowmyjob'
+```
+
+Puis **Restart (1×)**. (venv et `.env` du serveur sont préservés.)
+
+Symptôme si tu oublies : le site a les nouveautés mais le moteur agit « à l'ancienne »
+(ex : pas de leurres, mauvais plafond de dossiers).
 
 ---
 

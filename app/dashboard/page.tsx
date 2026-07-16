@@ -51,7 +51,7 @@ import { loadDraft } from "@/lib/onboarding-draft";
 import { resolveProfileCv } from "@/lib/onboarding-cv";
 import { buildOnboardingPrefsPatch } from "@/lib/sync-onboarding-prefs";
 import { parseApiJson } from "@/lib/parse-api-json";
-import { canToggleAppliedMark, isJobReady, isJobReadyWithoutCv } from "@/lib/job-ready";
+import { canToggleAppliedMark, isJobReady, isJobReadyWithoutCv, MIN_READY_SCORE } from "@/lib/job-ready";
 import { isTrialDecoyJob } from "@/lib/trial-decoy";
 import { isPlausiblePersonName } from "@/lib/file-name";
 import { isTrialDiscoveryComplete, shouldShowTrialPaywall } from "@/lib/trial-discovery";
@@ -349,6 +349,8 @@ export default function Dashboard() {
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [paywallContext, setPaywallContext] = useState<PaywallContext | null>(null);
   const [trialUsedBlock, setTrialUsedBlock] = useState(false);
+  const [noCompatibleNotice, setNoCompatibleNotice] = useState(false);
+  const finalizeDocsPendingRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const unlockTriggeredRef = useRef(false);
   const prevRunStatusRef = useRef<string | null>(null);
@@ -714,7 +716,39 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || `Impossible d'arrêter (${res.status})`);
       await fetchRun();
       if (uid) await load(uid, true);
-      if (finalizeFound) {
+      if (finalizeFound && uid) {
+        const { data: currentJobs } = await supabase
+          .from("jobs")
+          .select("url,data,cv_url,fit_score")
+          .eq("user_id", uid)
+          .eq("deleted", false);
+
+        const realJobs = (currentJobs ?? []).filter(
+          (j) => !isTrialDecoyJob({ url: j.url ?? "", data: (j.data as Record<string, unknown>) ?? {} })
+        );
+
+        if (realJobs.length === 0) {
+          setNoCompatibleNotice(true);
+          return;
+        }
+
+        const pendingUnscored = realJobs.filter((j) => {
+          const score = j.fit_score ?? (j.data as Record<string, unknown> | null)?._fit_score;
+          return typeof score !== "number";
+        });
+        const qualifying = realJobs.filter((j) => {
+          const score = j.fit_score ?? (j.data as Record<string, unknown> | null)?._fit_score;
+          return typeof score === "number" && score >= MIN_READY_SCORE;
+        });
+
+        // Jamais de génération sous 6/10. S'il reste des offres non scorées,
+        // on les analyse d'abord (le moteur ne génère ensuite que les ≥6).
+        if (qualifying.length === 0 && pendingUnscored.length === 0) {
+          setNoCompatibleNotice(true);
+          return;
+        }
+
+        finalizeDocsPendingRef.current = true;
         await startPipeline("analyze");
       }
     } catch (e) {
@@ -723,7 +757,7 @@ export default function Dashboard() {
     } finally {
       setStopping(false);
     }
-  }, [fetchRun, load, run, startPipeline, uid]);
+  }, [fetchRun, load, run, startPipeline, supabase, uid]);
 
   const requestStopPipeline = useCallback(() => {
     if (!run) return;
@@ -812,6 +846,26 @@ export default function Dashboard() {
     if (!run?.status) return;
     prevRunStatusRef.current = run.status;
   }, [run?.status]);
+
+  // Après « Générer les dossiers trouvés » : si aucune offre ≥6/10, message clair.
+  useEffect(() => {
+    if (!finalizeDocsPendingRef.current) return;
+    if (run?.status !== "done" && run?.status !== "failed" && run?.status !== "cancelled") return;
+    finalizeDocsPendingRef.current = false;
+    if (run.status !== "done") return;
+
+    const qualifying = jobs.filter((j) => {
+      if (isTrialDecoyJob(j) || isImportedJob(j)) return false;
+      const score = getJobScore(j);
+      return score != null && score >= MIN_READY_SCORE;
+    });
+    const generatedCount = Array.isArray(run.result?.generated_urls)
+      ? run.result.generated_urls.length
+      : 0;
+    if (qualifying.length === 0 && generatedCount === 0) {
+      setNoCompatibleNotice(true);
+    }
+  }, [run?.status, run?.result, jobs]);
 
   const toggleApplied = useCallback(async (url: string) => {
     if (!uid) return;
@@ -1430,7 +1484,50 @@ export default function Dashboard() {
         />
       )}
       {trialUsedBlock && <TrialUsedBlock source="dashboard" />}
+      {noCompatibleNotice && (
+        <NoCompatibleOffersModal onClose={() => setNoCompatibleNotice(false)} />
+      )}
     </>
+  );
+}
+
+function NoCompatibleOffersModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="stop-modal__overlay" role="presentation" onClick={onClose}>
+      <div
+        className="stop-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="no-compatible-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="stop-modal__close"
+          aria-label="Fermer"
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <p className="stop-modal__eyebrow">Aucune génération</p>
+        <h2 id="no-compatible-title" className="stop-modal__title">
+          Aucune offre compatible
+        </h2>
+        <p className="stop-modal__text">
+          Aucune offre à 6/10 ou plus n&apos;a été trouvée. Aucun CV ni lettre n&apos;a
+          été généré. Relancez un scan en adaptant vos critères (poste, lieu, type de
+          contrat) pour de meilleurs matchs.
+        </p>
+        <div className="stop-modal__actions">
+          <Link href="/dashboard/preferences" className="stop-modal__primary" onClick={onClose}>
+            Adapter mes critères
+          </Link>
+          <button type="button" className="stop-modal__secondary" onClick={onClose}>
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1468,8 +1565,8 @@ function StopSearchConfirmModal({
           Que fait-on des offres déjà trouvées ?
         </h2>
         <p className="stop-modal__text">
-          Vous pouvez arrêter net, ou générer les CV et lettres pour les offres déjà
-          trouvées qui matchent bien (6/10 ou plus).
+          Seules les offres à 6/10 ou plus reçoivent un CV et une lettre. Les notes
+          en dessous ne génèrent jamais de dossier.
         </p>
         <div className="stop-modal__actions">
           <button
@@ -1478,7 +1575,7 @@ function StopSearchConfirmModal({
             onClick={onFinalize}
             disabled={stopping}
           >
-            {stopping ? "Arrêt…" : "Générer les dossiers trouvés"}
+            {stopping ? "Arrêt…" : "Générer les dossiers ≥ 6/10"}
           </button>
           <button
             type="button"
@@ -2011,8 +2108,8 @@ function LiveJobsNotice({
 
   const { title, text } = isGenerating
     ? {
-        title: "Génération des CV et lettres",
-        text: `${count} offre${count > 1 ? "s" : ""} retenue${count > 1 ? "s" : ""}. Vos CV et lettres de motivation sont en cours de rédaction.`,
+        title: "Vos dossiers arrivent",
+        text: `${count} offre${count > 1 ? "s" : ""} retenue${count > 1 ? "s" : ""}. Vos CV et lettres de motivation arrivent dans un instant.`,
       }
     : isScoring
       ? {

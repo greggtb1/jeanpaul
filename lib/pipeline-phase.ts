@@ -344,7 +344,7 @@ export function parsePipelinePhase(
       : "Démarrage de l'analyse…";
   } else if (subPhase === "generate") {
     const skipDocs = /génération ignorée|Pas de CV, génération ignorée/i.test(log);
-    stepLabel = skipDocs ? "Dossiers repérés" : "Rédaction du CV et de la lettre";
+    stepLabel = skipDocs ? "Dossiers repérés" : "Vos dossiers arrivent";
     detail = generated
       ? `${generated}/${generateMax} dossier${generated > 1 ? "s" : ""} prêt${generated > 1 ? "s" : ""}`
       : skipDocs

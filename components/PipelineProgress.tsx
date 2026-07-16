@@ -14,10 +14,13 @@ function getHero(
 ): { value: string; label: string } {
   const frac = phase.detail.match(/^(\d+)\s*\/\s*(\d+)/);
   if (frac) {
-    const label =
-      phase.subPhase === "generate" || phase.subPhase === "sync"
-        ? "dossiers prêts"
-        : phase.subPhase === "hunt_fill" || phase.subPhase === "analyze"
+    const isGen = phase.subPhase === "generate" || phase.subPhase === "sync";
+    if (isGen && !(phase.generated > 0) && frac[1] === "0") {
+      return { value: "…", label: "bientôt prêts" };
+    }
+    const label = isGen
+      ? "dossiers prêts"
+      : phase.subPhase === "hunt_fill" || phase.subPhase === "analyze"
           ? "offres retenues"
           : phase.subPhase.startsWith("autoapply")
             ? "formulaires"
@@ -35,7 +38,10 @@ function getHero(
     return { value: `${phase.queriesDone}/${phase.queriesTotal}`, label: "requêtes" };
   }
   if (GEN_PHASES.includes(phase.subPhase)) {
-    return { value: String(phase.generated || 0), label: "dossiers prêts" };
+    if (phase.generated > 0) {
+      return { value: String(phase.generated), label: "dossiers prêts" };
+    }
+    return { value: "…", label: "bientôt prêts" };
   }
   if (phase.subPhase === "boot") {
     return { value: "…", label: "démarrage" };
@@ -55,7 +61,7 @@ function getStatusLabel(
   if (importOnly) return "Import d'offre";
   if (analyzeOnly) return "Analyse des offres";
   if (SCORE_PHASES.includes(phase.subPhase)) return "Recherche & notation";
-  if (GEN_PHASES.includes(phase.subPhase)) return "Rédaction du CV et de la lettre";
+  if (GEN_PHASES.includes(phase.subPhase)) return "Vos dossiers arrivent";
   if (SCAN_PHASES.includes(phase.subPhase)) return "Scan LinkedIn + HelloWork";
   if (phase.subPhase === "done") return "Terminé";
   return "En cours";
@@ -162,7 +168,7 @@ export default function PipelineProgress({
             <span style={{ width: `${progressPct}%` }} />
           </div>
         </div>
-        {showEta && <p className="db-run__eta">environ 1 min pour un scan complet</p>}
+        {showEta && <p className="db-run__eta">environ 2 min pour un scan complet</p>}
       </section>
     );
   }
@@ -190,7 +196,7 @@ export default function PipelineProgress({
           <span style={{ width: `${progressPct}%` }} />
         </div>
       </div>
-      {showEta && <p className="db-run__eta">environ 1 min pour un scan complet</p>}
+      {showEta && <p className="db-run__eta">environ 2 min pour un scan complet</p>}
     </section>
   );
 }

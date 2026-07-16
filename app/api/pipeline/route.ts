@@ -7,10 +7,17 @@ import { engineUnavailableMessage, resolveEnginePaths } from "@/lib/engine-path"
 import { spawnEngineProcess } from "@/lib/engine-spawn";
 import { stopPipelineRun } from "@/lib/pipeline-stop";
 import { reconcileStalePipelineRun, trimPipelineLog } from "@/lib/pipeline-reconcile";
-import { assertPipelineQuota } from "@/lib/plan-quota";
+import { assertPipelineQuota, countGeneratedJobs, TRIAL_DISCOVERY_GEN_MAX } from "@/lib/plan-quota";
 import { createAgentLaunchToken } from "@/lib/agent-launch";
+import { isTrialDecoyJob } from "@/lib/trial-decoy";
 
 export const dynamic = "force-dynamic";
+
+// Rattrapage borné pour l'essai découverte : uniquement pour terminer les 4
+// dossiers gratuits (offres déjà trouvées) ou relancer un scan si rien n'est
+// sorti du tout. Jamais de génération/scan illimité.
+const TRIAL_CATCHUP_HUNT_TARGET = 8;
+const TRIAL_CATCHUP_MAX_ATTEMPTS = 4;
 
 async function requireSession() {
   const supabase = await createClient();
@@ -116,25 +123,72 @@ export async function POST(req: NextRequest) {
       profile?.subscription_status === "active" ||
       profile?.subscription_status === "trialing";
 
-    if (!subscribed) {
-      if (profile?.subscription_status === "trial") {
-        return NextResponse.json(
-          {
-            error: "Première recherche terminée. Choisissez un plan pour relancer une recherche.",
-            trialLocked: true,
-          },
-          { status: 403 }
-        );
-      }
-      return NextResponse.json({ error: "Abonnement inactif" }, { status: 403 });
-    }
-
     let admin;
     try {
       admin = createAdminClient();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Configuration serveur incomplète";
       return NextResponse.json({ error: message }, { status: 503 });
+    }
+
+    // Rattrapage borné de l'essai découverte : jamais de scan/génération illimité.
+    let trialCatchup: { huntTarget: number; genMax: number } | null = null;
+
+    if (!subscribed) {
+      if (profile?.subscription_status !== "trial") {
+        return NextResponse.json({ error: "Abonnement inactif" }, { status: 403 });
+      }
+
+      const trialLockedResponse = () =>
+        NextResponse.json(
+          {
+            error: "Première recherche terminée. Choisissez un plan pour relancer une recherche.",
+            trialLocked: true,
+          },
+          { status: 403 }
+        );
+
+      if (mode !== "analyze" && mode !== "full") return trialLockedResponse();
+
+      const { data: trialJobsRaw } = await admin
+        .from("jobs")
+        .select("url,data,cv_url,fit_score")
+        .eq("user_id", userId)
+        .eq("deleted", false);
+      const trialJobs = trialJobsRaw ?? [];
+      const realJobsCount = trialJobs.filter(
+        (j) => !isTrialDecoyJob({ url: j.url ?? "", data: j.data ?? {} })
+      ).length;
+      const generatedCount = countGeneratedJobs(trialJobs);
+      const remainingSlots = Math.max(0, TRIAL_DISCOVERY_GEN_MAX - generatedCount);
+      const noOffersFound = realJobsCount === 0;
+
+      // Seul cas autorisé : finir les 4 dossiers découverte, ou relancer un scan
+      // si aucune offre n'est jamais sortie. Rien d'autre ne doit passer ici.
+      const catchupAllowed =
+        (mode === "analyze" && remainingSlots > 0) || (mode === "full" && noOffersFound);
+      if (!catchupAllowed) return trialLockedResponse();
+
+      const attemptsId = `trial_catchup_attempts:${userId}`;
+      const { data: attemptsRow } = await admin
+        .from("app_state")
+        .select("data")
+        .eq("id", attemptsId)
+        .maybeSingle();
+      const attempts = Number(
+        (attemptsRow?.data as { count?: number } | null)?.count ?? 0
+      );
+      if (attempts >= TRIAL_CATCHUP_MAX_ATTEMPTS) return trialLockedResponse();
+
+      await admin.from("app_state").upsert(
+        { id: attemptsId, user_id: userId, data: { count: attempts + 1 } },
+        { onConflict: "id" }
+      );
+
+      trialCatchup =
+        mode === "full"
+          ? { huntTarget: TRIAL_CATCHUP_HUNT_TARGET, genMax: TRIAL_DISCOVERY_GEN_MAX }
+          : { huntTarget: TRIAL_CATCHUP_HUNT_TARGET, genMax: remainingSlots };
     }
 
     const quota = await assertPipelineQuota(admin, userId, mode, profile ?? {});
@@ -285,8 +339,9 @@ export async function POST(req: NextRequest) {
       ],
       {
         ...buildEngineSpawnEnv(userId, runId),
-        JA_HUNT_TARGET: String(quota.runTarget),
+        JA_HUNT_TARGET: String(trialCatchup ? trialCatchup.huntTarget : quota.runTarget),
         ...(mode === "unlock" ? { JA_GEN_MAX: String(quota.runTarget) } : {}),
+        ...(trialCatchup ? { JA_GEN_MAX: String(trialCatchup.genMax) } : {}),
       }
     );
 

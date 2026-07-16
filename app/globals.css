@@ -4985,6 +4985,13 @@ button.ob__stair-crumb:not(.is-current):hover {
   background: var(--navy);
   color: #fff;
 }
+a.stop-modal__primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  box-sizing: border-box;
+}
 .stop-modal__secondary {
   border: 1px solid #e2e8f0;
   background: #fff;

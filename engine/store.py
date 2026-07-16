@@ -362,6 +362,26 @@ def upload_app_documents(user_id: str, output_dir: Path) -> int:
     storage = client().storage.from_("cvs")
     updated = 0
 
+    # Le dossier `applications/` est partagé par tout le serveur. On ne traite que
+    # les offres du user courant qui n'ont pas déjà leurs deux documents liés :
+    # inutile de re-uploader/re-signer des centaines de dossiers à chaque scan.
+    existing: dict[str, dict] = {}
+    try:
+        res = (
+            client()
+            .table("jobs")
+            .select("url,cv_url,letter_url")
+            .eq("user_id", user_id)
+            .eq("deleted", False)
+            .execute()
+        )
+        for r in (res.data or []):
+            u = (r.get("url") or "").strip()
+            if u:
+                existing[u] = r
+    except Exception:
+        existing = {}
+
     for d in sorted(Path(output_dir).glob("*/")):
         ji = d / "job_info.json"
         if not ji.exists():
@@ -372,6 +392,13 @@ def upload_app_documents(user_id: str, output_dir: Path) -> int:
             continue
         job_url = (info.get("job", {}).get("url") or "").strip()
         if not job_url:
+            continue
+        row = existing.get(job_url)
+        if row is None:
+            # Dossier d'un autre user (répertoire partagé) → ignorer.
+            continue
+        if row.get("cv_url") and row.get("letter_url"):
+            # Déjà synchronisé lors d'un run précédent → ne pas refaire.
             continue
 
         cvs = sorted(d.glob("*.pdf"))
