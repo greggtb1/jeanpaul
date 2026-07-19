@@ -49,7 +49,7 @@ export default function ReferralSimulator({
     >
       {isDashboard && (
         <p className="ref-sim__dashboard-note">
-          Estimation si vos filleuls restent abonnés — 35% à chaque paiement.
+          Estimation si vos filleuls restent abonnés : 35% à chaque paiement.
         </p>
       )}
 

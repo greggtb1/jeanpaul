@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { downloadCvPdf, buildCvPdfBlob } from "@/lib/cv-pdf";
 import { nameFileSuffix } from "@/lib/file-name";
+import PdfPreview from "@/components/PdfPreview";
 
 type Props = {
   company: string;
@@ -302,22 +303,6 @@ export default function CvModal({ company, title, cvUrl, fullName, onLockedRefin
               </span>
             </div>
 
-            {hasRefined && changes.length > 0 && (
-              <div className="cv-modal__changes" role="status">
-                <span className="cv-modal__changes-badge">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Modifié
-                </span>
-                <ul className="cv-modal__changes-list">
-                  {changes.map((c, i) => (
-                    <li key={i} className="cv-modal__change-pill">{c}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
             <div className={`cv-modal__preview-frame${refining ? " cv-modal__preview-frame--busy" : ""}`}>
               {showPreviewSpinner && (
                 <div className="cv-modal__preview-loading" role="status" aria-live="polite">
@@ -335,18 +320,14 @@ export default function CvModal({ company, title, cvUrl, fullName, onLockedRefin
                 </div>
               )}
               {previewSrc && (
-                <object
+                <PdfPreview
                   key={previewSrc}
+                  src={previewSrc}
                   className={`cv-modal__object${hasRefined ? " cv-modal__object--fade" : ""}`}
-                  data={`${previewSrc}#toolbar=0&navpanes=0&view=FitH&zoom=page-width`}
-                  type="application/pdf"
-                  aria-label={`Aperçu du CV ${company}`}
+                  label={`Aperçu du CV ${company}`}
                   onLoad={() => setLoadingPreview(false)}
-                >
-                  <p className="cv-modal__fallback">
-                    Aperçu indisponible. Téléchargez le CV avec le bouton en bas.
-                  </p>
-                </object>
+                  onError={() => setLoadingPreview(false)}
+                />
               )}
             </div>
           </section>
@@ -384,8 +365,28 @@ export default function CvModal({ company, title, cvUrl, fullName, onLockedRefin
               className={`cv-modal__send${refining ? " cv-modal__send--busy" : ""}`}
               disabled={refining || instruction.trim().length < 3}
               onClick={() => runRefine()}
+              aria-label={refining ? "Modification en cours" : "Modifier"}
             >
-              {refining ? <span className="cv-modal__send-spinner" aria-hidden="true" /> : "Modifier"}
+              {refining ? (
+                <span className="cv-modal__send-spinner" aria-hidden="true" />
+              ) : (
+                <svg
+                  className="cv-modal__send-icon"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 19V5M12 5l-6 6M12 5l6 6"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
             </button>
           </div>
           {refining && (
@@ -393,6 +394,21 @@ export default function CvModal({ company, title, cvUrl, fullName, onLockedRefin
               <span className="cv-modal__refine-loading-dot" aria-hidden="true" />
               Modification en cours…
             </p>
+          )}
+          {hasRefined && changes.length > 0 && (
+            <div className="cv-modal__changes" role="status">
+              <span className="cv-modal__changes-badge">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Modifié
+              </span>
+              <ul className="cv-modal__changes-list">
+                {changes.map((c, i) => (
+                  <li key={i} className="cv-modal__change-pill">{c}</li>
+                ))}
+              </ul>
+            </div>
           )}
           {error && <p className="letter-modal__error">{error}</p>}
         </div>

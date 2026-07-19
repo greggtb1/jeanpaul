@@ -4,10 +4,11 @@ import { FREE_DISCOVERY_OFFER } from "@/lib/plans";
 export default function CurrentDiscoveryPlanCard() {
   return (
     <article className="pricing-card pricing-card--current fact-upgrade__card" aria-current="true">
-      <span className="pricing-card__badge pricing-card__badge--current">Formule actuelle</span>
-
-      <h3 className="pricing-card__title">{FREE_DISCOVERY_OFFER.name}</h3>
       <p className="pricing-card__tagline">{FREE_DISCOVERY_OFFER.tagline}</p>
+      <div className="pricing-card__name-row">
+        <h3 className="pricing-card__title">{FREE_DISCOVERY_OFFER.name}</h3>
+        <span className="pricing-card__label pricing-card__label--current">Actuel</span>
+      </div>
 
       <div className="pricing-card__price">
         <strong>{FREE_DISCOVERY_OFFER.priceLabel}</strong>

@@ -10,13 +10,15 @@ import { isTrialDiscoveryComplete } from "@/lib/trial-discovery";
 import {
   attachTrialDeviceCookie,
   getTrialIdentity,
+  trialIpDayAbuseId,
+  TRIAL_IP_DAY_MAX,
 } from "@/lib/trial-guard";
 
 export const dynamic = "force-dynamic";
 
-// Scan découverte bridé : 8 offres analysées, 4 dossiers CV+lettre générés.
-const TRIAL_HUNT_TARGET = 8;
-const TRIAL_GEN_MAX = 4;
+// Scan découverte bridé : 6 offres retenues, 3 dossiers CV+lettre générés.
+const TRIAL_HUNT_TARGET = 6;
+const TRIAL_GEN_MAX = 3;
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const draft = (body?.draft ?? null) as OnboardingDraft | null;
     const prepareOnly = body?.prepare_only === true;
-    if (!draft || !Array.isArray(draft.target_roles) || !draft.target_roles.length) {
+    if (!draft) {
       return NextResponse.json({ error: "Profil d'onboarding incomplet" }, { status: 400 });
     }
 
@@ -51,9 +53,17 @@ export async function POST(req: NextRequest) {
 
     const { data: existing } = await admin
       .from("profiles")
-      .select("subscription_status,trial_used,first_search_done")
+      .select(
+        "subscription_status,trial_used,first_search_done,target_roles,target_locations,location_search_mode,location_radius_km,contract_type,remote_pref,salary_min,cv_url,cv_filename,letter_tone,letter_sample,full_name,email,phone,location,plan_id"
+      )
       .eq("id", user.id)
       .maybeSingle();
+
+    const draftRoles = Array.isArray(draft.target_roles) ? draft.target_roles : [];
+    const dbRoles = Array.isArray(existing?.target_roles) ? existing.target_roles : [];
+    if (!draftRoles.length && !dbRoles.length) {
+      return NextResponse.json({ error: "Profil d'onboarding incomplet" }, { status: 400 });
+    }
 
     if (
       existing?.subscription_status === "active" ||
@@ -104,21 +114,6 @@ export async function POST(req: NextRequest) {
       return trialJson({ error: "Garde-fou découverte indisponible" }, 503);
     }
 
-    const claimedByCurrentUser = (priorClaims ?? []).some(
-      (claim) => claim.user_id === user.id
-    );
-    const claimedByAnotherUser = (priorClaims ?? []).some(
-      (claim) => claim.user_id !== user.id
-    );
-    // La session courante est reconnue si elle appartient déjà au propriétaire de
-    // l'essai (statut, essai consommé, 1er scan) ou si l'appareil lui est rattaché.
-    // Objectif : toujours faire retrouver sa session à l'utilisateur ; le paywall
-    // n'apparaît que pour une session réellement nouvelle/tierce.
-    const recognizedSession =
-      existing?.subscription_status === "trial" ||
-      existing?.trial_used === true ||
-      existing?.first_search_done === true ||
-      claimedByCurrentUser;
     const claimRows = [
       {
         claim_type: "device",
@@ -132,14 +127,15 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    if (
-      existing?.trial_used ||
-      existing?.first_search_done ||
-      isTrialDiscoveryComplete(userJobs ?? [])
-    ) {
-      // Les essais antérieurs au garde-fou sont rattachés au navigateur dès
-      // leur prochaine visite, avant une éventuelle déconnexion anonyme.
-      if (recognizedSession && (priorClaims ?? []).length === 0) {
+    const discoveryComplete = isTrialDiscoveryComplete(userJobs ?? []);
+    const alreadyStarted =
+      existing?.trial_used === true || existing?.first_search_done === true;
+
+    // Paywall dur UNIQUEMENT si CET utilisateur a déjà ses 3 dossiers.
+    // Appareil/IP déjà vu → on ne bloque plus : on restaure la session courante
+    // ou on laisse refaire un onboarding (garde-fou soft plus bas).
+    if (discoveryComplete) {
+      if ((priorClaims ?? []).length === 0) {
         await admin
           .from("trial_claims")
           .upsert(claimRows, {
@@ -149,24 +145,30 @@ export async function POST(req: NextRequest) {
       }
       return trialJson(
         {
-          error: recognizedSession
-            ? "Votre session découverte existe déjà"
-            : "Votre essai gratuit est terminé",
+          error: "Votre essai gratuit est terminé",
           trialUsed: true,
-          existingSession: recognizedSession,
-          redirectTo: recognizedSession ? "/dashboard" : "/dashboard?trial_used=1",
+          existingSession: true,
+          redirectTo: "/dashboard?trial_used=1",
         },
         409
       );
     }
 
-    if (claimedByAnotherUser) {
+    // Essai déjà lancé pour CETTE session, < 3 dossiers → dashboard / rattrapage.
+    if (alreadyStarted) {
+      if ((priorClaims ?? []).length === 0) {
+        await admin
+          .from("trial_claims")
+          .upsert(claimRows, {
+            onConflict: "claim_type,claim_hash",
+            ignoreDuplicates: true,
+          });
+      }
       return trialJson(
         {
-          error: "Un essai découverte a déjà été utilisé depuis cet appareil",
-          trialUsed: true,
-          existingSession: claimedByCurrentUser,
-          redirectTo: claimedByCurrentUser ? "/dashboard" : "/dashboard?trial_used=1",
+          catchupNeeded: true,
+          existingSession: true,
+          redirectTo: "/dashboard",
         },
         409
       );
@@ -182,11 +184,69 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Garde-fou IP/jour (sans UA) : changer de navigateur / UA ne reset plus le compteur.
+    const abuseId = trialIpDayAbuseId(identity);
+    const { data: abuseRow } = await admin
+      .from("app_state")
+      .select("data")
+      .eq("id", abuseId)
+      .maybeSingle();
+    const abuseCount = Number(
+      (abuseRow?.data as { count?: number } | null)?.count ?? 0
+    );
+    if (!prepareOnly && abuseCount >= TRIAL_IP_DAY_MAX) {
+      console.warn("[trial/start] IP day limit", {
+        userId: user.id,
+        abuseCount,
+        max: TRIAL_IP_DAY_MAX,
+      });
+      return trialJson(
+        {
+          error:
+            "Trop de sessions découverte depuis cette connexion aujourd'hui. Réessayez demain ou connectez-vous.",
+          abuseLimited: true,
+          redirectTo: "/login",
+        },
+        429
+      );
+    }
+
+    // Les critères déjà sauvés en base (onglet Critères) priment sur le
+    // brouillon d'onboarding en localStorage, sinon un 1er scan écrase
+    // les nouvelles préférences avec les anciennes (Marketing Manager…).
+    const fromDraft = draftToProfilePayload(draft, user.id);
+    const preferDbArray = <T>(db: T[] | null | undefined, draftVal: T[]): T[] =>
+      Array.isArray(db) && db.length ? db : draftVal;
     const payload = {
-      ...draftToProfilePayload(draft, user.id),
+      ...fromDraft,
+      target_roles: preferDbArray(existing?.target_roles, fromDraft.target_roles),
+      target_locations: preferDbArray(
+        existing?.target_locations,
+        fromDraft.target_locations
+      ),
+      location_search_mode:
+        existing?.location_search_mode || fromDraft.location_search_mode,
+      location_radius_km:
+        existing?.location_search_mode != null
+          ? existing.location_search_mode === "city"
+            ? null
+            : existing.location_radius_km
+          : fromDraft.location_radius_km,
+      contract_type: preferDbArray(existing?.contract_type, fromDraft.contract_type),
+      remote_pref: preferDbArray(existing?.remote_pref, fromDraft.remote_pref),
+      salary_min:
+        existing?.salary_min != null ? existing.salary_min : fromDraft.salary_min,
+      cv_url: existing?.cv_url || fromDraft.cv_url,
+      cv_filename: existing?.cv_filename || fromDraft.cv_filename,
+      letter_tone: existing?.letter_tone || fromDraft.letter_tone,
+      letter_sample: existing?.letter_sample || fromDraft.letter_sample,
+      full_name: existing?.full_name || fromDraft.full_name,
+      email: existing?.email || fromDraft.email,
+      phone: existing?.phone || fromDraft.phone,
+      location: existing?.location || fromDraft.location,
       is_trial: true,
       subscription_status: "trial",
-      plan_id: draft.plan_id || null,
+      plan_id: existing?.plan_id || draft.plan_id || null,
     };
 
     const { error: upsertError } = await admin.from("profiles").upsert(payload);
@@ -194,9 +254,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: upsertError.message }, { status: 500 });
     }
 
+    // Rattache l'appareil à cette session si libre ; si déjà pris par un autre,
+    // on ignore (pas de paywall) — le cookie restaure surtout LEUR session.
+    const claimsToInsert = claimRows.filter(
+      (row) =>
+        !(priorClaims ?? []).some(
+          (claim) =>
+            claim.user_id === user.id && claim.claim_type === row.claim_type
+        )
+    );
+    if (claimsToInsert.length) {
+      const { error: claimError } = await admin
+        .from("trial_claims")
+        .upsert(claimRows, {
+          onConflict: "claim_type,claim_hash",
+          ignoreDuplicates: true,
+        });
+      if (claimError && claimError.code !== "23505") {
+        return trialJson(
+          { error: "Impossible de réserver votre essai découverte" },
+          500
+        );
+      }
+    }
+
     if (prepareOnly) {
       return trialJson({ prepared: true });
     }
+
+    await admin.from("app_state").upsert(
+      {
+        id: abuseId,
+        user_id: user.id,
+        data: { count: abuseCount + 1 },
+      },
+      { onConflict: "id" }
+    );
 
     const engine = resolveEnginePaths();
     if (!engine.python || !engine.scriptOk) {
@@ -209,30 +302,6 @@ export async function POST(req: NextRequest) {
         { error: "Moteur non configuré (SUPABASE_SERVICE_ROLE_KEY manquante)." },
         503
       );
-    }
-
-    const claimsToInsert = claimRows.filter(
-      (row) =>
-        !(priorClaims ?? []).some(
-          (claim) =>
-            claim.user_id === user.id && claim.claim_type === row.claim_type
-        )
-    );
-    const { error: claimError } = claimsToInsert.length
-      ? await admin.from("trial_claims").insert(claimsToInsert)
-      : { error: null };
-    if (claimError) {
-      if (claimError.code === "23505") {
-        return trialJson(
-          {
-            error: "Un essai découverte a déjà été utilisé depuis cet appareil",
-            trialUsed: true,
-            redirectTo: "/dashboard?trial_used=1",
-          },
-          409
-        );
-      }
-      return trialJson({ error: "Impossible de réserver votre essai découverte" }, 500);
     }
 
     const rollbackClaim = async () => {
@@ -303,6 +372,7 @@ export async function POST(req: NextRequest) {
         ...buildEngineSpawnEnv(user.id, runId),
         JA_HUNT_TARGET: String(TRIAL_HUNT_TARGET),
         JA_GEN_MAX: String(TRIAL_GEN_MAX),
+        JA_TRIAL_DISCOVERY_GEN_MAX: String(TRIAL_GEN_MAX),
       }
     );
 

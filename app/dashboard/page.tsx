@@ -32,6 +32,7 @@ import DashboardProductTour, {
 } from "@/components/DashboardProductTour";
 import DashboardGuide from "@/components/DashboardGuide";
 import NoCvCalibrationModal from "@/components/NoCvCalibrationModal";
+import ConfirmNameModal from "@/components/ConfirmNameModal";
 
 function useMobileLayout(maxWidth = 900) {
   const [mobile, setMobile] = useState(false);
@@ -47,7 +48,7 @@ function useMobileLayout(maxWidth = 900) {
   return mobile;
 }
 import { needsPreScanNoCvModal, calibrationPromptLabel, hasUploadedCv } from "@/lib/no-cv-calibration";
-import { loadDraft } from "@/lib/onboarding-draft";
+import { loadDraft, saveDraft } from "@/lib/onboarding-draft";
 import { resolveProfileCv } from "@/lib/onboarding-cv";
 import { buildOnboardingPrefsPatch } from "@/lib/sync-onboarding-prefs";
 import { parseApiJson } from "@/lib/parse-api-json";
@@ -284,17 +285,6 @@ function mergeJobsPreservingOrder(prev: Job[], incoming: Job[]): Job[] {
   return [...fresh, ...merged];
 }
 
-function restoreScrollY(y: number) {
-  const html = document.documentElement;
-  const prevBehavior = html.style.scrollBehavior;
-  html.style.scrollBehavior = "auto";
-  window.scrollTo(0, y);
-  requestAnimationFrame(() => {
-    window.scrollTo(0, y);
-    html.style.scrollBehavior = prevBehavior;
-  });
-}
-
 type FitHealth = {
   analyzed: number;
   avg: number;
@@ -342,6 +332,7 @@ export default function Dashboard() {
   const [agentAwaiting, setAgentAwaiting] = useState(false);
   const [showProductTour, setShowProductTour] = useState(false);
   const [showNoCvCalib, setShowNoCvCalib] = useState(false);
+  const [showNameConfirm, setShowNameConfirm] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [hidePoorFitAlert, setHidePoorFitAlert] = useState(false);
   const [sideTab, setSideTab] = useState<"terminal" | "guide">("terminal");
@@ -362,6 +353,9 @@ export default function Dashboard() {
     urls?: string[];
     importUrl?: string;
   } | null>(null);
+  const pendingNameActionRef = useRef<(() => void) | null>(null);
+  /** Nom déjà validé (modale ou scan déjà fait avec un nom plausible). */
+  const nameConfirmedRef = useRef(false);
 
   const freshUrls = useMemo(() => {
     const urls = lastSearch?.result?.new_urls;
@@ -379,7 +373,6 @@ export default function Dashboard() {
 
   const load = useCallback(async (id: string, silent = false, resort = false) => {
     if (!silent) setLoading(true);
-    const scrollY = silent && !resort ? window.scrollY : null;
     const [{ data: profRaw }, { data: js }] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", id).maybeSingle(),
       supabase
@@ -435,6 +428,21 @@ export default function Dashboard() {
       (r) => r.result?.mode === "full" || !r.result?.mode
     ) as PipelineRun | undefined;
     setLastSearch(lastSearchRun ?? null);
+    // Écarte un faux « nom » scrapé depuis un intitulé de poste.
+    if (prof?.full_name && !isPlausiblePersonName(prof.full_name)) {
+      void supabase
+        .from("profiles")
+        .update({ full_name: null, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      prof = { ...prof, full_name: null };
+      nameConfirmedRef.current = false;
+    } else if (
+      isPlausiblePersonName(prof?.full_name) &&
+      (prof?.first_search_done || prof?.trial_used)
+    ) {
+      // Déjà scanné avec un vrai nom : pas de re-confirmation à chaque lancement.
+      nameConfirmedRef.current = true;
+    }
     setProfile(prof);
     const isTrialProfile = prof?.subscription_status === "trial";
     const incoming = ((js as Job[]) || []).filter(
@@ -443,9 +451,6 @@ export default function Dashboard() {
     setJobs((prev) =>
       silent && !resort ? mergeJobsPreservingOrder(prev, incoming) : incoming
     );
-    if (scrollY != null) {
-      requestAnimationFrame(() => restoreScrollY(scrollY));
-    }
     if (!silent) setLoading(false);
     return prof;
   }, []);
@@ -577,6 +582,24 @@ export default function Dashboard() {
 
   const onboardingDraft = useMemo(() => loadDraft(), [profile?.id]);
 
+  const requireNameThen = useCallback(
+    (action: () => void) => {
+      // Après 1ère validation (ou scan déjà fait) : on ne rebloque que si le nom
+      // est absent / invalide. Sinon on confirme toujours avant le 1er scan
+      // (prérempli si le CV a donné un nom plausible).
+      if (
+        nameConfirmedRef.current &&
+        isPlausiblePersonName(profile?.full_name)
+      ) {
+        action();
+        return;
+      }
+      pendingNameActionRef.current = action;
+      setShowNameConfirm(true);
+    },
+    [profile?.full_name]
+  );
+
   const requestPipelineLaunch = useCallback(
     (
       mode: Exclude<PipelineStartMode, "autoapply"> = "full",
@@ -597,9 +620,23 @@ export default function Dashboard() {
         setShowNoCvCalib(true);
         return;
       }
+      if (mode !== "import") {
+        requireNameThen(() => {
+          void startPipeline(mode, urls, importUrl);
+        });
+        return;
+      }
       void startPipeline(mode, urls, importUrl);
     },
-    [profile, onboardingDraft, startPipeline, launchMode, launching, run?.status]
+    [
+      profile,
+      onboardingDraft,
+      startPipeline,
+      launchMode,
+      launching,
+      run?.status,
+      requireNameThen,
+    ]
   );
 
   const startTrialScan = useCallback(async (profileOverride?: Profile) => {
@@ -614,11 +651,40 @@ export default function Dashboard() {
       return;
     }
     const effectiveProfile = profileOverride ?? profile;
+    // Critères déjà en base (onglet Critères) > brouillon onboarding localStorage.
+    // Sinon le 1er scan trial réécrit le profil avec l'ancien draft.
     const effectiveDraft = {
       ...draft,
-      cv_url: hasUploadedCv(effectiveProfile) ? effectiveProfile?.cv_url || draft.cv_url : draft.cv_url,
+      target_roles: effectiveProfile?.target_roles?.length
+        ? effectiveProfile.target_roles
+        : draft.target_roles,
+      target_locations: effectiveProfile?.target_locations?.length
+        ? effectiveProfile.target_locations
+        : draft.target_locations,
+      location_search_mode:
+        effectiveProfile?.location_search_mode || draft.location_search_mode || "city",
+      location_radius_km:
+        effectiveProfile?.location_search_mode === "city"
+          ? ""
+          : effectiveProfile?.location_radius_km != null
+            ? String(effectiveProfile.location_radius_km)
+            : draft.location_radius_km,
+      contract_type: effectiveProfile?.contract_type?.length
+        ? effectiveProfile.contract_type
+        : draft.contract_type,
+      remote_pref: effectiveProfile?.remote_pref?.length
+        ? effectiveProfile.remote_pref
+        : draft.remote_pref,
+      salary_min:
+        effectiveProfile?.salary_min != null
+          ? String(effectiveProfile.salary_min)
+          : draft.salary_min,
+      cv_url: hasUploadedCv(effectiveProfile)
+        ? effectiveProfile?.cv_url || draft.cv_url
+        : draft.cv_url,
       cv_filename: effectiveProfile?.cv_filename || draft.cv_filename,
     };
+    saveDraft(effectiveDraft);
 
     setLaunching(true);
     setLaunchMode("full");
@@ -641,12 +707,31 @@ export default function Dashboard() {
         alreadyRunning?: boolean;
         existingSession?: boolean;
         trialUsed?: boolean;
+        catchupNeeded?: boolean;
+        abuseLimited?: boolean;
         redirectTo?: string;
       }>(res);
-      if (!res.ok || data.error) {
+      if (!res.ok || data.error || data.catchupNeeded) {
+        // Essai déjà lancé mais < 3 dossiers → rattrapage pipeline, pas paywall.
+        if (data.catchupNeeded) {
+          await startPipeline("full");
+          return;
+        }
         if (data.trialUsed) {
-          setTrialUsedBlock(true);
+          // Paywall dur uniquement si l'essai est vraiment terminé (3 dossiers).
+          if (isTrialDiscoveryComplete(jobs)) {
+            setTrialUsedBlock(true);
+          } else {
+            await startPipeline("full");
+          }
           await load(uid, false);
+          return;
+        }
+        if (data.abuseLimited) {
+          alert(
+            data.error ||
+              "Trop de sessions découverte aujourd'hui. Réessayez demain."
+          );
           return;
         }
         if (data.redirectTo && data.redirectTo !== "/dashboard") {
@@ -670,7 +755,19 @@ export default function Dashboard() {
     } finally {
       setLaunching(false);
     }
-  }, [fetchRun, isMobile, launchMode, launching, load, profile, router, run?.status, uid]);
+  }, [
+    fetchRun,
+    isMobile,
+    jobs,
+    launchMode,
+    launching,
+    load,
+    profile,
+    router,
+    run?.status,
+    startPipeline,
+    uid,
+  ]);
 
   useEffect(() => {
     if (!unlockTriggeredRef.current) return;
@@ -686,11 +783,25 @@ export default function Dashboard() {
       setProfile(updated);
       setShowNoCvCalib(false);
       window.dispatchEvent(new CustomEvent("ja:prefs-updated"));
-      if (updated.subscription_status === "trial" && !isTrialDiscoveryComplete(jobs)) {
-        void startTrialScan(updated);
+
+      const continueLaunch = () => {
+        if (updated.subscription_status === "trial" && !isTrialDiscoveryComplete(jobs)) {
+          void startTrialScan(updated);
+          return;
+        }
+        if (pending) void startPipeline(pending.mode, pending.urls, pending.importUrl);
+      };
+
+      // Après le flux sans CV : confirmation du nom (toujours avant 1er scan).
+      if (
+        nameConfirmedRef.current &&
+        isPlausiblePersonName(updated.full_name)
+      ) {
+        continueLaunch();
         return;
       }
-      if (pending) void startPipeline(pending.mode, pending.urls, pending.importUrl);
+      pendingNameActionRef.current = continueLaunch;
+      setShowNameConfirm(true);
     },
     [startPipeline, startTrialScan, jobs]
   );
@@ -776,12 +887,6 @@ export default function Dashboard() {
     window.addEventListener("ja:prefs-updated", onPrefs);
     return () => window.removeEventListener("ja:prefs-updated", onPrefs);
   }, [uid, load, fetchRun]);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("trial_used") === "1") {
-      setTrialUsedBlock(true);
-    }
-  }, []);
 
   useEffect(() => {
     if (!uid || profile?.subscription_status !== "trial") return;
@@ -985,6 +1090,18 @@ export default function Dashboard() {
     () => shouldShowTrialPaywall(profile?.subscription_status, jobs),
     [profile?.subscription_status, jobs]
   );
+
+  // Paywall « essai utilisé » uniquement si les 3 dossiers sont vraiment prêts.
+  useEffect(() => {
+    if (loading) return;
+    const fromUrl =
+      new URLSearchParams(window.location.search).get("trial_used") === "1";
+    if (isTrial && !trialDiscoveryComplete) {
+      setTrialUsedBlock(false);
+      return;
+    }
+    if (fromUrl && trialDiscoveryComplete) setTrialUsedBlock(true);
+  }, [loading, isTrial, trialDiscoveryComplete]);
   const alwaysShowProductTour = isTrial || user?.is_anonymous === true;
   const trialSubscribeHref = upgradeSubscribePath(parsePlanId(profile?.plan_id));
   const openPaywall = useCallback(
@@ -1168,7 +1285,13 @@ export default function Dashboard() {
                         setShowNoCvCalib(true);
                         return;
                       }
-                      void startTrialScan();
+                      if (profile?.trial_used || profile?.first_search_done) {
+                        void requestPipelineLaunch("full");
+                        return;
+                      }
+                      requireNameThen(() => {
+                        void startTrialScan();
+                      });
                       return;
                     }
                     requestPipelineLaunch();
@@ -1286,8 +1409,23 @@ export default function Dashboard() {
               launching={launching}
               onSearch={() => {
                 if (isTrial) {
-                  if (trialPaywallLocked) openPaywall("scan");
-                  else void startTrialScan();
+                  if (trialPaywallLocked) {
+                    openPaywall("scan");
+                    return;
+                  }
+                  // Essai déjà lancé mais < 3 dossiers → rattrapage pipeline.
+                  if (profile?.trial_used || profile?.first_search_done) {
+                    void requestPipelineLaunch("full");
+                    return;
+                  }
+                  if (!hasUploadedCv(profile)) {
+                    pendingLaunchRef.current = { mode: "full" };
+                    setShowNoCvCalib(true);
+                    return;
+                  }
+                  requireNameThen(() => {
+                    void startTrialScan();
+                  });
                   return;
                 }
                 requestPipelineLaunch();
@@ -1336,15 +1474,13 @@ export default function Dashboard() {
             <StatFilterChips stats={stats} tab={tab} onChange={setTab} />
           </div>
           {!pipelineActive && (
-            <ImportOfferCta
+            <DashboardProTools
+              isTrial={!!isTrial}
               launching={launching}
-              disabled={!isTrial && !!importBlockReason}
-              disabledReason={isTrial ? null : importBlockReason}
-              onImport={(url) =>
-                trialPaywallLocked
-                  ? openPaywall("import")
-                  : requestPipelineLaunch("import", undefined, url)
-              }
+              importDisabled={!isTrial && !!importBlockReason}
+              importDisabledReason={isTrial ? null : importBlockReason}
+              onImport={(url) => requestPipelineLaunch("import", undefined, url)}
+              onUnlock={(ctx) => openPaywall(ctx)}
             />
           )}
         </div>
@@ -1365,7 +1501,6 @@ export default function Dashboard() {
               <div data-tour="jobs-section">
                 <JobList
                   jobs={filtered}
-                  isFresh={isFresh}
                   onToggleApplied={toggleApplied}
                   pipelineActive={pipelineActive}
                   readOnly={jobsReadOnly}
@@ -1466,6 +1601,26 @@ export default function Dashboard() {
             setShowNoCvCalib(false);
           }}
           onComplete={handleCalibrationComplete}
+        />
+      )}
+      {showNameConfirm && !showNoCvCalib && uid && (
+        <ConfirmNameModal
+          open={showNameConfirm}
+          userId={uid}
+          currentName={profile?.full_name}
+          saving={launching}
+          onClose={() => {
+            pendingNameActionRef.current = null;
+            setShowNameConfirm(false);
+          }}
+          onConfirm={(fullName) => {
+            nameConfirmedRef.current = true;
+            setProfile((p) => (p ? { ...p, full_name: fullName } : p));
+            setShowNameConfirm(false);
+            const action = pendingNameActionRef.current;
+            pendingNameActionRef.current = null;
+            action?.();
+          }}
         />
       )}
       {showStopConfirm && (
@@ -1656,7 +1811,8 @@ function DashboardActionsBar({
           <div className="db-scan-wrap">
             {highlightScan && (
               <span className="db-scan-hint" aria-hidden="true">
-                Des centaines d&apos;autres offres vous attendent
+                <span className="db-scan-hint__text">Des centaines d&apos;offres encore</span>
+                <span className="db-scan-hint__arrow">→</span>
               </span>
             )}
             <button
@@ -1705,36 +1861,142 @@ function DashboardActionsBar({
 }
 
 
-function ImportOfferCta({
-  launching,
-  disabled,
-  disabledReason,
-  onImport,
-  compact = false,
-}: {
-  launching: boolean;
-  disabled?: boolean;
-  disabledReason?: string | null;
-  onImport: (url: string) => void;
-  compact?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [url, setUrl] = useState("");
-  const trimmed = url.trim();
-  const canSubmit = !launching && !disabled && /^https?:\/\/\S+\.\S+/.test(trimmed);
+const NIGHT_SCAN_LS_KEY = "bmj_night_scan_v1";
 
-  const submit = (e: FormEvent) => {
+type ProToolId = "import" | "night_scan";
+
+const PRO_TOOL_COPY: Record<
+  ProToolId,
+  { label: string; lead: string; text: string; unlockLabel: string }
+> = {
+  import: {
+    label: "Importer une offre",
+    lead: "Une offre précise, un dossier prêt",
+    text: "Collez le lien d'une offre vue ailleurs (LinkedIn, site RH…). On la note sur 10 et on prépare un CV + une lettre adaptés, comme pour un scan auto.",
+    unlockLabel: "Importer mon offre",
+  },
+  night_scan: {
+    label: "Scan de nuit",
+    lead: "Des dossiers frais chaque matin",
+    text: "Pendant que vous dormez, on rescane le marché et on prépare les meilleurs dossiers. Vous ouvrez le dashboard, tout est déjà là.",
+    unlockLabel: "Programmer pour cette nuit",
+  },
+};
+
+function readNightScanEnabled(): boolean {
+  try {
+    return localStorage.getItem(NIGHT_SCAN_LS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeNightScanEnabled(on: boolean) {
+  try {
+    localStorage.setItem(NIGHT_SCAN_LS_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function DashboardProTools({
+  isTrial,
+  launching,
+  importDisabled,
+  importDisabledReason,
+  onImport,
+  onUnlock,
+}: {
+  isTrial: boolean;
+  launching: boolean;
+  importDisabled?: boolean;
+  importDisabledReason?: string | null;
+  onImport: (url: string) => void;
+  onUnlock: (context: "import" | "night_scan") => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [panel, setPanel] = useState<ProToolId | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [nightOn, setNightOn] = useState(false);
+
+  useEffect(() => {
+    setNightOn(readNightScanEnabled());
+  }, []);
+
+  useEffect(() => {
+    if (!panel && !importOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) {
+        setPanel(null);
+        setImportOpen(false);
+        setUrl("");
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPanel(null);
+        setImportOpen(false);
+        setUrl("");
+      }
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [panel, importOpen]);
+
+  const locked = isTrial;
+  const trimmed = url.trim();
+  const canSubmit =
+    !launching && !importDisabled && !locked && /^https?:\/\/\S+\.\S+/.test(trimmed);
+
+  const closePanels = () => {
+    setPanel(null);
+    setImportOpen(false);
+    setUrl("");
+  };
+
+  const openExplain = (id: ProToolId) => {
+    setImportOpen(false);
+    setUrl("");
+    setPanel((cur) => (cur === id ? null : id));
+  };
+
+  const onToolClick = (id: ProToolId) => {
+    if (locked) {
+      openExplain(id);
+      return;
+    }
+    if (id === "import") {
+      if (importDisabled) return;
+      setPanel(null);
+      setImportOpen((v) => !v);
+      return;
+    }
+    setImportOpen(false);
+    setPanel((cur) => (cur === "night_scan" ? null : "night_scan"));
+  };
+
+  const submitImport = (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
     onImport(trimmed);
     setUrl("");
+    setImportOpen(false);
+  };
+
+  const toggleNight = (on: boolean) => {
+    setNightOn(on);
+    writeNightScanEnabled(on);
   };
 
   return (
-    <div className={`db-import-offer${compact ? " db-import-offer--compact" : ""}`}>
-      {launching ? (
-        <div className="db-import-offer__pending" role="status" aria-live="polite">
+    <div className="db-pro-tools" ref={rootRef}>
+      {launching && importOpen ? (
+        <div className="db-pro-tools__pending" role="status" aria-live="polite">
           <span className="db-run__inline-loader-dots" aria-hidden="true">
             <i />
             <i />
@@ -1742,82 +2004,119 @@ function ImportOfferCta({
           </span>
           <span>Préparation de l&apos;import…</span>
         </div>
-      ) : !open ? (
-        <div className="db-import-offer__toggle-wrap">
-          <button
-            type="button"
-            className="db-import-offer__toggle"
-            disabled={disabled}
-            title={disabledReason ?? undefined}
-            onClick={() => setOpen(true)}
-          >
-            Importer une offre par lien
-          </button>
-          <button
-            type="button"
-            className={`db-import-offer__help-btn${helpOpen ? " is-open" : ""}`}
-            aria-label="Comment ça marche ?"
-            aria-expanded={helpOpen}
-            onClick={() => setHelpOpen((v) => !v)}
-          >
-            ?
-          </button>
-          {helpOpen && (
-            <div className="db-import-offer__help" role="note">
-              <p className="db-import-offer__help-title">Importer une offre par lien</p>
-              <p>
-                Collez le lien d&apos;une offre trouvée ailleurs (LinkedIn, site d&apos;entreprise…).
-                On l&apos;analyse, on la note sur 10 et on prépare un CV + une lettre adaptés,
-                comme pour les offres trouvées automatiquement.
-              </p>
-              <button
-                type="button"
-                className="db-import-offer__help-close"
-                onClick={() => setHelpOpen(false)}
-              >
-                Compris
-              </button>
-            </div>
-          )}
-        </div>
       ) : (
-        <form className="db-import-offer__form" onSubmit={submit}>
-          <label className="db-import-offer__label" htmlFor={compact ? "first-import-url" : "import-url"}>
-            Lien de l&apos;offre
-          </label>
-          <div className="db-import-offer__row">
-            <input
-              id={compact ? "first-import-url" : "import-url"}
-              className="db-import-offer__input"
-              type="url"
-              inputMode="url"
-              value={url}
-              disabled={launching || disabled}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://www.linkedin.com/jobs/..."
-            />
-            <button
-              type="submit"
-              className="db-import-offer__submit"
-              disabled={!canSubmit}
-              title={disabledReason ?? undefined}
-            >
-              Importer
-            </button>
-            <button
-              type="button"
-              className="db-import-offer__cancel"
-              onClick={() => {
-                setOpen(false);
-                setUrl("");
-              }}
-            >
-              Annuler
-            </button>
+        <>
+          <div className="db-pro-tools__row" role="group" aria-label="Outils avancés">
+            {(["import", "night_scan"] as const).map((id) => {
+              const copy = PRO_TOOL_COPY[id];
+              const bubbleOpen = panel === id;
+              const toolDisabled = id === "import" && !locked && !!importDisabled;
+              return (
+                <div key={id} className="db-pro-tool">
+                  <button
+                    type="button"
+                    className={`db-pro-tool__btn${bubbleOpen || (id === "import" && importOpen) ? " is-open" : ""}`}
+                    disabled={toolDisabled}
+                    title={toolDisabled ? importDisabledReason ?? undefined : copy.label}
+                    aria-expanded={bubbleOpen}
+                    onClick={() => onToolClick(id)}
+                  >
+                    {copy.label}
+                    {!locked && id === "night_scan" && nightOn ? (
+                      <span className="db-pro-tool__on">actif</span>
+                    ) : null}
+                  </button>
+
+                  {bubbleOpen && (
+                    <div className="db-pro-tools__bubble" role="dialog" aria-label={copy.lead}>
+                      <p className="db-pro-tools__bubble-lead">{copy.lead}</p>
+                      <p className="db-pro-tools__bubble-text">{copy.text}</p>
+                      {locked ? (
+                        <div className="db-pro-tools__bubble-actions">
+                          <button
+                            type="button"
+                            className="db-pro-tools__unlock"
+                            onClick={() => {
+                              setPanel(null);
+                              onUnlock(id);
+                            }}
+                          >
+                            {copy.unlockLabel}
+                          </button>
+                          <button
+                            type="button"
+                            className="db-pro-tools__dismiss"
+                            onClick={closePanels}
+                          >
+                            Plus tard
+                          </button>
+                        </div>
+                      ) : id === "night_scan" ? (
+                        <div className="db-pro-tools__night">
+                          <label className="db-pro-tools__switch">
+                            <input
+                              type="checkbox"
+                              checked={nightOn}
+                              onChange={(e) => toggleNight(e.target.checked)}
+                            />
+                            <span>Scanner chaque nuit, dossiers prêts le matin</span>
+                          </label>
+                          <button
+                            type="button"
+                            className="db-pro-tools__dismiss"
+                            onClick={closePanels}
+                          >
+                            Fermer
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="db-pro-tools__dismiss"
+                          onClick={closePanels}
+                        >
+                          Compris
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </form>
+
+          {importOpen && !locked && (
+            <form className="db-pro-tools__bubble db-pro-tools__bubble--form" onSubmit={submitImport}>
+              <label className="db-pro-tools__form-label" htmlFor="import-url">
+                Lien de l&apos;offre
+              </label>
+              <div className="db-pro-tools__form-row">
+                <input
+                  id="import-url"
+                  className="db-pro-tools__input"
+                  type="url"
+                  inputMode="url"
+                  value={url}
+                  disabled={launching || importDisabled}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://www.linkedin.com/jobs/..."
+                  autoFocus
+                />
+                <button type="submit" className="db-pro-tools__submit" disabled={!canSubmit}>
+                  Importer
+                </button>
+              </div>
+              <button type="button" className="db-pro-tools__dismiss" onClick={closePanels}>
+                Annuler
+              </button>
+            </form>
+          )}
+
+          {!locked && importDisabled && importDisabledReason && (
+            <p className="db-pro-tools__error">{importDisabledReason}</p>
+          )}
+        </>
       )}
-      {disabled && disabledReason && <p className="db-import-offer__error">{disabledReason}</p>}
     </div>
   );
 }
@@ -1989,6 +2288,7 @@ type PaywallContext =
   | "rewrite_letter"
   | "rewrite_cv"
   | "import"
+  | "night_scan"
   | "analyze";
 
 const PAYWALL_COPY: Record<PaywallContext, { title: string; text: string }> = {
@@ -2013,8 +2313,12 @@ const PAYWALL_COPY: Record<PaywallContext, { title: string; text: string }> = {
     text: "Vous avez utilisé votre modification gratuite. Choisissez une formule pour adapter tous vos CV à volonté.",
   },
   import: {
-    title: "Importer une offre",
-    text: "L'import d'offres trouvées à la main est réservé aux membres. Débloquez-le avec toutes les autres options.",
+    title: "Importer une offre par lien",
+    text: "Collez n'importe quelle offre trouvée à la main : on la score et on génère CV + lettre. Inclus dès le plan Start.",
+  },
+  night_scan: {
+    title: "Scan de nuit automatique",
+    text: "Pendant que vous dormez, on rescane le marché et on prépare les meilleurs dossiers frais pour le matin. Disponible hors mode découverte.",
   },
   analyze: {
     title: "Analyser plus d'offres",
@@ -2070,8 +2374,8 @@ function TrialPaywallModal({
         <p className="trial-paywall__text">{copy.text}</p>
         <ul className="trial-paywall__perks">
           <li>CV + lettre générés pour chaque bonne offre</li>
-          <li>Scan illimité</li>
-          <li>Auto-apply : candidatures envoyées pour vous</li>
+          <li>Scan illimité · scan de nuit</li>
+          <li>Import d&apos;offres + auto-apply</li>
         </ul>
         <div className="trial-paywall__actions">
           <Link
@@ -2134,7 +2438,6 @@ function LiveJobsNotice({
 
 function JobList({
   jobs,
-  isFresh,
   onToggleApplied,
   pipelineActive,
   readOnly,
@@ -2147,7 +2450,6 @@ function JobList({
   onNameSaved,
 }: {
   jobs: Job[];
-  isFresh: (j: Job) => boolean;
   onToggleApplied: (url: string) => void;
   pipelineActive?: boolean;
   readOnly?: boolean;
@@ -2176,7 +2478,6 @@ function JobList({
           <JobRow
             key={j.url}
             job={j}
-            fresh={isFresh(j)}
             entering={entering.has(j.url)}
             enterDelay={i * 65}
             analyzing={!isImportedJob(j) && getJobScore(j) == null}
@@ -2202,7 +2503,6 @@ function JobList({
           <JobRow
             key={j.url}
             job={j}
-            fresh={isFresh(j)}
             entering={entering.has(j.url)}
             enterDelay={i * 65}
             onToggleApplied={() => onToggleApplied(j.url)}
@@ -2217,7 +2517,6 @@ function JobList({
       {low.length > 0 && (
         <LowJobsFold
           jobs={low}
-          isFresh={isFresh}
           entering={entering}
           onToggleApplied={onToggleApplied}
           readOnly={readOnly}
@@ -2236,7 +2535,6 @@ function JobList({
 
 function LowJobsFold({
   jobs,
-  isFresh,
   onToggleApplied,
   readOnly,
   entering,
@@ -2249,7 +2547,6 @@ function LowJobsFold({
   onToggleSelect,
 }: {
   jobs: Job[];
-  isFresh: (j: Job) => boolean;
   onToggleApplied: (url: string) => void;
   readOnly?: boolean;
   entering?: Set<string>;
@@ -2277,7 +2574,6 @@ function LowJobsFold({
             <JobRow
               key={j.url}
               job={j}
-              fresh={isFresh(j)}
               compact
               entering={entering?.has(j.url)}
               enterDelay={i * 50}
@@ -2301,7 +2597,6 @@ function LowJobsFold({
 
 function JobRow({
   job,
-  fresh,
   compact,
   entering,
   enterDelay = 0,
@@ -2318,7 +2613,6 @@ function JobRow({
   onNameSaved,
 }: {
   job: Job;
-  fresh?: boolean;
   compact?: boolean;
   entering?: boolean;
   enterDelay?: number;
@@ -2499,23 +2793,9 @@ function JobRow({
           </div>
           <div className="jr__main">
             <div className="jr__head">
-              <h3 className={`jr__title${isDecoy ? " jr__decoy-blur" : ""}`}>{title}</h3>
-              {!readOnly && (
-                <span className="jr__chev" aria-hidden="true">
-                  ▾
-                </span>
-              )}
-              {isDecoy && !compact && (
-                <span className="jr__pill jr__pill--decoy">Dossier prêt</span>
-              )}
-              {fresh &&
-                !compact &&
-                !job.applied &&
-                !analyzing &&
-                fitTier !== "10" &&
-                fitTier !== "9" && (
-                  <span className="jr__pill jr__pill--new">new</span>
-                )}
+              <h3 className={`jr__title${isDecoy ? " jr__decoy-blur" : ""}`} title={title}>
+                {title}
+              </h3>
               {analyzing && (
                 <span className="jr__pill jr__pill--analyzing">
                   <span className="jr__pill-dot" aria-hidden="true" />
@@ -2531,6 +2811,14 @@ function JobRow({
               {location ? ` · ${location}` : ""}
             </p>
           </div>
+          {isDecoy && !compact && (
+            <span className="jr__pill jr__pill--decoy">Dossier prêt</span>
+          )}
+          {!readOnly && (
+            <span className="jr__chev" aria-hidden="true">
+              ▾
+            </span>
+          )}
         </div>
       ) : (
         <>
@@ -2578,18 +2866,9 @@ function JobRow({
       </div>
       <div className="jr__main">
         <div className="jr__head">
-          <h3 className={`jr__title${isDecoy ? " jr__decoy-blur" : ""}`}>{title}</h3>
-          {isDecoy && !compact && (
-            <span className="jr__pill jr__pill--decoy">Dossier prêt</span>
-          )}
-          {fresh &&
-            !compact &&
-            !job.applied &&
-            !analyzing &&
-            fitTier !== "10" &&
-            fitTier !== "9" && (
-              <span className="jr__pill jr__pill--new">new</span>
-            )}
+          <h3 className={`jr__title${isDecoy ? " jr__decoy-blur" : ""}`} title={title}>
+            {title}
+          </h3>
           {analyzing && (
             <span className="jr__pill jr__pill--analyzing">
               <span className="jr__pill-dot" aria-hidden="true" />
@@ -2605,6 +2884,9 @@ function JobRow({
           {location ? ` · ${location}` : ""}
         </p>
       </div>
+      {isDecoy && !compact && (
+        <span className="jr__pill jr__pill--decoy">Dossier prêt</span>
+      )}
         </>
       )}
       {!readOnly && (

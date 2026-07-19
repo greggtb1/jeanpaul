@@ -96,6 +96,27 @@ const JOB_TITLE_WORDS = new Set([
   "support",
   "commercial",
   "commerciale",
+  "partnerships",
+  "partnership",
+  "partenariats",
+  "partenariat",
+  "strategic",
+  "strategique",
+  "strategy",
+  "strategie",
+  "founder",
+  "fondateur",
+  "fondatrice",
+  "ceo",
+  "cto",
+  "cfo",
+  "coo",
+  "vp",
+  "cdi",
+  "cdd",
+  "freelance",
+  "indépendant",
+  "independant",
 ]);
 
 /**
@@ -103,7 +124,12 @@ const JOB_TITLE_WORDS = new Set([
  * CV ni un intitulé de poste capturé par erreur).
  */
 export function isPlausiblePersonName(fullName: string | null | undefined): boolean {
-  const clean = (fullName || "")
+  const raw = (fullName || "").trim();
+  if (!raw) return false;
+  // Bannière offre / ligne contact (ex. « PM · Alma », « Lead - CDI Paris »)
+  if (/[·|]/.test(raw) || /\s[-–—]\s/.test(raw)) return false;
+
+  const clean = raw
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\w\s'-]/g, " ")
@@ -112,15 +138,28 @@ export function isPlausiblePersonName(fullName: string | null | undefined): bool
   const lower = clean.toLowerCase();
   if (lower === "candidat" || lower === "candidate") return false;
   const parts = clean.split(/\s+/).filter(Boolean);
-  if (parts.length < 2 || parts.length > 5) return false;
+  if (parts.length < 2 || parts.length > 4) return false;
   const lowerParts = parts.map((p) => p.toLowerCase());
   if (lowerParts.every((p) => NAME_JUNK.has(p))) return false;
   const junkCount = lowerParts.filter((p) => NAME_JUNK.has(p)).length;
   // Ex. « APPLICATION FOR COMPANY » / « Candidature Pour Entreprise »
   if (junkCount >= 2) return false;
-  // Ex. « Customer Operations Lead Bigblue » : un seul mot d'intitulé suffit à écarter.
+  // Ex. « Customer Operations Lead Bigblue » / « Strategic Partnerships Manager Alma »
   if (lowerParts.some((p) => JOB_TITLE_WORDS.has(p))) return false;
   return true;
+}
+
+/** Découpe un nom plausible en prénom + nom pour les formulaires. */
+export function splitPersonName(fullName: string | null | undefined): {
+  firstName: string;
+  lastName: string;
+} {
+  if (!isPlausiblePersonName(fullName)) return { firstName: "", lastName: "" };
+  const parts = (fullName || "").trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" "),
+  };
 }
 
 /**

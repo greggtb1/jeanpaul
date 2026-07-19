@@ -14,7 +14,6 @@ const columns = [
     title: "Ressources",
     links: [
       { label: "Blog", href: "/blog" },
-      { label: "Backoffice blog", href: "/blog/admin" },
       { label: "Guide dossiers", href: "#fonctionnement" },
       { label: "Support", href: "mailto:contact@blowmyjob.fr" },
     ],

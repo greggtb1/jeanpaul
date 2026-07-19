@@ -55,5 +55,15 @@
   "niche:Marketing Operations Manager": 50,
   "product builder": 25,
   "Product Manager": 25,
-  "Product Manager Paris": 50
+  "Product Manager Paris": 50,
+  "niche:Product Manager Early Stage": 75,
+  "niche:Product Manager SaaS": 100,
+  "niche:Product Manager Startup": 125,
+  "niche:Product Ops Manager": 100,
+  "niche:Product Manager Tech": 75,
+  "niche:Product Manager B2B": 25,
+  "niche:Product Builder Paris": 100,
+  "niche:Product Strategy Manager": 100,
+  "niche:Technical Founder": 125,
+  "niche:Head of Product": 50
 }

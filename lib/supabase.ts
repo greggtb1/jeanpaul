@@ -34,11 +34,18 @@ export type Profile = {
 };
 
 export const LETTER_TONES = [
-  { id: "pro", label: "Professionnel & posé", tagline: "Classique, rassurant" },
-  { id: "direct", label: "Direct & efficace", tagline: "Court, sans détour" },
-  { id: "enthousiaste", label: "Enthousiaste & énergique", tagline: "Motivé, pas forcé" },
-  { id: "concis", label: "Ultra-court & percutant", tagline: "3 phrases max" },
+  { id: "pro", label: "Professionnel & posé", tagline: "Classique" },
+  { id: "corporate", label: "Formelle & corporate", tagline: "Lettre type" },
+  { id: "enthousiaste", label: "Enthousiaste & énergique", tagline: "Énergique" },
+  { id: "concis", label: "Ultra-court & percutant", tagline: "Droit au but" },
 ] as const;
+
+/** Ancien id « direct » → corporate. */
+export function normalizeLetterTone(tone: string | null | undefined): string {
+  const t = (tone || "pro").trim();
+  if (t === "direct") return "corporate";
+  return t || "pro";
+}
 
 export type Job = {
   url: string;

@@ -48,10 +48,10 @@ export default function TrialUsedBlock({ source }: { source: string }) {
                 className={`trial-used__plan${plan.featured ? " trial-used__plan--featured" : ""}`}
               >
                 {plan.featured && (
-                  <span className="trial-used__plan-flag">Le plus populaire</span>
+                  <span className="trial-used__plan-flag">Populaire</span>
                 )}
-                <h3 className="trial-used__plan-name">{plan.name}</h3>
                 <p className="trial-used__plan-tagline">{plan.tagline}</p>
+                <h3 className="trial-used__plan-name">{plan.name}</h3>
                 <p className="trial-used__plan-price">
                   <strong>{price.amount} €</strong> <span>{price.suffix}</span>
                 </p>
@@ -60,7 +60,7 @@ export default function TrialUsedBlock({ source }: { source: string }) {
                   className={`btn ${plan.featured ? "btn--coral" : "btn--ghost"} trial-used__plan-cta`}
                   onClick={() => trackEvent("trial_used_block_cta_clicked", { plan: plan.id, source })}
                 >
-                  {plan.featured ? `Choisir ${plan.name}` : `Choisir l'offre ${plan.name}`}
+                  {`Passer à ${plan.name}`}
                 </Link>
                 <ul className="trial-used__plan-feats">
                   {plan.features.map((f) => (

@@ -218,7 +218,7 @@ export default function IdeesPage() {
 
         <section className="ideas-column ideas-column--done">
           <div className="ideas-column__head">
-            <span>Fait par le développeur</span>
+            <span>Fait</span>
             <strong>{doneTickets.length}</strong>
           </div>
           <div className="ideas-list">

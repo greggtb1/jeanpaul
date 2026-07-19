@@ -170,7 +170,7 @@ export default function PipelineLog({
         {showIdle ? (
           <div className="plog__idle">
             {isMini ? (
-              <div className="plog__line plog__line--muted">Prêt — lancez un scan pour démarrer.</div>
+              <div className="plog__line plog__line--muted">Prêt : lancez un scan pour démarrer.</div>
             ) : (
               IDLE_LINES.map((line) => (
                 <div key={line.text} className={`plog__line ${line.cls}`}>

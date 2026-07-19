@@ -425,6 +425,51 @@ def apply(apply_all, ids, min_score, max_apply, language, skip_cv, skip_analysis
     if not selected:
         console.print("[yellow]Toutes les offres selectionnees ont deja ete traitees.[/yellow]")
         return
+
+    # Ne pas regénérer les offres qui ont déjà CV/lettre en base.
+    uid = os.environ.get("JA_USER_ID")
+    if uid:
+        try:
+            from store import count_user_generated_dossiers, urls_with_docs
+
+            have_docs = urls_with_docs(uid)
+            if have_docs:
+                before = len(selected)
+                selected = [
+                    j
+                    for j in selected
+                    if not (j.get("url") or "").strip()
+                    or (j.get("url") or "").strip() not in have_docs
+                ]
+                skipped_docs = before - len(selected)
+                if skipped_docs:
+                    console.print(
+                        f"[dim]{skipped_docs} offre(s) ignoree(s) (documents deja en base)[/dim]"
+                    )
+
+            # Plafond absolu essai découverte (3) : coupe avant génération.
+            trial_ceiling = os.environ.get("JA_TRIAL_DISCOVERY_GEN_MAX")
+            if trial_ceiling:
+                try:
+                    ceiling = max(0, int(trial_ceiling))
+                except Exception:
+                    ceiling = 0
+                if ceiling > 0:
+                    already = count_user_generated_dossiers(uid)
+                    room = max(0, ceiling - already)
+                    if len(selected) > room:
+                        console.print(
+                            f"[dim]Plafond essai : {already}/{ceiling} dossiers — "
+                            f"generation bornee a {room}[/dim]"
+                        )
+                        selected = selected[:room]
+        except Exception as e:
+            console.print(f"[dim]⚠ Filtre docs existants : {str(e)[:80]}[/dim]")
+
+    if not selected:
+        console.print("[yellow]Aucune offre a generer (plafond ou deja traitees).[/yellow]")
+        return
+
     if max_apply > 0 and len(selected) > max_apply:
         console.print(f"[dim]Cap a {max_apply} candidatures — {len(selected) - max_apply} reportee(s)[/dim]")
         selected = selected[:max_apply]

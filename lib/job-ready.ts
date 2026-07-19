@@ -28,7 +28,13 @@ export function canToggleAppliedMark(job: Job): boolean {
 }
 
 export function countQuotaJobs(
-  jobs: { cv_url?: string | null; fit_score?: number | null; data?: Record<string, unknown> | null }[]
+  jobs: {
+    cv_url?: string | null;
+    letter_url?: string | null;
+    fit_score?: number | null;
+    data?: Record<string, unknown> | null;
+    url?: string;
+  }[]
 ): number {
   return jobs.filter((j) => jobCountsForQuota(j)).length;
 }
@@ -51,12 +57,13 @@ export function countWeeklyQuotaJobs(
 
 function jobCountsForQuota(job: {
   cv_url?: string | null;
+  letter_url?: string | null;
   fit_score?: number | null;
   data?: Record<string, unknown> | null;
   url?: string;
 }): boolean {
   if (isTrialDecoyJob({ url: job.url ?? "", data: job.data ?? {} })) return false;
-  if (job.cv_url) return true;
+  if (job.cv_url || job.letter_url) return true;
   if (!job.data?.ready_without_cv) return false;
   if (job.data.imported_manually) return true;
   const score = job.fit_score ?? (job.data._fit_score as number | undefined);

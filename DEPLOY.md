@@ -27,6 +27,7 @@ bash scripts/make-deploy-zip.sh
 ssh -p 65002 u705793670@82.25.113.153
 bash ~/blowmyjob/scripts/fix-hostinger-prod.sh
 ```
+ls ~/blowmyjob/engine/run_for_user.py && bash ~/domains/blowmyjob.fr/public_html/.builds/last-source/scripts/fix-hostinger-prod.sh
 
 
 Le script :

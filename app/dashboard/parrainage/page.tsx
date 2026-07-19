@@ -237,7 +237,7 @@ export default function ParrainagePage() {
             {data.conversions.map((row) => (
               <div key={row.id} className="referral-row">
                 <span>{row.referred_email || "Client"}</span>
-                <span>{planLabel[row.plan_id || ""] || row.plan_id || "—"}</span>
+                <span>{planLabel[row.plan_id || ""] || row.plan_id || "·"}</span>
                 <strong>{fmtMoney(row.commission_cents)}</strong>
                 <small>{fmtDate(row.paid_at)}</small>
               </div>

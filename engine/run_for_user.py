@@ -73,14 +73,19 @@ APPS_DIR = BASE / "applications"
 
 def _env_int(name: str, default: int) -> int:
     try:
-        return max(1, int(os.environ.get(name, default)))
+        return int(os.environ.get(name, default))
     except Exception:
         return default
 
 
+def _env_int_min1(name: str, default: int) -> int:
+    return max(1, _env_int(name, default))
+
+
 MIN_SCORE = 6
-HUNT_TARGET = _env_int("JA_HUNT_TARGET", 15)  # arrêt dès N offres ≥ MIN_SCORE
-GEN_MAX = _env_int("JA_GEN_MAX", HUNT_TARGET)  # plafond de dossiers générés (mode essai)
+HUNT_TARGET = _env_int_min1("JA_HUNT_TARGET", 15)  # arrêt dès N offres ≥ MIN_SCORE
+# 0 autorisé (= ne rien générer). Relu dynamiquement dans _generation_cap.
+GEN_MAX = max(0, _env_int("JA_GEN_MAX", HUNT_TARGET))
 MAX_ANALYZED_POOR_FIT = 30  # plafond si objectif non atteint (fit faible)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -464,7 +469,7 @@ def _has_letter_basis(user_id: str) -> bool:
         return False
 
 
-TRIAL_DISCOVERY_GEN_MAX = 4
+TRIAL_DISCOVERY_GEN_MAX = 3
 _TRIAL_DECOY_PREFIX = "https://trial.blowmyjob.fr/decoy/"
 
 
@@ -475,34 +480,9 @@ def _is_trial_decoy_row(url: str | None, data: dict | None) -> bool:
 
 
 def _count_trial_free_dossiers(user_id: str) -> int:
-    try:
-        res = (
-            client()
-            .table("jobs")
-            .select("url,data,cv_url,letter_url,fit_score")
-            .eq("user_id", user_id)
-            .eq("deleted", False)
-            .execute()
-        )
-        count = 0
-        for row in res.data or []:
-            url = row.get("url")
-            data = row.get("data") or {}
-            if _is_trial_decoy_row(url, data):
-                continue
-            if row.get("cv_url") or row.get("letter_url"):
-                count += 1
-                continue
-            if not data.get("ready_without_cv"):
-                continue
-            score = row.get("fit_score")
-            if score is None:
-                score = data.get("_fit_score")
-            if isinstance(score, (int, float)) and score >= MIN_SCORE:
-                count += 1
-        return count
-    except Exception:
-        return 0
+    from store import count_user_generated_dossiers
+
+    return count_user_generated_dossiers(user_id)
 
 
 def _mark_trial_discovery_complete_if_ready(user_id: str, run_id: str) -> None:
@@ -564,6 +544,37 @@ def _qualifying_import_url(user_id: str, target_url: str) -> list[str]:
     return []
 
 
+def _is_discovery_trial_user(user_id: str) -> bool:
+    try:
+        res = (
+            client()
+            .table("profiles")
+            .select("subscription_status,is_trial")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        prof = res.data or {}
+        return prof.get("subscription_status") == "trial" or bool(prof.get("is_trial"))
+    except Exception:
+        return False
+
+
+def _generation_cap(user_id: str) -> int:
+    """Plafond de génération pour ce run (découverte : reste jusqu'à TRIAL_DISCOVERY_GEN_MAX)."""
+    # Relire l'env à chaque appel (spawn peut fixer JA_GEN_MAX après import).
+    env_gen = max(0, _env_int("JA_GEN_MAX", HUNT_TARGET))
+    base = min(env_gen, HUNT_TARGET) if env_gen > 0 else 0
+    if base <= 0:
+        return 0
+    if not _is_discovery_trial_user(user_id):
+        return base
+    already = _count_trial_free_dossiers(user_id)
+    remaining = max(0, TRIAL_DISCOVERY_GEN_MAX - already)
+    # Toujours plafonner l'essai à 3, même si JA_GEN_MAX est trop haut.
+    return min(base, remaining, TRIAL_DISCOVERY_GEN_MAX)
+
+
 def _run_generation_or_mark_ready(
     user_id: str,
     run_id: str,
@@ -589,7 +600,16 @@ def _run_generation_or_mark_ready(
                 if target_url
                 else "\n── Étape 2 : Génération CV + lettres (offres ≥ 6/10) ──",
             )
-        max_docs = "1" if target_url else str(min(GEN_MAX, HUNT_TARGET))
+        cap = 1 if target_url else _generation_cap(user_id)
+        if cap <= 0:
+            pipeline_log(
+                run_id,
+                f"✓ Plafond découverte atteint ({TRIAL_DISCOVERY_GEN_MAX} dossiers). "
+                "Les offres restantes restent visibles avec cadenas.",
+            )
+            pipeline_set_status(run_id, "running", progress=progress_after)
+            return []
+        max_docs = str(cap)
         args = ["apply", "--max", max_docs, "--no-dashboard"]
         if letter_only:
             args.append("--skip-cv")
@@ -614,7 +634,7 @@ def _run_generation_or_mark_ready(
             ready_urls = (
                 _qualifying_import_url(user_id, target_url)
                 if target_url
-                else _qualifying_urls(user_id, urls_before)
+                else _qualifying_urls(user_id, urls_before, limit=cap)
             )
             if ready_urls:
                 mark_ready_without_cv(user_id, ready_urls)
@@ -624,7 +644,20 @@ def _run_generation_or_mark_ready(
             )
         return generated
 
-    ready_urls = _qualifying_import_url(user_id, target_url) if target_url else _qualifying_urls(user_id, urls_before)
+    ready_cap = 1 if target_url else _generation_cap(user_id)
+    if ready_cap <= 0:
+        pipeline_log(
+            run_id,
+            f"✓ Plafond découverte atteint ({TRIAL_DISCOVERY_GEN_MAX} dossiers). "
+            "Les offres restantes restent visibles avec cadenas.",
+        )
+        pipeline_set_status(run_id, "running", progress=progress_after)
+        return []
+    ready_urls = (
+        _qualifying_import_url(user_id, target_url)
+        if target_url
+        else _qualifying_urls(user_id, urls_before, limit=ready_cap)
+    )
     pipeline_log(run_id, "\n── Étape 2 : Pas de CV ni texte de profil, génération ignorée ──")
     pipeline_log(
         run_id,

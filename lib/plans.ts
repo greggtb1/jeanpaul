@@ -47,14 +47,14 @@ export const PLANS: Record<PlanId, Plan> = {
   test: {
     id: "test",
     name: "Start",
-    tagline: "Un lancement one-shot pour débloquer vos premiers dossiers",
+    tagline: "Pour une première campagne",
     description: "25 candidatures complètes, envoyées pour vous.",
     features: [
-      "25 CV + lettres sur-mesure pour chaque offre",
+      "25 dossiers CV + lettre sur-mesure",
       "Auto-postulation sur les offres éligibles",
-      "Import d'offres par lien pour générer vos dossiers plus vite",
-      "40 retouches I.A de CV + 40 de lettres",
-      "Sans abonnement",
+      "Import d'offres par lien",
+      "40 retouches I.A (CV + lettres)",
+      "Paiement unique, sans abonnement",
     ],
     kind: "one_time",
     applicationsQuota: 25,
@@ -64,12 +64,13 @@ export const PLANS: Record<PlanId, Plan> = {
   chill: {
     id: "chill",
     name: "Essentiel",
-    tagline: "Votre prochain poste, sans passer vos soirées à postuler",
-    description: "Toutes les fonctionnalités Start, avec un rythme continu.",
+    tagline: "Pour candidater en continu",
+    description: "Tout Start, au rythme d'un abonnement.",
     features: [
       "Tout le plan Start",
-      "265 CV + lettres sur-mesure pour chaque offre",
-      "Retouche I.A des CV et lettres illimitée",
+      "265 dossiers CV + lettre / mois",
+      "Scan de nuit automatique",
+      "Retouches I.A illimitées",
       "Résiliable à tout moment",
     ],
     featured: true,
@@ -83,11 +84,11 @@ export const PLANS: Record<PlanId, Plan> = {
   tryhard: {
     id: "tryhard",
     name: "Ancien plan",
-    tagline: "Plan historique non proposé aux nouveaux clients",
+    tagline: "Plan historique",
     description: "Plan historique conservé pour compatibilité.",
     features: [
-      "Jusqu'à 350 candidatures envoyées par mois",
-      "Vous trouvez un job en 2 mois ou on vous rembourse votre abonnement",
+      "Jusqu'à 350 candidatures / mois",
+      "Remboursé si pas de job en 2 mois",
     ],
     featured: true,
     kind: "subscription",
@@ -103,21 +104,28 @@ export const PLANS_LIST: Plan[] = [PLANS.test, PLANS.chill];
 export const FREE_DISCOVERY_OFFER = {
   id: "discovery_free",
   name: "Découverte",
-  tagline: "Lancez votre recherche d'emploi avec BLOW MY JOB",
-  description:
-    "Offres repérées, scoring de pertinence et dossiers CV + lettre adaptés pour avancer concrètement.",
-  priceLabel: "0 €",
+  tagline: "Pour tester sans engagement",
+  description: "Recherche, scoring et premiers dossiers adaptés.",
+  priceLabel: "Gratuit",
   priceSuffix: "",
-  cta: "Choisir l'offre Découverte",
+  cta: "Essayer gratuitement",
   href: `/onboarding${planQuery("test")}`,
+  badge: "Gratuit",
   features: [
-    "4 CV + lettres sur-mesure pour chaque offre",
-    "3 retouches I.A (CV + lettres)",
+    "Dossiers CV + lettre sur-mesure limités",
+    "Retouches I.A (CV + lettres) limitées",
     "Recherche LinkedIn selon vos critères",
-    "Offres classées avec note de pertinence /10",
+    "Offres notées sur 10",
     "Sans carte bancaire",
   ],
 } as const;
+
+/** Étiquette courte type Flow (à côté du nom). */
+export function planBadge(plan: Plan): string | null {
+  if (plan.kind === "one_time") return "One-shot";
+  if (plan.featured) return "Populaire";
+  return null;
+}
 
 const PLAN_RANK: Record<PlanId, number> = {
   test: 0,

@@ -74,6 +74,68 @@ def client() -> Client:
     return _client
 
 
+_TRIAL_DECOY_PREFIX = "https://trial.blowmyjob.fr/decoy/"
+
+
+def count_user_generated_dossiers(user_id: Optional[str] = None) -> int:
+    """Dossiers avec CV et/ou lettre (hors decoys essai)."""
+    uid = _uid(user_id)
+    if not uid:
+        return 0
+    try:
+        res = (
+            client()
+            .table("jobs")
+            .select("url,data,cv_url,letter_url,fit_score")
+            .eq("user_id", uid)
+            .eq("deleted", False)
+            .execute()
+        )
+        count = 0
+        for row in res.data or []:
+            data = row.get("data") or {}
+            url = row.get("url")
+            if data.get("trial_decoy") or str(url or "").startswith(_TRIAL_DECOY_PREFIX):
+                continue
+            if row.get("cv_url") or row.get("letter_url"):
+                count += 1
+                continue
+            if not data.get("ready_without_cv"):
+                continue
+            score = row.get("fit_score")
+            if score is None:
+                score = data.get("_fit_score")
+            if isinstance(score, (int, float)) and score >= 6:
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+def urls_with_docs(user_id: Optional[str] = None) -> Set[str]:
+    """URLs du user qui ont déjà un CV ou une lettre en base."""
+    uid = _uid(user_id)
+    if not uid:
+        return set()
+    try:
+        res = (
+            client()
+            .table("jobs")
+            .select("url,cv_url,letter_url")
+            .eq("user_id", uid)
+            .eq("deleted", False)
+            .execute()
+        )
+        out: Set[str] = set()
+        for row in res.data or []:
+            u = (row.get("url") or "").strip()
+            if u and (row.get("cv_url") or row.get("letter_url")):
+                out.add(u)
+        return out
+    except Exception:
+        return set()
+
+
 def _job_key(job: Dict) -> str:
     """Clé unique d'une offre (URL sinon titre|entreprise)."""
     return job.get("url") or f"{job.get('title', '')}|{job.get('company', '')}".lower()

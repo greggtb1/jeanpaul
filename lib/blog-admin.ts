@@ -1,11 +1,20 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
-function allowedEmails(): string[] {
-  return (process.env.BLOG_ADMIN_EMAILS || "")
+/** Seul compte autorisé pour le backoffice blog (env optionnel en plus). */
+const HARDCODED_BLOG_ADMINS = ["gregoire@garetabecane.fr"];
+
+export function blogAdminEmails(): string[] {
+  const fromEnv = (process.env.BLOG_ADMIN_EMAILS || "")
     .split(",")
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
+  return [...new Set([...HARDCODED_BLOG_ADMINS, ...fromEnv])];
+}
+
+export function isBlogAdminEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return blogAdminEmails().includes(email.trim().toLowerCase());
 }
 
 export async function requireBlogAdmin() {
@@ -18,15 +27,11 @@ export async function requireBlogAdmin() {
     return { ok: false as const, status: 401, error: "Non authentifié" };
   }
 
-  const allowlist = allowedEmails();
-  const email = user.email.trim().toLowerCase();
-  const localBypass = process.env.NODE_ENV !== "production" && allowlist.length === 0;
-
-  if (!localBypass && !allowlist.includes(email)) {
+  if (!isBlogAdminEmail(user.email)) {
     return {
       ok: false as const,
       status: 403,
-      error: "Accès blog refusé. Ajoutez votre email dans BLOG_ADMIN_EMAILS.",
+      error: "Accès refusé",
     };
   }
 

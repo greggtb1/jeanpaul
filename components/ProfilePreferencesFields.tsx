@@ -18,7 +18,7 @@ function useIsMobile() {
 
   return isMobile;
 }
-import { LETTER_TONES } from "@/lib/supabase";
+import { LETTER_TONES, normalizeLetterTone } from "@/lib/supabase";
 import { LETTER_FILE_ACCEPT } from "@/lib/extract-letter";
 
 export function PrefField({
@@ -55,10 +55,11 @@ export function LetterTonePicker({
   onChange: (id: string) => void;
   grid?: boolean;
 }) {
+  const current = normalizeLetterTone(value);
   return (
     <div className={`ob__tone-list${grid ? " ob__tone-list--grid" : ""}`}>
       {LETTER_TONES.map((tone) => {
-        const active = value === tone.id;
+        const active = current === tone.id;
         return (
           <button
             type="button"
@@ -322,14 +323,17 @@ export function TagInput({
         <div className={`ob__drawer${showAutocomplete ? " ob__drawer--dimmed" : ""}`}>
           <button
             type="button"
-            className="ob__drawer-toggle"
+            className={`ob__drawer-toggle${suggestOpen ? " is-open" : ""}`}
+            aria-expanded={suggestOpen}
             onClick={() => {
               setSuggestOpen((o) => !o);
               resetDrawerNav();
             }}
           >
-            <span>{suggestOpen ? "Masquer les suggestions" : "Voir des suggestions"}</span>
-            <span className="ob__drawer-chevron" aria-hidden="true">{suggestOpen ? "▲" : "▼"}</span>
+            <span>{suggestOpen ? "Masquer les suggestions" : "Parcourir les suggestions"}</span>
+            <span className="ob__drawer-chevron" aria-hidden="true">
+              ▼
+            </span>
           </button>
 
           {suggestOpen && (
@@ -364,53 +368,64 @@ export function TagInput({
                     )}
                   </div>
 
-                  {!activeDomain && (
-                    <div className="ob__stair-domains">
-                      {availableDomains.map((d) => (
-                        <button
-                          type="button"
-                          key={d.label}
-                          className="ob__stair-domain"
-                          onClick={() => {
-                            setActiveDomain(d.label);
-                            setActiveGroup(null);
-                          }}
-                        >
-                          <span className="ob__stair-domain-label">{d.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div
+                    key={!activeDomain ? "domains" : !activeGroup ? `cats-${activeDomain}` : `items-${activeGroup}`}
+                    className="ob__stair-panel"
+                  >
+                    {!activeDomain && (
+                      <div className="ob__stair-domains">
+                        {availableDomains.map((d) => (
+                          <button
+                            type="button"
+                            key={d.label}
+                            className="ob__stair-domain"
+                            onClick={() => {
+                              setActiveDomain(d.label);
+                              setActiveGroup(null);
+                            }}
+                          >
+                            <span className="ob__stair-domain-label">{d.label}</span>
+                            <span className="ob__stair-domain-chevron" aria-hidden="true">
+                              ›
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                  {activeDomain && !activeGroup && (
-                    <div className="ob__stair-cats">
-                      {domainCats.map((g) => (
-                        <button
-                          type="button"
-                          key={g.label}
-                          className="ob__stair-cat"
-                          onClick={() => setActiveGroup(g.label)}
-                        >
-                          <span>{g.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    {activeDomain && !activeGroup && (
+                      <div className="ob__stair-cats">
+                        {domainCats.map((g) => (
+                          <button
+                            type="button"
+                            key={g.label}
+                            className="ob__stair-cat"
+                            onClick={() => setActiveGroup(g.label)}
+                          >
+                            <span>{g.label}</span>
+                            <span className="ob__stair-domain-chevron" aria-hidden="true">
+                              ›
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                  {activeDomain && activeGroup && (
-                    <div className="ob__suggest ob__suggest--drawer">
-                      {activeItems.map((s) => (
-                        <button
-                          type="button"
-                          key={s}
-                          className="ob__suggest-chip"
-                          onClick={() => add(s)}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    {activeDomain && activeGroup && (
+                      <div className="ob__suggest ob__suggest--drawer">
+                        {activeItems.map((s) => (
+                          <button
+                            type="button"
+                            key={s}
+                            className="ob__suggest-chip"
+                            onClick={() => add(s)}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -429,17 +444,19 @@ export function TagInput({
                       ))}
                   </div>
                   {activeGroup && activeItems.length > 0 && (
-                    <div className="ob__suggest ob__suggest--drawer">
-                      {activeItems.map((s) => (
-                        <button
-                          type="button"
-                          key={s}
-                          className="ob__suggest-chip"
-                          onClick={() => add(s)}
-                        >
-                          {s}
-                        </button>
-                      ))}
+                    <div key={activeGroup} className="ob__stair-panel">
+                      <div className="ob__suggest ob__suggest--drawer">
+                        {activeItems.map((s) => (
+                          <button
+                            type="button"
+                            key={s}
+                            className="ob__suggest-chip"
+                            onClick={() => add(s)}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </>
@@ -507,9 +524,6 @@ export function LetterSampleOptional({
         </span>
       </summary>
       <div className="ob__optional-fold__body">
-        <p className="ob__optional-fold__lead">
-          Collez une lettre qui vous plaît : on s&apos;en inspire pour reproduire votre style.
-        </p>
         {onUpload ? (
           <LetterSampleInput
             value={value}
@@ -518,13 +532,18 @@ export function LetterSampleOptional({
             onUpload={onUpload}
           />
         ) : (
-          <textarea
-            className="ob__textarea ob__letter-sample__area"
-            rows={5}
-            placeholder="Collez une lettre déjà écrite."
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-          />
+          <>
+            <textarea
+              className="ob__textarea ob__letter-sample__area"
+              rows={5}
+              placeholder="Collez une lettre déjà écrite."
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+            />
+            <p className="ob__optional-fold__lead">
+              Collez une lettre qui vous plaît : on s&apos;en inspire pour reproduire votre style.
+            </p>
+          </>
         )}
       </div>
     </details>
@@ -549,10 +568,13 @@ export function LetterSampleInput({
       <textarea
         className="ob__textarea ob__letter-sample__area"
         rows={4}
-        placeholder="Collez une lettre ou importez un PDF / Word. BLOW MY JOB s'en inspire pour le style."
+        placeholder="Collez une lettre ou importez un PDF / Word."
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
+      <p className="ob__optional-fold__lead">
+        Collez une lettre qui vous plaît : on s&apos;en inspire pour reproduire votre style.
+      </p>
       <div className="ob__letter-sample-bar">
         <button
           type="button"

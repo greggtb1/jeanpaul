@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
-import LogoutWarningModal from "@/components/LogoutWarningModal";
+import AnonymousSaveModal from "@/components/AnonymousSaveModal";
+import { isAnonymousSession } from "@/lib/auth-user";
 import { isPlausiblePersonName } from "@/lib/file-name";
 
 export default function ComptePage() {
@@ -14,7 +16,8 @@ export default function ComptePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [logoutWarnOpen, setLogoutWarnOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveIntent, setSaveIntent] = useState<"logout" | "leave">("leave");
   const [form, setForm] = useState({
     full_name: "",
     email: "",
@@ -61,9 +64,12 @@ export default function ComptePage() {
     router.refresh();
   }
 
+  const isAnonymous = isAnonymousSession(user);
+
   function requestLogout() {
-    if (user?.is_anonymous) {
-      setLogoutWarnOpen(true);
+    if (isAnonymous) {
+      setSaveIntent("logout");
+      setSaveOpen(true);
       return;
     }
     void logout();
@@ -141,24 +147,53 @@ export default function ComptePage() {
       )}
 
       <section className="db-panel db-panel--flat">
-        <h2 className="db-panel__title">Session</h2>
-        <p className="db-muted">
-          {user?.is_anonymous
-            ? "Compte découverte : vos données ne sont pas sauvegardées, la déconnexion les efface définitivement."
-            : "Déconnectez-vous de votre compte sur cet appareil."}
-        </p>
-        <button type="button" className="btn btn--outline btn--sm" style={{ marginTop: 12 }} onClick={requestLogout}>
-          Déconnexion
-        </button>
+        <h2 className="db-panel__title">Aide</h2>
+        <p className="db-muted">FAQ et contact si vous avez un souci ou une suggestion.</p>
+        <div style={{ marginTop: 12 }}>
+          <Link href="/dashboard/aide" className="btn btn--outline btn--sm">
+            Voir l&apos;aide
+          </Link>
+        </div>
       </section>
 
-      <LogoutWarningModal
-        open={logoutWarnOpen}
-        onConfirm={() => {
-          setLogoutWarnOpen(false);
-          void logout();
-        }}
-        onCancel={() => setLogoutWarnOpen(false)}
+      <section className="db-panel db-panel--flat">
+        <h2 className="db-panel__title">Session</h2>
+        <p className="db-muted">
+          {isAnonymous
+            ? "Compte découverte temporaire : créez un compte pour garder vos offres, CV et lettres."
+            : "Déconnectez-vous de votre compte sur cet appareil."}
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
+          {isAnonymous && (
+            <button
+              type="button"
+              className="btn btn--coral btn--sm"
+              onClick={() => {
+                setSaveIntent("leave");
+                setSaveOpen(true);
+              }}
+            >
+              Créer un compte et sauvegarder
+            </button>
+          )}
+          <button type="button" className="btn btn--outline btn--sm" onClick={requestLogout}>
+            Déconnexion
+          </button>
+        </div>
+      </section>
+
+      <AnonymousSaveModal
+        open={saveOpen}
+        intent={saveIntent}
+        onClose={() => setSaveOpen(false)}
+        onDiscard={
+          saveIntent === "logout"
+            ? () => {
+                setSaveOpen(false);
+                void logout();
+              }
+            : undefined
+        }
       />
     </main>
   );

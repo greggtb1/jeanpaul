@@ -24,11 +24,39 @@ import {
   LetterSampleOptional,
 } from "@/components/ProfilePreferencesFields";
 import { extractLetterText } from "@/lib/extract-letter";
+import { saveDraft } from "@/lib/onboarding-draft";
 
 const AUTOSAVE_DELAY_MS = 600;
 
 function serializeForm(form: PreferencesForm) {
   return JSON.stringify(form);
+}
+
+function PrefCard({
+  title,
+  lead,
+  children,
+  className,
+  index = 0,
+}: {
+  title: string;
+  lead?: string;
+  children: React.ReactNode;
+  className?: string;
+  index?: number;
+}) {
+  return (
+    <section
+      className={["pref-card", className].filter(Boolean).join(" ")}
+      style={{ animationDelay: `${index * 55}ms` }}
+    >
+      <header className="pref-card__head">
+        <h2 className="pref-card__title">{title}</h2>
+        {lead ? <p className="pref-card__lead">{lead}</p> : null}
+      </header>
+      <div className="pref-card__body">{children}</div>
+    </section>
+  );
 }
 
 export default function SearchPreferencesForm() {
@@ -76,6 +104,21 @@ export default function SearchPreferencesForm() {
         });
         if (error) throw error;
         lastSavedRef.current = serializeForm(data);
+        // Aligne le brouillon onboarding pour que le 1er scan trial
+        // n'écrase pas les critères avec l'ancien localStorage.
+        saveDraft({
+          target_roles: data.target_roles,
+          target_locations: data.target_locations,
+          location_search_mode: data.location_search_mode,
+          location_radius_km: data.location_radius_km,
+          contract_type: data.contract_type,
+          remote_pref: data.remote_pref,
+          salary_min: data.salary_min,
+          cv_url: data.cv_url,
+          cv_filename: data.cv_filename,
+          letter_tone: data.letter_tone,
+          letter_sample: data.letter_sample,
+        });
         setSaved(true);
         window.dispatchEvent(new CustomEvent("ja:prefs-updated"));
       } catch (err) {
@@ -210,174 +253,162 @@ export default function SearchPreferencesForm() {
   const hasCity =
     form.target_locations.some((l) => !/remote|t[ée]l[ée]travail|distanciel/i.test(l));
 
+  const saveStatus = (() => {
+    if (uploading || letterUploading) return { kind: "muted" as const, text: "Upload…" };
+    if (saving) return { kind: "muted" as const, text: "Enregistrement…" };
+    if (saveError) return { kind: "error" as const, text: "Erreur" };
+    if (saved) return { kind: "ok" as const, text: "Enregistré" };
+    return { kind: "muted" as const, text: "Autosave" };
+  })();
+
   return (
     <form className="pref-page" onSubmit={(e) => e.preventDefault()}>
-      <section className="pref-block">
-        <header className="pref-block__head">
-          <h2 className="pref-block__title">Postes</h2>
-        </header>
-
-        <PrefField label="Postes visés">
-          <TagInput
-            value={form.target_roles}
-            onChange={(v) => set({ target_roles: v })}
-            groups={ROLE_GROUPS}
-            domains={ROLE_DOMAINS}
-            freeform
-            hideFreeformHint
-            autocomplete
-            placeholder="Ex. Growth Marketing, Product Manager…"
-          />
-        </PrefField>
-
-        <div className="pref-sector">
-          <div className="pref-sector__top">
-            <span className="pref-sector__badge">Nouveau</span>
-            <span className="pref-sector__title">Secteurs visés</span>
-          </div>
-          <p className="pref-sector__lead">
-            Pas demandé à l&apos;onboarding. Utile pour écarter les offres hors sujet
-            (banque, admin, etc.).
+      <div className="pref-page__toolbar" aria-live="polite">
+        <div className="pref-page__toolbar-copy">
+          <p className="pref-page__eyebrow">Profil de recherche</p>
+          <p className="pref-page__toolbar-hint">
+            Modifications enregistrées automatiquement.
           </p>
-          <TagInput
-            value={form.target_sectors}
-            onChange={(v) => set({ target_sectors: v })}
-            suggestions={SECTOR_SUGGESTIONS}
-            freeform
-            compact
-            placeholder="Ex. Culture, médias, tech…"
-          />
         </div>
-      </section>
-
-      <section className="pref-block">
-        <header className="pref-block__head">
-          <h2 className="pref-block__title">Conditions</h2>
-        </header>
-
-        <div className="pref-grid">
-          <PrefField label="Lieux" className="pref-grid__span2">
-            <TagInput
-              value={form.target_locations}
-              onChange={(v) => set({ target_locations: v })}
-              suggestions={LOCATION_SUGGESTIONS}
-              compact
-              placeholder="Paris, Remote, Lyon…"
-            />
-            {hasCity && (
-              <div className="ob__location-radius ob__location-radius--compact">
-                <span className="ob__location-radius-label">Rayon</span>
-                <div
-                  className="ob__location-radius-options"
-                  role="group"
-                  aria-label="Rayon de recherche"
-                >
-                  {LOCATION_RADIUS_OPTIONS.map((option) => {
-                    const active =
-                      option.value === "city"
-                        ? form.location_search_mode === "city"
-                        : form.location_search_mode === "radius" &&
-                          form.location_radius_km === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={`ob__location-radius-chip${active ? " is-active" : ""}`}
-                        onClick={() =>
-                          option.value === "city"
-                            ? set({ location_search_mode: "city", location_radius_km: "" })
-                            : set({
-                                location_search_mode: "radius",
-                                location_radius_km: option.value,
-                              })
-                        }
-                        aria-pressed={active}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </PrefField>
-
-          <PrefField label="Contrat">
-            <MultiChoice
-              options={CONTRACTS}
-              value={form.contract_type}
-              onChange={(v) => set({ contract_type: v })}
-            />
-          </PrefField>
-
-          <PrefField label="Présentiel">
-            <MultiChoice
-              options={REMOTE}
-              value={form.remote_pref}
-              onChange={(v) => set({ remote_pref: v })}
-            />
-          </PrefField>
-
-          <PrefField label="Salaire min. (k€/an)" hint="Optionnel">
-            <input
-              className="ob__input pref-salary-input"
-              type="number"
-              inputMode="numeric"
-              placeholder="Ex. 40"
-              value={form.salary_min}
-              onChange={(e) => set({ salary_min: e.target.value })}
-            />
-          </PrefField>
-        </div>
-      </section>
-
-      <div className="pref-split">
-        <section className="pref-block pref-block--cv">
-          <header className="pref-block__head">
-            <h2 className="pref-block__title">CV</h2>
-            <p className="pref-block__lead">PDF pour adapter chaque dossier.</p>
-          </header>
-          <CvDropzone
-            cvUrl={form.cv_url}
-            cvFilename={form.cv_filename}
-            uploading={uploading}
-            onFile={handleFile}
-            compact
-          />
-        </section>
-
-        <section className="pref-block">
-          <header className="pref-block__head">
-            <h2 className="pref-block__title">Lettres</h2>
-          </header>
-          <PrefField label="Ton">
-            <LetterTonePicker
-              grid
-              value={form.letter_tone}
-              onChange={(v) => set({ letter_tone: v })}
-            />
-          </PrefField>
-          <LetterSampleOptional
-            value={form.letter_sample}
-            onChange={(v) => set({ letter_sample: v })}
-            uploading={letterUploading}
-            onUpload={handleLetterFile}
-          />
-        </section>
+        <span
+          className={`pref-save-pill pref-save-pill--${saveStatus.kind}${saving ? " is-pulse" : ""}`}
+          title={saveError ?? undefined}
+        >
+          {saveStatus.kind === "ok" ? "✓ Enregistré" : saveStatus.text}
+        </span>
       </div>
 
-      <div className="pref-page__actions pref-page__autosave" aria-live="polite">
-        {uploading || letterUploading ? (
-          <span className="db-muted">Upload en cours…</span>
-        ) : saving ? (
-          <span className="db-muted">Enregistrement…</span>
-        ) : saveError ? (
-          <span className="pref-page__autosave-error">Erreur : {saveError}</span>
-        ) : saved ? (
-          <span className="db-saved">✓ Enregistré</span>
-        ) : (
-          <span className="db-muted">Enregistrement automatique</span>
-        )}
+      <div className="pref-bento">
+        <PrefCard title="Cible" className="pref-card--cible" index={0}>
+          <div className="pref-split">
+            <PrefField label="Postes">
+              <TagInput
+                value={form.target_roles}
+                onChange={(v) => set({ target_roles: v })}
+                groups={ROLE_GROUPS}
+                domains={ROLE_DOMAINS}
+                freeform
+                hideFreeformHint
+                autocomplete
+                placeholder="Ex. Growth Marketing, Product Manager…"
+              />
+            </PrefField>
+            <PrefField label="Secteurs">
+              <TagInput
+                value={form.target_sectors}
+                onChange={(v) => set({ target_sectors: v })}
+                suggestions={SECTOR_SUGGESTIONS}
+                freeform
+                compact
+                placeholder="Culture, médias, tech…"
+              />
+            </PrefField>
+          </div>
+        </PrefCard>
+
+        <PrefCard title="Lieux" className="pref-card--places" index={1}>
+          <TagInput
+            value={form.target_locations}
+            onChange={(v) => set({ target_locations: v })}
+            suggestions={LOCATION_SUGGESTIONS}
+            compact
+            placeholder="Paris, Remote, Lyon…"
+          />
+          {hasCity && (
+            <div className="ob__location-radius ob__location-radius--compact">
+              <span className="ob__location-radius-label">Rayon</span>
+              <div
+                className="ob__location-radius-options"
+                role="group"
+                aria-label="Rayon de recherche"
+              >
+                {LOCATION_RADIUS_OPTIONS.map((option) => {
+                  const active =
+                    option.value === "city"
+                      ? form.location_search_mode === "city"
+                      : form.location_search_mode === "radius" &&
+                        form.location_radius_km === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`ob__location-radius-chip${active ? " is-active" : ""}`}
+                      onClick={() =>
+                        option.value === "city"
+                          ? set({ location_search_mode: "city", location_radius_km: "" })
+                          : set({
+                              location_search_mode: "radius",
+                              location_radius_km: option.value,
+                            })
+                      }
+                      aria-pressed={active}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </PrefCard>
+
+        <PrefCard title="Conditions" className="pref-card--conditions" index={2}>
+          <div className="pref-stack">
+            <PrefField label="Contrat">
+              <MultiChoice
+                options={CONTRACTS}
+                value={form.contract_type}
+                onChange={(v) => set({ contract_type: v })}
+              />
+            </PrefField>
+            <PrefField label="Présentiel">
+              <MultiChoice
+                options={REMOTE}
+                value={form.remote_pref}
+                onChange={(v) => set({ remote_pref: v })}
+              />
+            </PrefField>
+            <PrefField label="Salaire min." hint="k€ / an · optionnel">
+              <input
+                className="ob__input pref-salary-input"
+                type="number"
+                inputMode="numeric"
+                placeholder="40"
+                value={form.salary_min}
+                onChange={(e) => set({ salary_min: e.target.value })}
+              />
+            </PrefField>
+          </div>
+        </PrefCard>
+
+        <PrefCard title="Candidature" className="pref-card--docs" index={3}>
+          <div className="pref-split pref-split--docs">
+            <PrefField label="CV" className="pref-docs-cv">
+              <CvDropzone
+                cvUrl={form.cv_url}
+                cvFilename={form.cv_filename}
+                uploading={uploading}
+                onFile={handleFile}
+                compact
+              />
+            </PrefField>
+            <PrefField label="Ton de lettre" className="pref-docs-tones">
+              <LetterTonePicker
+                grid
+                value={form.letter_tone}
+                onChange={(v) => set({ letter_tone: v })}
+              />
+            </PrefField>
+            <div className="pref-docs-optional">
+              <LetterSampleOptional
+                value={form.letter_sample}
+                onChange={(v) => set({ letter_sample: v })}
+                uploading={letterUploading}
+                onUpload={handleLetterFile}
+              />
+            </div>
+          </div>
+        </PrefCard>
       </div>
     </form>
   );

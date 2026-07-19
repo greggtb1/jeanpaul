@@ -5,7 +5,7 @@
   "niche:Product Manager Platform": 120,
   "niche:Growth Product Manager": 60,
   "niche:Technical Product Manager": 60,
-  "niche:Product Manager B2B": 140,
+  "niche:Product Manager B2B": 160,
   "niche:Product Manager B2C": 40,
   "niche:Product Manager Mobile": 60,
   "niche:Product Manager Data": 140,
@@ -13,5 +13,14 @@
   "niche:Product Manager Marketplace": 140,
   "niche:Chief Product Officer": 40,
   "product builder": 20,
-  "Chef de projet digital": 40
+  "Chef de projet digital": 40,
+  "niche:Product Manager Early Stage": 60,
+  "niche:Product Manager SaaS": 140,
+  "niche:Product Manager Startup": 120,
+  "niche:Product Ops Manager": 120,
+  "niche:Product Manager Tech": 60,
+  "niche:Product Builder Paris": 60,
+  "niche:Product Strategy Manager": 120,
+  "niche:Technical Founder": 20,
+  "niche:Head of Product": 20
 }

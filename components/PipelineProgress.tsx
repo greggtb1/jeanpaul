@@ -10,8 +10,21 @@ const GEN_PHASES = ["generate", "sync", "done"];
 
 function getHero(
   phase: ReturnType<typeof parsePipelinePhase>,
-  hideOfferQuota = false
+  _hideOfferQuota = false
 ): { value: string; label: string } {
+  // Recherche / notation : afficher le volume scanné (plus impressionnant que les seules retenues).
+  if (phase.subPhase === "hunt_fill" || phase.subPhase === "analyze") {
+    const scanned =
+      phase.analyzeDone ||
+      phase.analyzeTotal ||
+      phase.offersNew ||
+      phase.qualifying;
+    if (scanned > 0) {
+      return { value: String(scanned), label: "offres scannées" };
+    }
+    return { value: "…", label: "offres scannées" };
+  }
+
   const frac = phase.detail.match(/^(\d+)\s*\/\s*(\d+)/);
   if (frac) {
     const isGen = phase.subPhase === "generate" || phase.subPhase === "sync";
@@ -20,19 +33,17 @@ function getHero(
     }
     const label = isGen
       ? "dossiers prêts"
-      : phase.subPhase === "hunt_fill" || phase.subPhase === "analyze"
-          ? "offres retenues"
-          : phase.subPhase.startsWith("autoapply")
-            ? "formulaires"
-            : "progression";
-    const hideDenom =
-      hideOfferQuota &&
-      (phase.subPhase === "hunt_fill" || phase.subPhase === "analyze");
-    return { value: hideDenom ? frac[1] : `${frac[1]}/${frac[2]}`, label };
+      : phase.subPhase.startsWith("autoapply")
+        ? "formulaires"
+        : "progression";
+    return {
+      value: `${frac[1]}/${frac[2]}`,
+      label,
+    };
   }
 
   if (phase.subPhase === "scrape_done" && phase.offersNew) {
-    return { value: String(phase.offersNew), label: "nouvelles offres" };
+    return { value: String(phase.offersNew), label: "offres scannées" };
   }
   if (SCAN_PHASES.includes(phase.subPhase) && phase.queriesTotal) {
     return { value: `${phase.queriesDone}/${phase.queriesTotal}`, label: "requêtes" };
@@ -111,7 +122,7 @@ export default function PipelineProgress({
   stopping?: boolean;
   launching?: boolean;
   launchMode?: "full" | "analyze" | "import" | "autoapply" | "unlock" | null;
-  /** Mode découverte : n'affiche pas le plafond (/8) sur les offres retenues. */
+  /** Mode découverte : n'affiche pas le plafond (/N) sur le volume scanné. */
   trialDiscovery?: boolean;
 }) {
   const phase = useMemo(() => parsePipelinePhase(run, jobsFound), [run, jobsFound]);
@@ -138,6 +149,25 @@ export default function PipelineProgress({
     launching || !["done", "autoapply_ready"].includes(phase.subPhase);
   const progressPct = launching ? 4 : phase.progress;
   const showEta = showInlineLoader && !autoapply;
+  const etaMinutes = Math.max(
+    1,
+    Math.min(2, Math.ceil(((100 - Math.min(progressPct, 95)) / 100) * 2))
+  );
+
+  const etaLine = (
+    <p className="db-run__eta">
+      <span className="db-run__eta-live" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="db-run__eta-copy">
+        Votre scan est en cours
+        <span className="db-run__eta-sep">·</span>
+        <span className="db-run__eta-time">temps estimé ~{etaMinutes}&nbsp;min</span>
+      </span>
+    </p>
+  );
 
   const stopButton = onStop && !launching ? (
     <button
@@ -152,7 +182,7 @@ export default function PipelineProgress({
 
   if (compact) {
     return (
-      <section className="db-run db-run--compact" aria-live="polite">
+      <section className="db-run db-run--compact db-run--live" aria-live="polite">
         <div className="db-run__head">
           <span className="db-run__pulse" aria-hidden="true" />
           <span className="db-run__status">{statusLabel}</span>
@@ -168,13 +198,13 @@ export default function PipelineProgress({
             <span style={{ width: `${progressPct}%` }} />
           </div>
         </div>
-        {showEta && <p className="db-run__eta">environ 2 min pour un scan complet</p>}
+        {showEta && etaLine}
       </section>
     );
   }
 
   return (
-    <section className="db-run" aria-live="polite">
+    <section className="db-run db-run--live" aria-live="polite">
       {phase.subPhase === "autoapply_ready" && (
         <AutoApplyValidateCallout count={phase.autoapplyTotal || phase.autoapplyReady || 1} />
       )}
@@ -196,7 +226,7 @@ export default function PipelineProgress({
           <span style={{ width: `${progressPct}%` }} />
         </div>
       </div>
-      {showEta && <p className="db-run__eta">environ 2 min pour un scan complet</p>}
+      {showEta && etaLine}
     </section>
   );
 }

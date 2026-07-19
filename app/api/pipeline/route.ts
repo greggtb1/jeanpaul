@@ -9,15 +9,14 @@ import { stopPipelineRun } from "@/lib/pipeline-stop";
 import { reconcileStalePipelineRun, trimPipelineLog } from "@/lib/pipeline-reconcile";
 import { assertPipelineQuota, countGeneratedJobs, TRIAL_DISCOVERY_GEN_MAX } from "@/lib/plan-quota";
 import { createAgentLaunchToken } from "@/lib/agent-launch";
-import { isTrialDecoyJob } from "@/lib/trial-decoy";
 
 export const dynamic = "force-dynamic";
 
-// Rattrapage borné pour l'essai découverte : uniquement pour terminer les 4
-// dossiers gratuits (offres déjà trouvées) ou relancer un scan si rien n'est
-// sorti du tout. Jamais de génération/scan illimité.
-const TRIAL_CATCHUP_HUNT_TARGET = 8;
-const TRIAL_CATCHUP_MAX_ATTEMPTS = 4;
+// Rattrapage borné pour l'essai découverte : terminer les 3 dossiers gratuits
+// (analyse ou nouveau scan), même après un stop. Jamais de scan illimité.
+const TRIAL_CATCHUP_HUNT_TARGET = 6;
+/** Garde-fou anti-spam API : assez large pour finir les 3 dossiers (stop/relance). */
+const TRIAL_CATCHUP_MAX_ATTEMPTS = 6;
 
 async function requireSession() {
   const supabase = await createClient();
@@ -152,21 +151,17 @@ export async function POST(req: NextRequest) {
 
       const { data: trialJobsRaw } = await admin
         .from("jobs")
-        .select("url,data,cv_url,fit_score")
+        .select("url,data,cv_url,letter_url,fit_score")
         .eq("user_id", userId)
         .eq("deleted", false);
       const trialJobs = trialJobsRaw ?? [];
-      const realJobsCount = trialJobs.filter(
-        (j) => !isTrialDecoyJob({ url: j.url ?? "", data: j.data ?? {} })
-      ).length;
       const generatedCount = countGeneratedJobs(trialJobs);
       const remainingSlots = Math.max(0, TRIAL_DISCOVERY_GEN_MAX - generatedCount);
-      const noOffersFound = realJobsCount === 0;
 
-      // Seul cas autorisé : finir les 4 dossiers découverte, ou relancer un scan
-      // si aucune offre n'est jamais sortie. Rien d'autre ne doit passer ici.
+      // Rattrapage jusqu'à 3 dossiers prêts : analyse ou nouveau scan full,
+      // même après un stop. Au-delà → paywall. Compteur anti-spam ci-dessous.
       const catchupAllowed =
-        (mode === "analyze" && remainingSlots > 0) || (mode === "full" && noOffersFound);
+        remainingSlots > 0 && (mode === "analyze" || mode === "full");
       if (!catchupAllowed) return trialLockedResponse();
 
       const attemptsId = `trial_catchup_attempts:${userId}`;
@@ -185,10 +180,10 @@ export async function POST(req: NextRequest) {
         { onConflict: "id" }
       );
 
-      trialCatchup =
-        mode === "full"
-          ? { huntTarget: TRIAL_CATCHUP_HUNT_TARGET, genMax: TRIAL_DISCOVERY_GEN_MAX }
-          : { huntTarget: TRIAL_CATCHUP_HUNT_TARGET, genMax: remainingSlots };
+      trialCatchup = {
+        huntTarget: TRIAL_CATCHUP_HUNT_TARGET,
+        genMax: remainingSlots,
+      };
     }
 
     const quota = await assertPipelineQuota(admin, userId, mode, profile ?? {});
@@ -337,11 +332,16 @@ export async function POST(req: NextRequest) {
         mode,
         ...(mode === "import" ? ["--import-url", importUrl] : []),
       ],
-      {
+        {
         ...buildEngineSpawnEnv(userId, runId),
         JA_HUNT_TARGET: String(trialCatchup ? trialCatchup.huntTarget : quota.runTarget),
         ...(mode === "unlock" ? { JA_GEN_MAX: String(quota.runTarget) } : {}),
-        ...(trialCatchup ? { JA_GEN_MAX: String(trialCatchup.genMax) } : {}),
+        ...(trialCatchup
+          ? {
+              JA_GEN_MAX: String(trialCatchup.genMax),
+              JA_TRIAL_DISCOVERY_GEN_MAX: String(TRIAL_DISCOVERY_GEN_MAX),
+            }
+          : {}),
       }
     );
 

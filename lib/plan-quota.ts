@@ -6,7 +6,7 @@ import { countQuotaJobs, countWeeklyQuotaJobs } from "@/lib/job-ready";
 import { countPendingUnlockJobs } from "@/lib/trial-unlock";
 
 /** Dossiers CV+lettre générés en mode découverte (essai gratuit). */
-export const TRIAL_DISCOVERY_GEN_MAX = 4;
+export const TRIAL_DISCOVERY_GEN_MAX = 3;
 
 export function isDiscoveryTrial(subscriptionStatus: string | null | undefined): boolean {
   return subscriptionStatus === "trial";
@@ -45,8 +45,10 @@ export type UpgradeOffer = {
 export function countGeneratedJobs(
   jobs: {
     cv_url?: string | null;
+    letter_url?: string | null;
     fit_score?: number | null;
     data?: Record<string, unknown> | null;
+    url?: string;
   }[]
 ): number {
   return countQuotaJobs(jobs);

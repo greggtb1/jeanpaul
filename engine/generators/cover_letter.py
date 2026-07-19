@@ -10,7 +10,12 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from rich.console import Console
-from user_profile import load_user_profile, candidate_block_for_letter, tone_block_for_letter
+from user_profile import (
+    load_user_profile,
+    candidate_block_for_letter,
+    tone_block_for_letter,
+    normalize_letter_tone,
+)
 from job_language import language_from_analysis, language_labels
 from text_sanitize import NO_DASH_RULE, NO_DASH_RULE_EN, strip_dashes
 
@@ -45,7 +50,7 @@ def create_message_with_retry(client, *, max_attempts: int = 4, **kwargs):
     if last_err:
         raise last_err
 
-COVER_LETTER_USER = """Rédige une lettre de motivation courte pour {name}. Personnalisée pour CETTE offre précise.
+COVER_LETTER_USER = """Rédige une lettre de motivation pour {name}. Personnalisée pour CETTE offre précise.
 
 {letter_reference_block}
 {tone_block}
@@ -68,13 +73,12 @@ LANGUE OBLIGATOIRE : {letter_language} — toute la lettre doit être rédigée 
 RÈGLES :
 - {no_dash_rule}
 - {length_rule}
-- Pas de formule d'appel ni de signature
-- Pas de "Je reste à votre disposition"
+- {structure_rule}
 - Mentionner uniquement des éléments présents dans le CV du candidat
 - Le ton demandé et la lettre de référence (si fournie) priment sur le style par défaut
-- N'utilise PAS une ouverture passe-partout : suis l'angle d'attaque indiqué ci-dessus
+- N'utilise PAS une ouverture passe-partout : suis l'angle d'attaque indiqué ci-dessus (sauf ton corporate formel, où la structure lettre prime)
 
-Retourne UNIQUEMENT le corps de la lettre."""
+Retourne UNIQUEMENT le texte de la lettre, prêt à copier-coller."""
 
 _LETTER_REFERENCE_BLOCK = """
 === LETTRE DE RÉFÉRENCE DU CANDIDAT (PRIORITÉ ÉLEVÉE) ===
@@ -175,9 +179,74 @@ def _length_rule(tone: str, lang: str) -> str:
         if lang == "en":
             return "Ultra-short: 3 sentences max, 80-100 words total"
         return "Ultra-court : 3 phrases max, 80-100 mots total"
+    if tone == "corporate":
+        if lang == "en":
+            return "Formal letter: 2-3 body paragraphs, about 180-260 words including layout lines"
+        return "Lettre formelle : 2-3 paragraphes de corps, environ 180-260 mots hors formules de politesse"
     if lang == "en":
         return "2-3 short paragraphs, 120-150 words"
     return "2-3 courts paragraphes, 120-150 mots"
+
+
+def _structure_rule(tone: str, lang: str, *, name: str, location: str, title: str, company: str) -> str:
+    if tone == "corporate":
+        loc = (location or "").strip() or ("Paris" if lang == "fr" else "Paris")
+        who = (name or "").strip() or ("Le candidat" if lang == "fr" else "The candidate")
+        if lang == "en":
+            return (
+                "FULL FORMAL LETTER LAYOUT (include in the text, with blank lines between blocks):\n"
+                f"- Line 1: «{loc}, [today's date in {lang}]»\n"
+                "- Blank line\n"
+                "- Salutation: «Dear Hiring Manager,»\n"
+                "- Blank line\n"
+                f"- Subject: «Re: Application for {title} — {company}»\n"
+                "- Blank line\n"
+                "- Body paragraphs\n"
+                "- Blank line\n"
+                "- Closing: «Yours sincerely,»\n"
+                "- Blank line\n"
+                f"- Signature: «{who}»\n"
+                "Do NOT omit salutation, subject, closing or signature."
+            )
+        return (
+            "MISE EN PAGE LETTRE FORMELLE COMPLÈTE (à inclure dans le texte, avec lignes vides) :\n"
+            f"- Ligne 1 : «{loc}, le [date du jour en français]»\n"
+            "- Ligne vide\n"
+            "- Formule d'appel : «Madame, Monsieur,»\n"
+            "- Ligne vide\n"
+            f"- Objet : «Objet : Candidature au poste de {title} — {company}»\n"
+            "- Ligne vide\n"
+            "- Paragraphes de corps\n"
+            "- Ligne vide\n"
+            "- Formule de politesse : «Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées.»\n"
+            "- Ligne vide\n"
+            f"- Signature : «{who}»\n"
+            "Ne PAS omettre appel, objet, politesse ni signature. Le texte doit être collable tel quel dans un e-mail ou un formulaire."
+        )
+    if lang == "en":
+        return (
+            "Body only: no salutation, no subject line, no sign-off, no «I remain at your disposal»."
+        )
+    return (
+        "Corps seul : pas de formule d'appel, pas d'objet, pas de signature, "
+        "pas de «Je reste à votre disposition»."
+    )
+
+
+def _variation_for_tone(tone: str, lang_code: str) -> str:
+    if tone == "corporate":
+        if lang_code == "en":
+            return (
+                "FORMAL LETTER ANGLE:\n"
+                "- Keep a sober corporate voice; variation stays in facts and fit, not in casual hooks.\n"
+                "- Prefer a composed opening paragraph over a punchy question."
+            )
+        return (
+            "ANGLE LETTRE FORMELLE :\n"
+            "- Garde une voix corporate sobre ; la variation porte sur les faits et l'adéquation, pas sur des accroches informelles.\n"
+            "- Préfère une ouverture posée à une question percutante."
+        )
+    return _variation_directive(lang_code)
 
 
 def _clean_letter(text: str) -> str:
@@ -308,13 +377,13 @@ class CoverLetterGenerator:
         else:
             lang_code, _ = language_labels(language_from_analysis(analysis))
         _, letter_language = language_labels(lang_code)
-        tone = self.profile.get("letter_tone", "pro")
+        tone = normalize_letter_tone(self.profile.get("letter_tone", "pro"))
         no_dash = NO_DASH_RULE if lang_code == "fr" else NO_DASH_RULE_EN
         ref_block = _letter_reference_block(self.profile, letter_language)
         tone_block = tone_block_for_letter(tone, lang_code)
         if not ref_block:
             tone_block = f"{tone_block}\n{_NO_REFERENCE_TONE_ONLY}"
-        variation_block = _variation_directive(lang_code)
+        variation_block = _variation_for_tone(tone, lang_code)
 
         if self.profile.get("_source") == "user":
             prompt = COVER_LETTER_USER.format(
@@ -331,6 +400,14 @@ class CoverLetterGenerator:
                 letter_language=letter_language,
                 no_dash_rule=no_dash,
                 length_rule=_length_rule(tone, lang_code),
+                structure_rule=_structure_rule(
+                    tone,
+                    lang_code,
+                    name=self.profile.get("name", "") or "",
+                    location=self.profile.get("location", "") or "",
+                    title=job.get("title", "") or "",
+                    company=job.get("company", "") or "",
+                ),
             )
         else:
             if lang_code == "en":
@@ -354,7 +431,7 @@ class CoverLetterGenerator:
             response = create_message_with_retry(
                 self.client,
                 model=self.model,
-                max_tokens=1024,
+                max_tokens=1400 if tone == "corporate" else 1024,
                 temperature=1.0,
                 messages=[{"role": "user", "content": prompt}],
             )

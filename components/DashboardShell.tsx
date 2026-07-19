@@ -2,36 +2,45 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import BrandName from "@/components/BrandName";
-import LogoutWarningModal from "@/components/LogoutWarningModal";
+import AnonymousSaveModal from "@/components/AnonymousSaveModal";
+import { isAnonymousSession } from "@/lib/auth-user";
 
 const PRIMARY_NAV = [
   { href: "/dashboard", label: "Tableau de bord", mobileLabel: "Tableau", mobileIcon: "⌂", exact: true },
-  { href: "/dashboard/preferences", label: "Critères de recherche", mobileLabel: "Critères", mobileIcon: "⚙" },
-  { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture", mobileIcon: "€" },
+  { href: "/dashboard/preferences", label: "Critères", mobileLabel: "Critères", mobileIcon: "⚙" },
 ];
 
 const SECONDARY_NAV = [
+  { href: "/dashboard/facturation", label: "Facturation", mobileLabel: "Facture", mobileIcon: "€" },
   { href: "/dashboard/idees", label: "Boîte à idées", mobileLabel: "Idées", mobileIcon: "✦" },
   { href: "/dashboard/parrainage", label: "Parrainage", mobileLabel: "Parrain", mobileIcon: "%" },
+  {
+    href: "/dashboard/aide",
+    label: "Aide",
+    mobileLabel: "Aide",
+    mobileIcon: "?",
+    muted: true,
+    desktopOnly: true,
+  },
 ];
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { uid, loading, user } = useAuth();
-  const [logoutWarnOpen, setLogoutWarnOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveIntent, setSaveIntent] = useState<"logout" | "leave">("leave");
+  const isAnonymous = isAnonymousSession(user);
 
   const isReferralPage = pathname.startsWith("/dashboard/parrainage");
 
   useEffect(() => {
     if (loading || !uid) return;
     if (isReferralPage) return;
-    // Vue "essai déjà utilisé" : on reste sur le dashboard flouté + blocage,
-    // sans rebondir vers l'onboarding même si le profil est incomplet.
     if (
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("trial_used") === "1"
@@ -58,16 +67,32 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       });
   }, [router, uid, loading, isReferralPage]);
 
-  async function logout() {
+  // Compte déjà lié (e-mail) mais JWT encore anonyme → finaliser côté Auth.
+  useEffect(() => {
+    if (loading || !user?.is_anonymous || !user.email) return;
+    let cancelled = false;
+    (async () => {
+      await fetch("/api/auth/finalize-anon", { method: "POST" }).catch(() => null);
+      if (cancelled) return;
+      const supabase = createClient();
+      await supabase.auth.refreshSession();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, user?.id, user?.is_anonymous, user?.email]);
+
+  const logout = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();
-  }
+  }, [router]);
 
   function requestLogout() {
-    if (user?.is_anonymous) {
-      setLogoutWarnOpen(true);
+    if (isAnonymous) {
+      setSaveIntent("logout");
+      setSaveOpen(true);
       return;
     }
     void logout();
@@ -121,7 +146,15 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`db-nav__link db-nav__link--secondary ${active ? "is-active" : ""}`}
+                  className={[
+                    "db-nav__link",
+                    "db-nav__link--secondary",
+                    item.muted ? "db-nav__link--muted" : "",
+                    item.desktopOnly ? "db-nav__aide" : "",
+                    active ? "is-active" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 >
                   <span className="db-nav__icon" aria-hidden="true">
                     {item.mobileIcon}
@@ -159,13 +192,18 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         </aside>
         <div className="db-content">{children}</div>
       </div>
-      <LogoutWarningModal
-        open={logoutWarnOpen}
-        onConfirm={() => {
-          setLogoutWarnOpen(false);
-          void logout();
-        }}
-        onCancel={() => setLogoutWarnOpen(false)}
+      <AnonymousSaveModal
+        open={saveOpen}
+        intent={saveIntent}
+        onClose={() => setSaveOpen(false)}
+        onDiscard={
+          saveIntent === "logout"
+            ? () => {
+                setSaveOpen(false);
+                void logout();
+              }
+            : undefined
+        }
       />
     </div>
   );

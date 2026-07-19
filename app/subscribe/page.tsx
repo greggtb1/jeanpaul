@@ -10,6 +10,7 @@ import {
   FREE_DISCOVERY_OFFER,
   displayPrice,
   PLANS_LIST,
+  planBadge,
   type BillingInterval,
   type PlanId,
 } from "@/lib/plans";
@@ -229,18 +230,18 @@ export default function SubscribePage() {
             );
             const loading = loadingPlanId === plan.id;
             const busy = loadingPlanId !== null || discoveryLoading;
+            const badge = planBadge(plan);
 
             return (
               <article
                 key={plan.id}
                 className={`pricing-card${plan.featured ? " pricing-card--featured" : ""}`}
               >
-                {plan.featured && (
-                  <span className="pricing-card__badge">Le plus populaire</span>
-                )}
-
-                <h3 className="pricing-card__title">{plan.name}</h3>
                 <p className="pricing-card__tagline">{plan.tagline}</p>
+                <div className="pricing-card__name-row">
+                  <h3 className="pricing-card__title">{plan.name}</h3>
+                  {badge ? <span className="pricing-card__label">{badge}</span> : null}
+                </div>
 
                 <div className="pricing-card__price">
                   <strong>{price.amount} €</strong>
@@ -268,8 +269,8 @@ export default function SubscribePage() {
                     {loading
                       ? "Redirection…"
                       : plan.kind === "one_time"
-                        ? "Choisir l'offre Start"
-                        : `Choisir ${plan.name}`}
+                        ? "Passer à Start"
+                        : `Passer à ${plan.name}`}
                   </button>
                 </div>
 

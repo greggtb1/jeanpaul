@@ -13,7 +13,8 @@ from profile import PROFILE as DEFAULT_PROFILE
 
 _TONE_HINTS = {
     "pro": "Professionnel et posé, classique, rassurant.",
-    "direct": "Direct et efficace, court, sans détour.",
+    "corporate": "Formelle et corporate, structure de lettre classique.",
+    "direct": "Formelle et corporate, structure de lettre classique.",  # legacy
     "enthousiaste": "Enthousiaste et énergique, motivé sans en faire trop.",
     "story": "Personnel et narratif, accroche qui raconte le parcours.",
     "concis": "Ultra-court et percutant, 3 phrases max, impact immédiat.",
@@ -31,16 +32,32 @@ Applique ce ton sur toute la lettre :
 Référence de rythme (adapter au candidat et à l'offre, ne pas recopier) :
 « Mon expérience en pilotage opérationnel m'a appris à tenir la cadence quand le volume augmente. Ce que je lis dans votre offre, c'est le même enjeu : structurer ce qui scale déjà. »""",
 
-    "direct": """TON DEMANDÉ : Direct & efficace (PRIORITÉ ÉLEVÉE — la lettre doit clairement sonner ainsi)
+    "corporate": """TON DEMANDÉ : Formelle & corporate (PRIORITÉ ÉLEVÉE — lettre administrative classique)
 
-Applique ce ton sur toute la lettre :
-- Phrases courtes. Zéro circonvolution. Zéro remplissage.
-- Aller droit au fait : compétence → lien avec le poste → ouverture
-- Pas de formules creuses ni d'adjectifs vides ("dynamique", "motivé", "passionné")
-- Chaque phrase doit apporter une info concrète
+Applique ce ton et cette STRUCTURE sur toute la lettre :
+- Registre soutenu, poli, corporate : « vous », formulations soignées, zéro familiarité
+- Phrases claires, un peu plus longues qu'un message LinkedIn, sans jargon startup
+- PAS de ton « direct / percutant » : c'est une vraie lettre de motivation formelle
 
-Référence de rythme (adapter au candidat et à l'offre, ne pas recopier) :
-« J'ai piloté une activité B2B de A à Z : 850k€ de CA, 30 partenaires, process qui tiennent sous charge. Votre poste cherche exactement ça. On en parle ? »""",
+STRUCTURE OBLIGATOIRE (texte prêt à copier-coller, avec sauts de ligne) :
+1) Ligne lieu + date (ex. « Paris, le 19 juillet 2026 »)
+2) Ligne vide
+3) Formule d'appel : « Madame, Monsieur, » (ou équivalent adapté si le destinataire est connu)
+4) Ligne vide
+5) Objet sur une ligne : « Objet : Candidature au poste de [intitulé] — [entreprise] »
+6) Ligne vide
+7) 2 à 3 paragraphes de corps (compétences, lien avec le poste, motivation factuelle)
+8) Ligne vide
+9) Formule de politesse formelle, ex. « Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées. »
+10) Ligne vide
+11) Signature : prénom et nom du candidat seuls
+
+Référence de rythme (adapter, ne pas recopier) :
+« Au cours des dernières années, j'ai eu l'occasion de piloter des opérations B2B de bout en bout, dans un contexte exigeant en termes de volume et de fiabilité. Cette expérience m'a permis de développer une approche structurée, centrée sur la qualité d'exécution.
+
+Votre offre de [poste] chez [entreprise] correspond pleinement à ce cadre. Les enjeux que vous décrivez rejoignent les situations que j'ai déjà eu à traiter. »
+
+Inclure lieu/date, objet, appel, politesse et signature DANS le texte retourné.""",
 
     "enthousiaste": """TON DEMANDÉ : Enthousiaste & énergique (PRIORITÉ ÉLEVÉE — la lettre doit clairement sonner ainsi)
 
@@ -78,7 +95,8 @@ Référence de rythme (adapter au candidat et à l'offre, ne pas recopier) :
 
 _TONE_HINTS_EN = {
     "pro": "Professional and composed, classic, reassuring.",
-    "direct": "Direct and efficient, short, no fluff.",
+    "corporate": "Formal corporate letter, classic layout and phrasing.",
+    "direct": "Formal corporate letter, classic layout and phrasing.",  # legacy
     "enthousiaste": "Enthusiastic and energetic, motivated without overdoing it.",
     "story": "Personal and narrative, opening that tells the career story.",
     "concis": "Ultra-short and punchy, 3 sentences max, immediate impact.",
@@ -96,16 +114,27 @@ Apply this tone throughout:
 Rhythm reference (adapt to candidate and role, do not copy):
 "My experience running operations taught me to keep pace when volume spikes. What I read in your posting is the same challenge: structuring what's already scaling.""",
 
-    "direct": """REQUESTED TONE: Direct & efficient (HIGH PRIORITY — the letter must clearly sound like this)
+    "corporate": """REQUESTED TONE: Formal & corporate (HIGH PRIORITY — classic business letter)
 
-Apply this tone throughout:
-- Short sentences. Zero fluff. Zero filler.
-- Get to the point: skill → link to role → opening
-- No empty formulas or hollow adjectives ("dynamic", "motivated", "passionate")
-- Every sentence must carry concrete information
+Apply this tone and STRUCTURE throughout:
+- Formal register, polite, corporate: polished phrasing, no casual tone
+- Clear sentences, slightly longer than a LinkedIn note, no startup slang
+- NOT a punchy "direct" message: a proper formal cover letter
 
-Rhythm reference (adapt to candidate and role, do not copy):
-"I ran a B2B operation end to end: €850k revenue, 30 partners, processes that held under load. Your role is looking for exactly that. Worth a chat?""",
+REQUIRED STRUCTURE (copy-paste ready, with blank lines):
+1) City + date line (e.g. "Paris, 19 July 2026")
+2) Blank line
+3) Salutation: "Dear Hiring Manager," (or a named contact if known)
+4) Blank line
+5) Subject line: "Re: Application for [title] — [company]"
+6) Blank line
+7) 2 to 3 body paragraphs (skills, fit, factual motivation)
+8) Blank line
+9) Formal closing, e.g. "Yours sincerely,"
+10) Blank line
+11) Signature: candidate first and last name only
+
+Include city/date, subject, salutation, closing and signature IN the returned text.""",
 
     "enthousiaste": """REQUESTED TONE: Enthusiastic & energetic (HIGH PRIORITY — the letter must clearly sound like this)
 
@@ -142,14 +171,21 @@ Rhythm reference (adapt to candidate and role, do not copy):
 }
 
 
+def normalize_letter_tone(tone_id: Optional[str]) -> str:
+    t = (tone_id or "pro").strip() or "pro"
+    if t == "direct":
+        return "corporate"
+    return t
+
+
 def tone_hint_for(tone_id: str, lang: str = "fr") -> str:
     hints = _TONE_HINTS_EN if lang == "en" else _TONE_HINTS
-    return hints.get(tone_id, hints["pro"])
+    return hints.get(normalize_letter_tone(tone_id), hints["pro"])
 
 
 def tone_block_for_letter(tone_id: str, lang: str = "fr") -> str:
     blocks = _TONE_BLOCKS_EN if lang == "en" else _TONE_BLOCKS
-    return blocks.get(tone_id, blocks["pro"])
+    return blocks.get(normalize_letter_tone(tone_id), blocks["pro"])
 
 _cache: Optional[Dict[str, Any]] = None
 
@@ -244,6 +280,23 @@ _NAME_STOP_WORDS = {
     "cover", "letter", "role", "poste",
 }
 
+_JOB_TITLE_WORDS = {
+    "lead", "manager", "management", "operations", "operation", "customer", "success",
+    "officer", "engineer", "engineering", "developer", "developpeur", "director",
+    "directeur", "directrice", "head", "senior", "junior", "intern", "internship",
+    "stagiaire", "alternant", "alternance", "specialist", "specialiste", "consultant",
+    "consultante", "analyst", "analyste", "coordinator", "coordinateur", "coordinatrice",
+    "associate", "executive", "assistant", "assistante", "responsable", "charge",
+    "chargee", "ingenieur", "ingenieure", "product", "project", "projet", "marketing",
+    "sales", "account", "growth", "designer", "design", "data", "software", "fullstack",
+    "frontend", "backend", "devops", "recruiter", "recruteur", "hr", "rh", "finance",
+    "chef", "cheffe", "owner", "scientist", "technicien", "technicienne", "support",
+    "commercial", "commerciale", "partnerships", "partnership", "partenariats",
+    "partenariat", "strategic", "strategique", "strategy", "strategie", "founder",
+    "fondateur", "fondatrice", "ceo", "cto", "cfo", "coo", "vp", "cdi", "cdd",
+    "freelance", "indépendant", "independant",
+}
+
 _NAME_JUNK_PHRASES = (
     "application for company",
     "application for",
@@ -253,8 +306,14 @@ _NAME_JUNK_PHRASES = (
 
 
 def is_plausible_person_name(name: Optional[str]) -> bool:
-    """Nom de personne réel — pas un label de template CV (ex. APPLICATION FOR COMPANY)."""
-    cleaned = re.sub(r"\s+", " ", (name or "").strip())
+    """Nom de personne réel — pas un label de template CV ni un intitulé de poste."""
+    raw = (name or "").strip()
+    if not raw:
+        return False
+    # Bannière offre / ligne mélangée
+    if "·" in raw or "|" in raw or re.search(r"\s[-–—]\s", raw):
+        return False
+    cleaned = re.sub(r"\s+", " ", raw)
     if len(cleaned) < 4 or len(cleaned) > 55:
         return False
     lower = cleaned.lower()
@@ -263,16 +322,17 @@ def is_plausible_person_name(name: Optional[str]) -> bool:
     if any(phrase in lower for phrase in _NAME_JUNK_PHRASES):
         return False
     words = cleaned.split()
-    if len(words) < 2 or len(words) > 5:
+    if len(words) < 2 or len(words) > 4:
         return False
     if not all(re.match(r"^[A-Za-zÀ-ÿ'’-]+$", w) for w in words):
         return False
     lower_words = [w.lower() for w in words]
+    if any(w in _JOB_TITLE_WORDS for w in lower_words):
+        return False
     junk_count = sum(1 for w in lower_words if w in _NAME_STOP_WORDS)
     if junk_count >= 2:
         return False
     if any(w in _NAME_STOP_WORDS for w in lower_words):
-        # Un seul stop-word (ex. particule) ok, sauf si tout le reste est aussi suspect
         if junk_count >= 1 and len(words) <= 3 and junk_count == len(words):
             return False
     return True
@@ -357,6 +417,10 @@ def _parse_identity_from_cv_text(cv_text: str, filename: str = "") -> Dict[str, 
 
     name = ""
     for line in lines[:15]:
+        if "·" in line or "|" in line or re.search(r"\s[-–—]\s", line):
+            continue
+        if re.search(r"\b(cdi|cdd|stage|alternance|remote)\b", line, re.I):
+            continue
         if _looks_like_name_line(line):
             name = re.sub(r"\s+", " ", line.strip())
             break
@@ -454,7 +518,7 @@ def load_user_profile(force: bool = False) -> Dict[str, Any]:
     phone = (p.get("phone") or cv_identity.get("phone") or "").strip()
 
     roles = p.get("target_roles") or []
-    tone = p.get("letter_tone") or "pro"
+    tone = normalize_letter_tone(p.get("letter_tone") or "pro")
     letter_sample = (p.get("letter_sample") or "").strip()
     locs = p.get("target_locations") or []
     location = p.get("location") or (locs[0] if isinstance(locs, list) and locs else "Paris")

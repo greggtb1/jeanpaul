@@ -14,6 +14,7 @@ import {
   monthlyPriceCents,
   parseBillingInterval,
   parsePlanId,
+  planBadge,
   weeklyPriceCents,
   type BillingInterval,
   type CreditPackId,
@@ -440,24 +441,23 @@ export default function FacturationPage() {
               const busy = checkoutPlanId !== null;
               const isLoading = checkoutPlanId === p.id;
               const isSuggested = p.id === suggestedPlanId;
+              const badge = planBadge(p);
 
               return (
                 <article
                   key={p.id}
                   className={`pricing-card fact-upgrade__card${p.featured ? " pricing-card--featured" : ""}${isSuggested ? " fact-upgrade__card--suggested" : ""}`}
                 >
-                  {p.kind === "one_time" && (
-                    <span className="pricing-card__badge">Pour démarrer</span>
-                  )}
-                  {p.featured && p.kind === "subscription" && (
-                    <span className="pricing-card__badge">Le plus populaire</span>
-                  )}
-                  {isSuggested && !p.featured && p.kind !== "one_time" && (
-                    <span className="fact-upgrade__suggested">Suggéré</span>
-                  )}
-
-                  <h4 className="pricing-card__title">{p.name}</h4>
                   <p className="pricing-card__tagline">{p.tagline}</p>
+                  <div className="pricing-card__name-row">
+                    <h4 className="pricing-card__title">{p.name}</h4>
+                    {badge ? <span className="pricing-card__label">{badge}</span> : null}
+                    {isSuggested && !p.featured && p.kind !== "one_time" ? (
+                      <span className="pricing-card__label pricing-card__label--suggested">
+                        Suggéré
+                      </span>
+                    ) : null}
+                  </div>
 
                   <div className="pricing-card__price">
                     <strong>{pPrice.amount} €</strong>
@@ -478,8 +478,8 @@ export default function FacturationPage() {
                       {isLoading
                         ? "Redirection…"
                         : p.kind === "one_time"
-                          ? "Choisir l'offre Start"
-                          : `Choisir ${p.name}`}
+                          ? "Passer à Start"
+                          : `Passer à ${p.name}`}
                     </button>
                   </div>
 

@@ -41,6 +41,12 @@ IMPORTANT — Évaluation du fit :
 - Si le PROFIL CANDIDAT liste des secteurs visés, pénalise fortement les offres hors secteur (fit_score ≤ 4) sauf correspondance métier exceptionnelle dans le bon secteur.
 - À l'inverse, si l'entreprise, le titre ou la description matchent clairement un secteur visé, valorise ce signal dans fit_score et explique-le dans fit_reasoning.
 
+IMPORTANT — Biais de notation (généreux mais pas automatique) :
+- Les scores sont entiers. Si tu hésites entre N et N+1 (ex. « plutôt 6,5 » ou « 7 ou 8 »), choisis TOUJOURS l'entier du dessus (N+1). Exception : le plafond reste 10, tu ne peux pas dépasser 10.
+- Donne un petit coup de pouce (+1) quand l'offre le mérite vraiment : bon alignement métier/secteur, compétences clairement utiles, ou match solide même si quelques détails manquent. Ce n'est PAS un +1 systématique sur toutes les offres.
+- N'applique PAS ce coup de pouce si le fit est clairement faible, hors cible, ou bloqué par un plafond de séniorité ci-dessous.
+- Un 10 est rare mais possible : réserve-le aux matchs excellents (métier + secteur + séniorité), pas seulement aux profils « parfaits à 100 % ». Si tu hésites entre 9 et 10 et que le match est vraiment fort, choisis 10.
+
 IMPORTANT — Séniorité et années d'expérience (critère STRICT) :
 - Compare toujours le niveau réel du candidat (années d'expérience, séniorité) aux exigences de l'offre AVANT de noter.
 - Un écart de séniorité est un critère éliminatoire, pas une simple nuance. Ne le compense JAMAIS entièrement par un « mindset fondateur », des « compétences transférables » ou une « capacité à apprendre vite ».

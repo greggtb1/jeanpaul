@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase";
 import { downloadLetterPdf } from "@/lib/letter-pdf";
-import { isPlausiblePersonName } from "@/lib/file-name";
+import { isPlausiblePersonName, splitPersonName } from "@/lib/file-name";
 
 function hasSignableName(name: string | null | undefined): boolean {
   return isPlausiblePersonName(name);
@@ -198,15 +198,9 @@ export default function LetterModal({
     if (!hasSignableName(resolveSenderName())) {
       // Ne pas pré-remplir avec un nom non plausible (ex. un intitulé de poste
       // capturé par erreur depuis le CV) : on repart d'un champ vide.
-      const existing = (profile?.full_name || "").trim();
-      if (hasSignableName(existing)) {
-        const parts = existing.split(/\s+/).filter(Boolean);
-        setFirstName(parts[0] || "");
-        setLastName(parts.slice(1).join(" "));
-      } else {
-        setFirstName("");
-        setLastName("");
-      }
+      const parts = splitPersonName(profile?.full_name);
+      setFirstName(parts.firstName);
+      setLastName(parts.lastName);
       setNamePromptOpen(true);
       return;
     }
@@ -326,13 +320,8 @@ export default function LetterModal({
         <div className="letter-modal__body">
           {loading && <p className="letter-modal__status">Chargement…</p>}
           {error && !loading && <p className="letter-modal__error">{error}</p>}
-          {!loading && text && (refining || animating) && (
-            <p className="letter-modal__rewrite-status" aria-live="polite">
-              {refining ? "Retouche en cours…" : "Réécriture de la lettre…"}
-            </p>
-          )}
           {!loading && text && (
-            <div className={`letter-modal__paper${refining || animating ? " letter-modal__paper--active" : ""}${refining ? " letter-modal__paper--busy" : ""}`}>
+            <div className={`letter-modal__paper${refining ? " letter-modal__paper--busy" : ""}`}>
               <button
                 type="button"
                 className={`letter-modal__copy${copied ? " letter-modal__copy--done" : ""}`}
@@ -449,20 +438,36 @@ export default function LetterModal({
                   instruction.trim().length < 3
                 }
                 onClick={() => refineLetter()}
+                aria-label={refining || animating ? "Modification en cours" : "Modifier la lettre"}
               >
                 {refining || animating ? (
                   <span className="letter-modal__send-spinner" aria-hidden="true" />
                 ) : (
-                  "OK"
+                  <svg
+                    className="letter-modal__send-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 19V5M12 5l-6 6M12 5l6 6"
+                      stroke="currentColor"
+                      strokeWidth="2.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 )}
               </button>
             </div>
-            {(refining || animating) && (
+            {refining || animating ? (
               <p className="letter-modal__refine-loading" aria-live="polite">
                 <span className="letter-modal__refine-loading-dot" aria-hidden="true" />
                 {refining ? "Retouche en cours…" : "Écriture…"}
               </p>
-            )}
+            ) : null}
           </div>
         )}
 

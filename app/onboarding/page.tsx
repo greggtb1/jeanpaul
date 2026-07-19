@@ -397,15 +397,23 @@ export default function Onboarding() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          // Session reconnue : on renvoie l'utilisateur vers son dashboard existant.
-          if (data.existingSession && data.redirectTo) {
-            router.push(data.redirectTo);
+          // Session existante / rattrapage → dashboard, jamais de paywall agressif.
+          if (data.catchupNeeded || data.existingSession) {
+            router.push(data.redirectTo || "/dashboard");
             return;
           }
-          // Essai déjà utilisé : on affiche le blocage directement en fin d'onboarding.
+          // Paywall dur seulement si les 3 dossiers de CET user sont déjà prêts.
           if (data.trialUsed) {
             trackEvent("onboarding_trial_used_blocked", { plan: planId });
             setTrialUsedBlock(true);
+            setSaving(false);
+            return;
+          }
+          if (data.abuseLimited) {
+            alert(
+              data.error ||
+                "Trop de sessions découverte aujourd'hui. Réessayez demain ou connectez-vous."
+            );
             setSaving(false);
             return;
           }
@@ -654,8 +662,7 @@ export default function Onboarding() {
                 onChange={(v) => set({ letter_tone: v })}
               />
               <p className="ob__hint ob__hint--inline ob__hint--tight">
-                Chaque lettre sera adaptée à l&apos;offre. Le style reste modifiable à tout moment
-                dans vos préférences.
+                Chaque lettre sera adaptée à l&apos;offre. Le style reste modifiable à tout moment.
               </p>
               <LetterSampleOptional
                 value={form.letter_sample}

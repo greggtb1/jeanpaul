@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       .update({
         status: "running",
         progress: 2,
-        log: "[agent] Connexion établie — lancement du navigateur local…\n",
+        log: "[agent] Connexion établie : lancement du navigateur local…\n",
       })
       .eq("id", runId);
 

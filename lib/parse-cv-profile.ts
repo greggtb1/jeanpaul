@@ -1,3 +1,5 @@
+import { isPlausiblePersonName } from "@/lib/file-name";
+
 export type CvProfile = {
   full_name: string;
   email: string;
@@ -155,38 +157,11 @@ function looksLikeNameStructure(line: string): boolean {
   return words.every((w) => /^[A-Za-zÀ-ÿ'’-]+$/.test(w));
 }
 
-function isPlausibleName(name: string, email?: string): boolean {
+function isPlausibleName(name: string, _email?: string): boolean {
   const cleaned = normalizeName(name);
   if (!looksLikeNameStructure(cleaned)) return false;
-
-  const lower = cleaned.toLowerCase();
-  if (NAME_JUNK_PHRASES.some((phrase) => lower.includes(phrase))) return false;
-
-  const words = cleaned.split(/\s+/).filter(Boolean);
-  const lowerWords = words.map((w) => w.toLowerCase());
-
-  const junkCount = lowerWords.filter((w) => NAME_STOP_WORDS.has(w)).length;
-  if (junkCount >= 2) return false;
-  if (lowerWords.some((w) => NAME_STOP_WORDS.has(w))) return false;
-  if (lowerWords.some((w) => w === "apply" || w.endsWith("apply"))) return false;
-
-  // Faux positifs du type « AI APPLY », « TO APPLY »
-  if (lowerWords.every((w) => w.length <= 4)) return false;
-
-  if (email) {
-    const fromEmail = nameFromEmail(email);
-    if (fromEmail) {
-      const emailParts = fromEmail.toLowerCase().split(/\s+/);
-      const matchesEmail = lowerWords.some((w) =>
-        emailParts.some((ep) => w === ep || w.startsWith(ep) || ep.startsWith(w))
-      );
-      if (!matchesEmail && lowerWords.some((w) => NAME_STOP_WORDS.has(w) || w.includes("apply"))) {
-        return false;
-      }
-    }
-  }
-
-  return true;
+  // Source de vérité : écarte intitulés de poste, bannières, labels template.
+  return isPlausiblePersonName(cleaned);
 }
 
 
@@ -227,7 +202,8 @@ export function nameFromCvFilename(filename: string): string {
   }
 
   if (words.length >= 2) {
-    return words.join(" ");
+    const joined = words.join(" ");
+    return isPlausiblePersonName(joined) ? joined : "";
   }
   return "";
 }
@@ -305,6 +281,9 @@ function pickNameFromLines(lines: string[], cvEmail: string): string {
   }
 
   for (const line of lines.slice(0, 15)) {
+    // Ignore bannières d'offre / lignes mélangées (poste · entreprise).
+    if (/[·|]/.test(line) || /\s[-–—]\s/.test(line)) continue;
+    if (/\b(cdi|cdd|stage|alternance|remote|full[\s-]?remote)\b/i.test(line)) continue;
     const cleaned = normalizeName(line);
     if (isPlausibleName(cleaned, "")) {
       return cleaned;
